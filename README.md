@@ -1,7 +1,5 @@
 # Aztec-TextSummarizing
-==================
-Data files:
-==================
+# Data files:
 
 data/ocr_parsed_pdf: the output of TesseractOCR given original pdf as input
 
@@ -43,18 +41,15 @@ src/train_model.py: train the model based on 100 manually labeled documents
 src/train_model_2.py: update the training model 
 
 
-==================
-Reference files:
-==================
+# Reference files:
 
 ref/software_vocab.txt: software relevant keywords, input file of keypar.py
 
 ref/stopwords.txt: stop words/software non-relevant keywords, input file of train_model_2.py
 
 
-==================
-Output files:
-==================
+
+# Output files:
 
 result/output_1.csv: predicted result of the documents based on training file
 
