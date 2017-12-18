@@ -8,7 +8,7 @@ data/parsed_text: from xml_data, remove all noise terms including references, fi
 data/parsed_seg_text: from parsed_text, parsed through worksegmentation packages in python to transform "introductionthis is" to "introduction this is"
 data/xml_data: the output of Grobid given original pdf as input
 data/pdfDir: original pdf files
-data/pdf2tiff: intermediate files produced when using TessaractOCR to parse the pdf files
+data/pdf2tiff: intermediate files produced when using TessaractOCR to parse the pdf files, file size is too large to commit, please download at
 data/old: original parsed_label_text and xml_data
 
 Source code files: 
