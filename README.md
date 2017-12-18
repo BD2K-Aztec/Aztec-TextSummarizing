@@ -1,6 +1,7 @@
 # Aztec-TextSummarizing
-
+==================
 Data files:
+==================
 
 data/ocr_parsed_pdf: the output of TesseractOCR given original pdf as input
 
@@ -14,13 +15,14 @@ data/xml_data: the output of Grobid given original pdf as input
 
 data/pdfDir: original pdf files
 
-data/pdf2tiff: intermediate files produced when using TessaractOCR to parse the pdf files, file size is too large to commit, please download at
+data/pdf2tiff: intermediate files produced when using TessaractOCR to parse the pdf files, file size is too large to commit, please download at https://drive.google.com/drive/u/0/folders/1fBITYcM7hV_X9Lhu3SGkt0Vr-CsCzNQx
 
 data/old: original parsed_label_text and xml_data
 
 
-
+==================
 Source code files: 
+==================
 
 src/keypar.py: keyword-based sentence extraction
 
@@ -41,16 +43,18 @@ src/train_model.py: train the model based on 100 manually labeled documents
 src/train_model_2.py: update the training model 
 
 
-
+==================
 Reference files:
+==================
 
 ref/software_vocab.txt: software relevant keywords, input file of keypar.py
 
 ref/stopwords.txt: stop words/software non-relevant keywords, input file of train_model_2.py
 
 
-
+==================
 Output files:
+==================
 
 result/output_1.csv: predicted result of the documents based on training file
 
