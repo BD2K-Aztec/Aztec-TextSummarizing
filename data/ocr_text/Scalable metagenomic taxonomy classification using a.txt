@@ -1,0 +1,1261 @@
+ORIGINAL PAPER
+
+Vol. 29 no. 18 2013, pages 2253—2260
+doi:10. 1093/bioinformatics/btt389
+
+ 
+
+Sequence analysis
+
+Advance Access publication July 4, 2013
+
+Scalable metagenomic taxonomy classification using a reference
+
+genome database
+
+Sasha K. Ames1 ’2, David A. Hysoml’z, Shea N. Gardner2’3, G. Scott Lloyd”,
+
+Maya B. Giokhale1 ’2 and Jonathan E. Allen2’3’*
+
+1Center for Applied Scientific Computing, 2Lawrence Livermore National Laboratory and 3Global Security Directorate,
+
+P. O. Box 808, Livermore, CA 94551, USA
+
+Associate Editor: Michael Brudno
+
+ 
+
+ABSTRACT
+
+Motivation: Deep metagenomic sequencing of biological samples has
+the potential to recover otherwise difficult-to-detect microorganisms
+and accurately characterize biological samples with limited prior
+knowledge of sample contents. Existing metagenomic taxonomic
+classification algorithms, however, do not scale well to analyze large
+metagenomic datasets, and balancing classification accuracy with
+computational efficiency presents a fundamental challenge.
+
+Results: A method is presented to shift computational costs to an off-
+line computation by creating a taxonomy/genome index that supports
+scalable metagenomic classification. Scalable performance is demon-
+strated on real and simulated data to show accurate classiﬁcation in
+the presence of novel organisms on samples that include viruses,
+prokaryotes, fungi and protists. Taxonomic classification of the previ-
+ously published 150 giga-base Tyrolean Iceman dataset was found to
+take <20h on a single node 40 core large memory machine and pro-
+vide new insights on the metagenomic contents of the sample.
+Availability: Software was implemented in C++ and is freely available
+at http://sourceforge.net/projects/lmat
+
+Contact: allen99@llnl.gov
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on February 1, 2013; revised on June 20, 2013; accepted on
+July 2, 2013
+
+1 INTRODUCTION
+
+Metagenomics is a powerful tool for assessing the functional and
+taxonomic contents in biological samples. Early shotgun meta-
+genomics projects used giga-bases of genetic data 0/ enter et al.,
+2004) to demonstrate accurate sample surveys with less bias than
+previous methods. The potential to detect even lower abundance
+organisms and provide more accurate surveys across a broad
+spectrum of biological environments is being advanced now by
+sequencers reported to generate up to 1.3 mega-bases per second
+(Knight et al., 2012) (Calculated by dividing total base output by
+total number of sequencer hours run for the HiSeq 2500 rapid-
+run mode. Excludes library and sample preparation time).
+Increased sequencing throughput presents a major scaling
+challenge to existing shotgun metagenomic classiﬁcation
+
+ 
+
+* To whom correspondence should be addressed.
+
+algorithms (Drge and McHardy, 2012). The ability for an algo-
+rithm to scale can be measured by the difference between sample
+classiﬁcation run time and sequencer run time and assumes suf-
+ﬁcient computing resources for each sequencer run. Scaling is
+being addressed through the use of larger compute clusters,
+which can be managed by a third party service (Cloud comput-
+ing) (Schatz et al., 2010). As sequencer use grows, however,
+algorithms that run on a single node and scale with sequencer
+output could be paired with individual sequencers and eliminate
+the need for high bandwidth network connections, which are not
+always available.
+
+In this article, we attempt to meet the scaling goal, running fast
+and accurate taxonomic sample classiﬁcation on a single com-
+pute node to match analysis throughput with sequencer output.
+Two major design choices were made, which present possible
+limitations: (i) a larger than typically used single address space
+memory resource is exploited (0.5—1 terabytes) and (ii) larger
+search seeds are used than default sensitive BLAST settings for
+matching reads to a reference database. Relaxing conventional
+memory constraints allows a reference genome database to be
+annotated with taxonomic information and indexed to support
+fast metagenomic taxonomy classiﬁcation of every sequencer
+read for all microbial taxa, including virus, prokaryotes, fungi
+and protists. Decreasing memory costs make this approach
+accessible to many practitioners because the cost of a single
+large memory compute node remains a fraction of the initial
+sequencer cost and need not require specialized system adminis-
+tration expertise. Large search seed sizes can potentially limit the
+ability to detect novel organisms but nonetheless is proving to be
+more effective, as the number of microbes with representative
+reference genomes grows for environments like the human
+microbiome (Martin et al., 2012).
+
+Our goal is to efﬁciently assign taxonomic labels to the reads
+down to the species level for reads with reference representation
+and maintain accuracy in the presence of novel organisms by
+avoiding overly speciﬁc (e.g. species and strain) taxonomic as-
+signments. This alleviates the computational bottleneck by limit-
+ing the number of unlabeled reads subjected to additional
+computational interrogation. The results show comparable or
+better accuracy than existing methods, and even with novel gen-
+omes in a sample, accurate and scalable classiﬁcation is obtained
+in the vast majority of cases. The methods are made available as
+an open source software package, Livermore Metagenomics
+Analysis Toolkit (LMAT).
+
+ 
+
+© The Author(s) 2013. Published by Oxford University Press.
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution License (http://creativecommons.org/licenses/by/3.0/), which
+permits unrestricted reuse, distribution, and reproduction in any medium, provided the original work is properly cited.
+
+112 ﬁle'spaumo[pJOJXO'sor1emJOJurorw/2d11q IIIOJJ pepsolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+S.K.Ames et al.
+
+ 
+
+Existing bioinformatic approaches address scalability in three
+ways: query size reduction, reference database size reduction and
+faster database search. Query size reduction is achieved with
+metagenomic assembly and clustering, which merges overlapping
+and redundant reads into longer contiguous genomic segments
+(Pell et al., 2012). Metagenomic assembly improves the strength
+of the taxonomic signal contained in individual short reads but
+careful parameter settings are required to avoid mis-assembly,
+and assembly costs could remain high (Mende et al., 2012;
+Teeling and Gléckner, 2012). Reference database size reduction
+is achieved through the use of genetic markers storing only the
+more informative sequences (Berendzen et al., 2012; Liu et al.,
+2011; Segata et al., 2012). Marker-based approaches offer efﬁ-
+cient summarization of metagenomic contents, but only cover a
+portion of the query set, leaving novel and other informative
+reads buried within the larger pool of unclassiﬁed reads, which
+could require additional examination (Mohammed et al., 2011).
+A less lossy approach reduces sequence redundancy by storing
+only the genetic differences among reference genomes. This
+approach was shown to speed up BLAST and BLAT genome
+database searches (Loh et al., 2012). Faster database search
+methods apply larger search seeds, and examples include
+BLAT (Sharma et al., 2012), BWA (Davenport et al., 2012)
+and other read mapping tools (Martin et al., 2012), but analyzing
+the search results remains a challenge with some approaches se-
+lecting the lowest common ancestor (LCA) of multiple matches
+and others using variants of a best match selection procedure to
+improve rank speciﬁcity of the reported taxonomic label.
+Moreover, parameter settings of the search tools can dramatic-
+ally alter the outcome of the reported label and must be
+considered carefully (Mande et al., 2012).
+
+Our approach uses faster search using larger seeds (k-mers)
+with a non-redundant search of taxonomic identiﬁers associated
+with the k-mers found in the reference genome database. 0ur k-
+mer/taxonomy database supports efﬁcient retrieval of detailed
+taxonomic information and allows for an exhaustive comparison
+between competing taxonomic assignments using a novel rank-
+ﬁexible classiﬁcation procedure. Our new classiﬁcation algorithm
+invokes variants of LCA and best match selection depending on
+the context of the search results. The approach differs from com-
+positional binning methods (Leung et al., 2011), as it uses larger
+values for k (17—20) and, unlike alignment search, each k-mer is
+mapped to the individual source genomes minus the genome
+position. The method compensates for the lack of positional
+information by resolving the multiple k-mer/taxonomy associ-
+ations recovered during search to assign each read the most
+rank-speciﬁc taxonomy identiﬁer possible.
+
+2 MATERIALS AND METHODS
+
+2.1 k-mer/taxonomy database
+
+A reference genome database consists of a collection of genome sequences
+with each genome sequence assigned a taxonomic identiﬁer. The ﬁrst step
+is to convert this ‘raw’ reference genome database into a searchable
+k-mer/taxonomy database by storing every overlapping k-mer along
+with select taxonomic IDs. A reference database was constructed from
+complete and partial microbial genome sequences from the NCBI
+genome database on October 17, 2011. The ‘raw’ genome database
+included 301935 distinct genomic segments (plasmids, chromosomes
+
+n5 k-mer to genome wagging
+k-mer 1: 61,63,64ﬁﬁ
+k-mer 2: 6152.63.61
+k-mer 3: GLGiEBﬁ-ﬂﬁﬁ
+
+   
+ 
+ 
+ 
+  
+
+Ta xenomy tree
+
+E1112: 1: Gl,G3,ﬁ-ﬂ.ﬁﬁ,n1,n2,n3
+lunar 1: Gl,GZ,GB,n1,G?,n5
+Iii-mar 3: GLGZﬁimLGdﬁEanS
+
+      
+
+   
+
+II I I II I:
+
+'1: Elmer  ' ik'mer 1 I
+. -mer   —  _I _ I_ I _  
+Ink-mar 3["k-mer iii—mar   mar  bk mar  
+
+I 1 II I
+k- 1 .
+I mar ! k-mer 2"
+
+Fig. 1. Example k-mer/taxonomy database. Input includes the taxonomy
+tree with interior tree nodes n1, ..., 115, and leaf node genomes (G1, ..., G7),
+all of which are labeled with taxonomy IDs. k-mers (k-merl, k-mer2,
+k-mer3) are linked to their source genomes (dotted circles) and their
+taxonomy hierarchy up to the LCA
+
+and other genomic segments) and contains 67073 viral, 4366 bacterial
+and 236 archaea segments. The remaining segments are shared among
+draft eukaryotic microbial genomes that were included as assemblies with
+many contigs and supplementary mitochondrial genomes from eukary-
+otes. The reference set includes 1272 bacterial species, 121 archaeal spe-
+cies, 3048 viral species and 335 eukaryotic species. Microbial genome
+segments range in length from a small number of single read contigs of
+length less than 100 bases up to a 13033 779-base chromosome
+(for Sarangium cellulosum).
+
+Taxonomic IDs represent nodes in the taxonomy tree and cover all
+ranks from an individual genome or strain up to the highest order do-
+mains. Figure 1 shows an example representation for the searchable data-
+base. As input, database construction requires (i) an NCBI taxonomy
+tree, (ii) a reference genome sequence database and (iii) mappings be-
+tween the genome sequence identiﬁers and taxonomy identiﬁers from
+the taxonomy tree. Then, all overlapping k-mers from the genome data-
+base are computed, and the LCA for the taxonomic IDs for each k-mer is
+identiﬁed. Finally, a post-order tree traversal up to the LCA counts the
+number of genomes that contain the k-mer for each taxonomy node in
+the traversal. Our initial expectation was to use k-mer counts to weigh
+each k-mer’s contribution to a candidate taxonomic label assignment.
+However, the weighting procedure was found to be sensitive to genome
+representation bias and therefore a binary scoring scheme was chosen
+(see Fig. 2).
+
+In our experiments, we use a ‘full’ k—mer/taxonomy database (kFull)
+and a smaller database built from a ‘marker library’ (kML). A marker
+library contains the most taxonomically informative set of k-mers present
+in the raw genome database. The marker library is created by separating
+k-mers into disjoint groups. A k—mer is in exactly one group. Each group
+has a unique label, which consists of the names of all genomes (or more
+generally, sequences including genome, plasmid, segment or chromo-
+some) that contain the k-mers in the group. For example, k-mers that
+occur in exactly the genomes A, B and C are in one group ‘A, B, C’,
+k-mers that occur only in genomes B and C are another group ‘B, C’ and
+k-mers in genomes A, C and D are a third group ‘A, C, D’. As a more
+concrete example, suppose k-merl is present in Yersinia pestis KIM,
+Y.pestis C092 and Yersinia pseudotuberculosis IP32953. k-mer2 is present
+in Y.pestis C092 and Y.pseudotuberculosis IP32953. Both k-mers have the
+LCA of Yersinia, but in building the marker library, they are in two
+separate groups based on the exact set of genomes that contain the
+k-mer: k-merl’s group is labeled ‘Y.pestis KIM, Y.pestis C092,
+Y.pseudotuberculosis IP32953’, and k-mer2’s group is labeled ‘Y.pestis
+C092, Y.pseud01uberculosis IP32953’. All the k-mers in groups containing
+more than 1000 k-mers are included in the marker library. So, if there are
+
+ 
+
+2254
+
+112 ﬁle'spaumo[pJOJXO'sor1emJOJurorw/:d11q IIIOJJ pepsolumoq
+
+910K ‘09 lsnﬁnV uo ::
+
+Scalable metagenomic taxonomy search
+
+ 
+
+Query read:
+kimer 1, k—r'rler 2, kimer 3
+
+Searchahle k-rner database
+
+k-mer 1: 61,63,64,65,n1,n2,n3
+k—mer 2: 61,62,63 ,n1, 67,n5
+K-mer 3: 6 1,62,63 ,n1,64,66,n2,n3
+
+lt—mer 61
+
+ 
+
+k—mer 1 1 D 1 1 1 El 1 1 1 1
+
+ 
+
+ 
+
+ 
+
+k-merz 1 1 1 o o 1 1 o o 1
+k—mer3 1 1 1 1 1 o 1 1 1 1
+P 1 :1 us? 1.0 oer 0.5? D33 1 o 0.5? on? 1.0
+
+13131 1213] 13131 1213] 12131 1113] [13] 12B} 1251 BB]
+
+ll
+
+(o1,1.o),(ea,1.oi.tn1,1.01,[n5,1.oi.iez.o.an.{Gdnemnaoe1),in1.o.sn [51.0.11]
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 2. Example scoring procedure. The query read is converted to
+k-mers (k-merl, k-mer2, k-mer3), and their associated taxonomy infor-
+mation retrieved from the database. A classiﬁcation table is created with
+columns for candidate taxonomic IDs and rows representing a speciﬁc
+k-mer, with a binary entry reporting the presence or absence of the k-mer
+in some genome associated with the taxonomic node. The last row shows
+k-mer row sum divided by the total number of k-mer rows. The under-
+lined entries highlight nodes that are created at run time
+
+1000 k-mers in k-merl’s group, then all those k-mers go into the marker
+library. If there are 999 k-mers in k-mer2’s group, then none of those k-
+mers go into the marker library. k-mers whose LCA is above the taxo-
+nomic rank of family are not included in the marker library. A k-mer/
+taxonomy database is created from the marker library’s set of k-mers.
+
+2.2 Scoring a read’s taxonomic IDs
+
+In the k-mer/taxonomy database, each k-mer of length k is associated
+with a list of taxonomic IDs as outlined in Section 2.1. The ﬁrst step of
+determining a taxonomy ID for a read from the query set is to assign a
+score to each taxonomy ID of each k-mer in the read. The score is derived
+from the proportion of k-mers of the read that occurs under that tax-
+onomy node normalized by the proportion of k-mers of a random read
+that also appears under that taxonomy node.
+
+To illustrate the details of the scoring algorithm, the example in
+Figure 2 shows a query read with three k-mers. The tax IDs of the
+read’s constituent k-mers are retrieved from the k-mer/taxonomy data-
+base. For each read s of length l, a binary classiﬁcation table C of size
+K x T is constructed, in which the K rows represent the k—mers retrieved
+from the read and the T columns represent candidate taxonomic IDs
+(k-mers are stored in the database in canonical order removing strand
+speciﬁcity. 0nly canonically ordered k-mers are used to query the data-
+base). A ‘1’ entry indicates the tax ID (column) belongs to the associated
+k-mer (row). For each tax ID j, the proportion of k-mers having that tax
+ID is computed (shown in Fig. 2 in the last row): Pj = 0 Ci, j / K. In the
+example, P2 = 0.67 for genome G2.
+
+The scoring method uses a random model to limit genome represen-
+tation bias in the database and avoid assigning taxonomic labels by
+random chance when a novel organism is not represented in the reference
+database. The score S]- of read s for a taxonomic ID j is deﬁned as
+S]- : log(Pj/PRj), where PRj represents the proportion of k-mers asso-
+ciated with taxonomy ID j in the random model. The random model
+estimates PRj, the chance of assigning a read of length l to taxonomy
+ID j owing to random chance (for simplicity the random score is not
+shown in Fig. 2). The random model is precomputed for read length l and
+assumes a random nucleotide composition, which can optionally sample
+
+Ordered list of candidate taxonomic labels
+1 2 3 4 5 6 T B 9
+[61,1.ﬂ),{63,1.ﬂ],I:n1,1.ﬂ],tn5,1.0],I:62,0.ﬁ?),(64,ﬂ.6?},[n3,ﬂ.ﬁ?], {n2,0.5?}, (67,1133)
+
+ 
+
+n5 n5 n5 n5
+‘ ﬂ 3 n4
+.n3 n3 n3
+n1 2
+.nl "1 (31 52 53 (34 GE GE G?
+Reference taxonomy
+.61
+
+1} 61 2} 63 E] 64 El] Score too low terminate
+
+Fig. 3. Label selection process. The list of candidate taxonomic labels
+ordered 1 through 9 is sorted by label score (G1,1.0), . . . ,(G7,0.33).
+Steps 1, 2, 6 and 9 where an action is performed are shown. At step 1,
+the taxonomy lineage is constructed from the best ﬁrst label G1. Step 2,
+G3 conﬂicts with G1 and the lineage is pruned to n1. Step 6, G4 conﬂicts
+with n1 and the lineage is pruned to n3. For demonstration at step 9,
+score 0.33 for the G7 label is below threshold and the procedure terrnin—
+ates and returns n3 as the classiﬁcation
+
+explicitly from a range of GC content values. Reads are randomly gen-
+erated, and then are searched against the database to calculate a Pj value
+for each random read r and observed taxonomy ID j. PRj is set to the
+maximum observed value PRj = maxr(PJ(-r)). Further details of random
+model construction are included in the Supplementary Material.
+
+2.3 Rank-ﬂexible read classiﬁcation
+
+Taxonomy classiﬁcation combines LCA selection with the read label
+score evaluation. Candidate labels are examined in order by decreasing
+read label score as shown in Figure 3 (for illustration, the numerator of
+the read label score Pj is shown). The most speciﬁc taxonomic label is
+selected such that no other taxonomic label from a conﬂicting lineage has
+a comparable read label score. Comparable is deﬁned as a score within
+one standard deviation of the best candidate using the read label score
+distribution for the read. The best candidate is found using the taxonomic
+lineage from the highest scoring taxonomy label. The path from the high-
+est scoring node to the LCA is created (LCAs for individual k-mers
+identiﬁed off-line are used as a starting point to ﬁnd the LCA for all
+retrieved k-mers online, which in some cases can reduce run time costs)
+and each subsequent label is evaluated for consistency with the lineage.
+When conﬂicting labels are encountered, the lineage is pruned further up
+the tree to resolve the conﬂict. In the example shown in Figure 3, the
+lineage from G1 to the LCA n5 is constructed ﬁrst. When G3 is examined,
+it is identiﬁed as conﬂicting with G1 and the candidate lineage is pruned
+to node ml. The process continues until the ninth label is encountered
+(G7,0.33), which for the purpose of illustration has a score below the
+threshold of comparable scores. The classiﬁcation procedure terminates
+with the read assigned label 113.
+
+Classiﬁcations are divided into categories. The ‘LCA Match’ category
+means the LCA has a lower read label score but there are multiple con-
+ﬂicting labels with higher comparable read label score. This is the trad-
+itional LCA assignment algorithm (Huson et al., 2007) where multiple
+signiﬁcant matches from competing lineages are found. The ‘Direct
+Match’ category means the classiﬁcation reﬂects matches to the tax-
+onomy without a conﬂicting lineage but the classiﬁcation could be
+from any rank, including strain, species, genus or higher. Higher order
+
+ 
+
+2255
+
+112 /810'S112umo[pJOJXO'sor1chOJurorw/:d11q IIIOJJ pepsolumoq
+
+910K ‘09 lsnﬁnV uo ::
+
+S.K.Ames et al.
+
+ 
+
+rank assignments in the Direct Match category imply that the read label
+score for lower rank assignments were below the comparable score
+threshold and suggest sequence novelty in the classiﬁed sequence.
+‘Novel Match’ is reported when multiple child nodes from competing
+lineages have comparable read label scores above the threshold but the
+LCA has a higher read label score. This indicates novelty in the query
+read and could occur when a substantial subset of the read’s k-mers are
+found in competing lineages, but the combination of k-mers observed at
+the LCA node is more signiﬁcant.
+
+2.4 Database ingest
+
+A key feature of our approach is to store the k-mer/ taxonomy database in
+a ﬁle rather than build it anew for each query run; this permits shifting
+computational costs to the off-line taxonomy/ genome ingest phase. The
+database is created once, and then is used repeatedly during classiﬁcation.
+To enable database search during classiﬁcation, the ﬁle is mapped into
+the memory address space of the classiﬁcation program, allowing k-mers
+and associated taxonomy IDs to be accessed directly. Previous work at
+Lawrence Livermore National Laboratory (LLNL) has modiﬁed the
+Jemalloc memory management library (Evans, 2006) to enable memory
+allocation from an address range memory-mapped to a ﬁle residing on a
+storage device. J emalloc is a drop-in replacement for regular malloc rou-
+tines for allocating memory. 0ur modiﬁcation to Jemalloc allows for an
+additional step to specify the database ﬁlename (Jemalloc memory-maps
+to temporary ﬁles). We have chosen to use the memory-map ﬁle ap-
+proach rather than implementing an out-of-core indexing algorithm be-
+cause of the ease of programming using the memory-map abstraction for
+the persistent storage of data structures. We place the memory-mapped
+ﬁles onto a ramdisk for in-memory performance. An ingest utility creates
+the database, which includes a hash table whose keys are k-mers and
+values are sets of taxonomy identiﬁers.
+
+Supplementary Table S2 shows numbers of k-mers present and the
+total storage required for several of the databases. The current default
+settings use 619 GB (kFull) and 39 GB (kML). The databases use 6 bytes
+per taxon, including genome counts information. We found that these
+counts are extraneous information and only 2 bytes per taxon identiﬁer
+are required. Using 2 bytes per taxon allows for 65 566 distinct taxa
+(the current database has 18 498 distinct taxa). Future work is expected
+to reduce the database size to 413 GB (kFull) and 26 GB (kML). The
+ingest pipeline for the full database took ~17 h using up to 256 2.3 GHz
+Advanced Micro Devices (AMD) compute nodes each with 32 GB run-
+ning single-threaded tasks that dumped intermediate results to ﬁles in the
+parallel ﬁle system.
+
+2.5 Test data
+
+To compare performance with existing state-of-the—art published tools,
+accuracy was compared with PhymmBL (Brady and Salzberg, 2011),
+MetaPhlAn (Segata et al., 2012) and Genometa (Davenport et al.,
+2012). PhymmBL balances classifying known species with classifying
+novel organisms but uses BLAST, which does not scale well with sequen-
+cer output (Angiuoli et al., 2011). MetaPhlAn uses a small marker library
+making it scalable but it does not attempt to label every read. It is also
+optimized to do relative abundance estimation, which LMAT currently
+does not do. Genometa replaces BLAST with a potentially faster search
+algorithm (Bowtie2 or BWA) and attempts to assign a taxonomic label to
+every read. Ideally, the same reference database would be used for all
+programs. However, adapting our database to work with Genometa and
+PhymmBL required signiﬁcant customization and was not technically
+feasible with MetaPhlAn. Therefore, the existing reference database of
+each tool was used. The Genometa database is the oldest database
+created in 2010, our reference database was created in fall 2011, and
+PhymmBL and MetaPhlAn use databases created in mid 2012. The pub-
+lished PhymmBL dataset that uses a read length of 100 was chosen as the
+
+test query dataset. As the test data were created before each reference
+database was created, the query species should be present in each refer-
+ence database.
+
+Three additional simulated test query sets were used to evaluate the
+accuracy of our method in the presence of query sequences absent from
+the reference database for viruses, prokaryotes and eukaryotes (fungi and
+protists). MetaSim was used with a 100 bp (Barthelson et al., 2011) and
+80 bp (Richter et al., 2008) Illumina error model to generate the novel
+bacterial and viral dataset, respectively. Eukaryotes were taken from
+single species sequencing data deposited in the Short Read Archive
+(SRA) and include T rypanosoma evansi, Candida albicans, Coccidioides
+immitis, Aspergillus fumigatus and Entamoeba histolytica (read lengths
+ranged from 36 to 200). For the bacterial dataset, 100 sequences not
+found in the reference database (determined by GenBank Identiﬁer and
+header comparison) were selected at random to serve as the candidate test
+set with 1000000 simulated reads and equal concentrations of the 100
+bacteria. The 100 strains were made up of 75 distinct species, 14 of which
+were species not found in our reference database. For the viral case, 6921
+reads were generated, assuming equal concentrations of 25 viral genomes,
+which made up 25 distinct species, 10 of which were not found in the
+reference database. Not every test sequence in the ‘novel’ datasets proved
+to be divergent from the reference database. A detailed description of the
+test data is given in the Supplementary Material. To measure run time,
+three non-synthetic metagenomic samples representing a viral metagen-
+ome (SRX022172), a human microbiome metagenome (ERR011121) and
+a single species raw read ‘metagenome’ (DRR000184) were taken from
+the SRA.
+
+3 RESULTS
+
+3.1 Classiﬁcation accuracy
+
+Read accuracy is reported by counting the number of reads cor-
+rectly assigned to a taxonomic label consistent with its true
+origin. For example, a read originating from Bacillus anthracis,
+but assigned to Bacillus would be counted as correct at the genus
+rank. Read accuracy is tracked for each taxonomy rank to com-
+pare accuracy with rank speciﬁcity. Sample accuracy is reported
+for true-positive and false-positive counts on species calls. This
+introduces one free parameter, which is not automatically
+selected—minimum number of reads needed to make a species
+call (or minimum species abundance for MetaPhlAn). Results
+for all programs are reported as performance curves to iden-
+tify the trade-offs of reducing the false-positive count with
+increased thresholds while potentially reducing the true-positive
+count
+
+Figure 4 shows the true-p0sitive/false-positive performance
+curve for different minimum read thresholds compared with
+the other contemporary methods and our own reduced size
+marker library (kML) and full-sized library (kFull). Values for
+k=20 (kFull) and k: 18 (kML) were used as default values
+(accuracy comparisons for different values for k are shown in
+Supplementary Figure S1). LMAT-kFull and LMAT-kML
+showed near identical accuracy, with the full-sized database cor-
+rectly detecting a small number of additional species.
+Genometa’s advantage over PhymmBL could be explained by
+its stricter read mapping criteria, which favors detection of
+known genomes. Although we were able to recreate higher per-
+formance runs for MetaPhlAn on their previously published test
+sets, MetaPhlAn’s lower performance on the PhymmBL test sug-
+gests that it may be more difﬁcult to do both taxonomic
+
+ 
+
+2256
+
+112 /810'S112umo[p101x0's31112u1101u101q/ﬁd11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV uo ::
+
+Scalable metagenomic taxonomy search
+
+ 
+
+identiﬁcation and relative abundance estimation when microbial
+content consists exclusively of exceptionally low per genome
+coverage. (The PhymmBL test set contains just 50 reads per
+genome and includes multiple closely related strains.)
+
+Table 1 shows the percentage of PhymmBL input set reads
+correctly labeled for select ranks and reads that were incorrectly
+labeled or failed to be assigned a label. The table shows that the
+majority of reads labeled by LMAT using the kFull database are
+identiﬁed by species (74.2% for the full database) with high ac-
+curacy (> 99%). When LMAT used our marker library (LMAT-
+kML), fewer reads (40%) were classiﬁed but the assignments
+were highly accurate (> 99 %). Although PhymmBL can poten-
+tially make rank ﬂexible selections using the conﬁdence scores
+assigned to different rank levels, we were not able to implement
+an automated threshold that demonstrated good results.
+Therefore, we report observed species accuracy calls as well as
+PhymmBL’s published results, which are slightly higher.
+Genometa’s accuracy was lower than other methods with fewer
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+LMAT-kFull: 53 I _
+/__ . . . . . . . . . . . . .—
+LMAT-kML: 527 mm Genometa
+500 ---r----""'"'-'l-5hymmBL
+2’
+If/
+g:
+400 -  I I _
+i , a ’ MetaPhlAn
+f ,
+I
+! I
+w I
+a: ,’
+.5 300 - I, ,
+'7) , r
+o i l
+n' 1 l
+l—  I
+200 - ,5 ,
+i l
+: ii ,
+.' _r' I
+E z! I
+: J I
+:‘1" ,’
+100 '  I
+55 /
+:4 1
+.I 2
+E .a
+I
+A1
+1
+0 . . . . .
+—5 45 95 145 195 245
+
+False Positives
+
+Fig. 4. Species-level accuracy comparing reference databases/algorithms’
+performance on PhymmBL query set. Classiﬁer performance is shown
+using the full database (LMAT-kFull), and a marker database (LMAT-
+kML), and is compared with other software, Genometa, PhymmBL and
+MetaPhlAn. LMAT-kFULL performance is underneath the LMAT-
+kML plot, highlighting similar performance
+
+Table 1. Per read accuracy for known bacteria shown in percentages
+
+reads assigned species labels. This is likely because of its use of a
+best hit approach instead of rank-ﬂexible selection. (MetaPhlAn
+does not report read-speciﬁc labels, thus it is excluded from the
+table.) Our method using the full database could not assign spe-
+cies-speciﬁc labels to 25.8% of the reads; 8.5% of the reads were
+assigned labels with ranks at the genus, family and order levels;
+6.9% and 3.1% of the reads not listed in Table 1 were correctly
+assigned labels at other ranks (e.g. kingdom, sub-species, class
+etc.) for the kFull and kML databases, respectively. The high
+overall LMAT accuracy is explained by the rank-ﬂexible selec-
+tion, where low rank assignments are only made in the absence of
+conﬂicting evidence, with the read label score ﬁltering out an
+additional 10% of the reads, thus leaving just 0.3% of the
+reads with an incorrect assignment.
+
+One key challenge is to maintain accuracy in the presence of
+novel genomes by preventing overly speciﬁc rank calls. Because it
+proved to be challenging to manipulate the other publicly avail-
+able software tools to use our reference database particularly in
+the case of the viral and eukaryote test sets, it was not possible to
+directly compare results. Instead, we evaluate our two data-
+bases—kFull and kML. Figure 5 shows the species sample
+accuracy curve for our method on the three datasets (virus, bac-
+teria and eukaryotes), which include novel organisms. The
+number of test species that are also represented in our reference
+database were 15, 61 and 4 for the viruses, prokaryotes and eu-
+karyotes, respectively, and indicate the practical upper bound on
+the number of correctly identiﬁable species. For the novel viral
+case, approximately 1x coverage was used for each viral genome.
+With this relatively good coverage level, although only 14 of the
+15 known viral species were correctly called, no false species calls
+were made. For the bacteria case, 0.35x coverage was used, and
+the eukaryote case used 470 779 reads chosen at random to simu-
+late low coverage.
+
+In eukaryote and prokaryote cases, the false-positive count
+was extremely low but not perfect. In the eukaryote case, the
+T .evansz' not in our reference database was classiﬁed
+T rypanosoma brucei and it appears that signiﬁcant portions of
+these two genomes are highly similar, making the distinction
+difﬁcult. The kML eukaryotic results are expected to improve
+as more microbial eukaryotic genomes are sequenced to allow for
+better targeting of markers that discriminate between near neigh-
+bors. For bacteria, there were two false-positive species calls,
+M ycobacterium abscessus and Rahnella Sp. Y9602, which share
+signiﬁcant portions of their genomes with the novel species
+
+ 
+
+ 
+
+Application Database Species Genus Family Order Wrong No label No hits
+LMAT kFull 74.2 (99.7) 6.7 (99.9) 1.4 (100) 0.4 (100) 0.3 10.1 0
+LMAT kML 40.4 (99.8) 4.1 (99.9) 0.8 (100) 0.1 (100) 0.2 51.3 17.7
+PhymmBL Published — (95.4) — — — 4.6 — —
+PhymmBL GenBank 88.3 (92.5) — — — 7.5 11.7 —
+Genometa Published 66.7 (92.2) — — — 7.8 33.3 —
+
+ 
+
+Note: Per rank accuracy shows two values—percentage of all reads correctly labeled by rank (species, genus, family or order) or incorrectly labeled (Wrong) or failed to be
+assigned a label (No label and No hits). In parentheses shows percentage of reads assigned a label at the speciﬁed rank that were correct. No label=reads with no
+taxonomically informative label assigned and includes No hits, No hits 2 reads with no k-mer matches to the database. —= entry not applicable.
+
+ 
+
+2257
+
+112 /810'S112umo[p101x0's31112u1101u101q/ﬁd11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV uo ::
+
+S.K.Ames et al.
+
+ 
+
+75-
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+25 ' 5 _
+20. 60- _’ _ _ _ _ _ I - --'-TT — 4. _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ __
+3 45 F: <0
+(I)
+g 15- 3;  3-
+:15 I 8 .(T)
+O D. O
+o. a, 1:.)
+o E 30 - 3
+J L _
+1: ‘0' '— 1— 2
+_ ref. database
+5 . ref. database 15 1 . ref. database
+— — - LMAT—kFull : limit“??? — — - LMAT—kFull
+— LMAT—kML I — LMAT—kML
+0 0 1 o 100 I I 1500 0 
+—1 o 1 2 6 7 8 - - 1 10 100 1000
+False POS'tweS False Positives
+
+3 4
+False Positives
+
+Fig. 5. Classiﬁcation accuracy when novel genomes are included in the input sets. The two database types are considered Full (kFull) and the marker
+library (kML). Left panel shows performance for simulated viral metagenomes with 25 total species and 10 novel genomes. Middle panel shows 75 total
+species including 14 novel genomes and right panel shows 5 protist/fungi with one 1 novel genome included. x—axis counts the number of species reported
+that are not present (False Positives) and the y-axis counts the number of true species present that are reported (True Positives). The performance curve
+reﬂects 300 different threshold values for minimum number of labeled reads required to make a species call
+
+coming from the same genus (Ranunculus aquatilis,
+M ycobacterium chubuense and M ycobacterium massiliense).
+When the species accuracy dropped, the genus calls remained
+highly accurate (~99% for eukaryotes and prokaryotes). For
+these cases, we hypothesize that future work using relative
+counts of genus and species calls compared with no call counts
+could automatically differentiate the presence of a novel species
+from a known species match. Supplementary Table S1 shows
+high accuracy at the individual read level.
+
+3.2 Speed performance
+
+Run time of our classiﬁer is compared with MetaPhlAn as an
+existing scalable metagenomic classiﬁer using the marker library
+approach. Additional comparisons were made with the search
+tool Bowtie2 (Langmead et al., 2009) and blastn. It is noteworthy
+that these mapping tools (Bowtie2 and BLAST in Fig. 6) do not
+perform classiﬁcation, and tools such as PhymmBL and
+Genometa would have to be run on the mapped reads, which
+might increase total run time (considering appropriately balan-
+cing run time and accuracy trade-offs). Nonetheless, if our meth-
+ods are comparable in speed with raw search times, they should
+present a distinct advantage. Measurements were conducted on a
+single node large memory machine, a quad-CPU Intel Westmere
+(10 core per CPU) with 1 TB of DRAM, running linux kernel
+2.6.32.
+
+Figure 6 shows efﬁciency measured by run time normalized by
+the percentage of reads that are mapped to the database.
+Supplementary Section 3 shows the raw run times and percent-
+ages of matched or labeled reads for each search tool. Using the
+mapped rate helped identify cases where a method’s speed could
+partly be explained by labeling fewer reads. Using the mapped or
+labeled rate efﬁciency metric, the results show that LMAT speed
+compares favorably on all datasets to the other tools. The closest
+performance to LMAT with the kFull database for mapped or
+labeled reads is Bowtie2 using the SRX dataset, in which LMAT
+was 30% faster. Across all three sets, LMAT performs on
+
+average 6.8x faster than Bowtie2 and 16.5x faster than
+BLAST. Using the kML database and normalized for the per-
+centage of reads mapped, LMAT performs on average 24x
+faster than Bowtie2 and 72x faster than BLAST. The BLAST
+results shown in Figure 6 use a search seed size of 28 (the
+current default setting) and are thus tuned for speed.
+PhymmBL version 3.2 uses a more sensitive search seed size
+of 11, which is more computationally costly. PhymmBL jobs
+did not complete within 48h on the smallest timing dataset
+(using 80 threads) underscoring our expectation that BLAST-
+based approaches with the smaller search seed size do not
+scale for this problem.
+
+Most surprising were the gut metagenome (ERR) observa-
+tions, where the full database run with LMAT was faster than
+MetaPhlAn, despite the fact that the MetaPhlAn reference data-
+base is a reduced set of bacterial genes. This may be explained by
+a larger percentage of the k-mers mapping to fewer candidate
+taxonomic labels, as this is the primary run time cost associated
+with LMAT classiﬁcation and could provide a speedup
+advantage over even fast alignment-based searches using
+Bowtie2. The other primary driver of performance is reﬂected
+by the difference in raw run time versus fractions of reads labeled
+or mapped.
+
+Although we observe raw search output from Bowtie2 runs at
+a slightly higher rate for the ERR sample (see Supplementary
+Section 3), it only mapped 34.3% of the reads in contrast with
+the LMAT classiﬁer, which assigns a label to 85.6% of the reads
+in the sample. For the Bowtie2 parameter settings, both ‘sensi-
+tive-local’ and ‘very-sensitive—local’ were considered and the
+faster time was reported. A key drawback of this parameter
+setting is it reports only the top three hits, which boosts speed
+but could result in overly speciﬁc species calls. Although LMAT
+run time depends on the sample, the observed performance rate
+was close to the target rate of 1.3 Mbp/s (1.34 Mbp/s on aver-
+age). Thus, LMAT’s classiﬁcation rate scaled well with sequencer
+output.
+
+ 
+
+2258
+
+112 /810'S112umo[p101x0's31112u1101u101q/ﬁd11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV uo ::
+
+Scalable metagenomic taxonomy search
+
+ 
+
+100 F '—
+
+ 
+
+I IIIIIIII I IIIIIII
+290
+111
+
+Mapped Kbp/s per Single Core
+20.4
+
+0.656
+
+ 
+
+ 
+
+ 
+
+ 
+
+SRX DRR
+
+Input set (metagenome)
+
+ 
+
+ 
+
+Application-Ref. Database
+
+22.8
+
+ 
+
+l LMAT-kFull
+LMAT—kML
+MetaPhlAn(Using-Bowtie2)
+
+l BLAST—FuIIRebe(Map-only)
+Bowtie2—FullRebe(Map-only)
+
+ 
+
+ 
+
+0.257
+
+ 
+
+ 
+
+ 
+
+ERR
+
+Fig. 6. Run time performance. Tests run on three real metagenomic datasets SRX, DRR and ERR. Run times are shown for the metagenomic classiﬁers
+(LMAT-kFull, LMAT-kML and MetaPhlAn using Bowtie2 for read mapping and its reference database) and simple sequence searches for Bowtie2 and
+blastn (BLAST) using the same full reference genomes found in kFull. We report run time normalized to the percentage of mapped or labeled reads.
+
+Note log scale on y-axis; values given within each bar
+
+3.3 Application to a large metagenome
+
+To conﬁrm LMAT’s ability to analyze large (real) metagenomes
+and provide new biological insight, we downloaded the Tyrolean
+Iceman sequence data (Keller et al., 2012) from the SRA, which
+constituted 150 giga-bases of raw genomic data. While 78% of
+the sequenced reads were reported to be human, only a small
+percentage (0.84%) of the reads was reported to originate from
+bacteria based on a sample of 8 million reads. Our hypothesis
+was that LMAT could examine all the reads on a single large
+memory compute node and efﬁciently provide a more complete
+analysis of the microbial contents. For this application, the
+human genome (v19) was added to LMAT’s database to classify
+human and microbial reads simultaneously. The analysis on the
+raw 150 giga-base dataset (2.3 billion reads) ran in <20 h on our
+single node large memory computer (see Supplementary Material
+for additional details). LMAT output agreed with the published
+ﬁnding that the vast majority of bacteria were from the phylum
+Firmicutes and under the class of Clostridia. Similarly, only a
+small fraction of reads were reported to be from the
+Spirochaetes phylum. LMAT results did not show evidence for
+the presence for non-phage, non-retroviral viruses, fungi or pro-
+tists after adjusting for previously unidentiﬁed human contam-
+ination in draft eukaryote genomes present in the LMAT
+reference database. The key observed difference was in the
+Borrelia species previously reported to be the ﬁrst documented
+case of Lyme disease in humans. Although LMAT’s ﬁndings
+support the presence of the Borrelia genus with 16 180 reads as-
+signed a read label score greater than 0, a more complex rela-
+tionship is shown between the new Borrelia sequence and
+previously sequenced Borrelia genomes. Although Borrelia burg-
+dorferi was previously reported to be the likely species present,
+LMAT shows that among the reads assigned to the Borrelia
+genus, the majority of the reads are assigned to non—species-spe—
+ciﬁc genomic regions with species-speciﬁc reads assigned to
+several Borrelia species, including B.burgd0rferi, Borrelia gariniz'
+and others. The Borellia reads were compared against all
+sequenced Borrelia genomes to compute an SNP-based genetic
+
+distance matrix. The phylogenetic tree given in Supplementary
+Figure S10 supports LMAT’s ﬁnding that the Borrelia variant is
+divergent from B.burgd0rferi.
+
+4 DISCUSSION
+
+LMAT leverages large single address space memory to efﬁciently
+and accurately assign taxonomic labels to individual reads in
+large metagenomic datasets even in the presence of novel organ-
+isms. Although the classiﬁcation method is highly automated,
+attention to three parameters should be highlighted: minimum
+read label score, minimum difference between the best selected
+read label score and the competing alternatives and maximum
+number of taxonomic labels retrieved per k-mer. Although the
+ﬁrst two parameter settings were preset early in the development
+stage, application to the Tyrolean Iceman dataset required re-
+visiting these parameters. The data featured especially short
+reads (as short as 25 nt), degraded DNA, likely leading to
+lower quality scores and higher error rates and substantial
+human ‘contamination’ with respect to analyzing the microbial
+contents. As a result, the default read label threshold needed to
+be lowered from 1 to 0 to avoid ignoring a larger fraction of the
+reads. Interestingly, 25 nt length reads classiﬁed as human were
+assigned a read label score of 0 but could still be classiﬁed as
+human when no competing alternatives were found. However, if
+the sample came from a truly unknown source, the 25 nt reads
+with read label scores near 0 would require additional validation.
+The minimum difference threshold also needed to be increased
+when a large percentage of reads were initially classiﬁed as
+T oxoplasma gondii. On further examination, the matches identi-
+ﬁed human contamination in the genomes from LMAT’s refer-
+ence database. Ideally, these reads would be classiﬁed as
+‘superkingdom Eukaryota’ on the ﬁrst pass (identiﬁed as both
+human and T .gondii). The random model, however, led to a
+slightly lower score for the human label compared with equiva-
+lent T .gondii label. Thus, while default parameter settings should
+be acceptable for many analysis cases, there may be conditions
+
+ 
+
+2259
+
+112 /810'S112umo[p101x0's31112u1101u101q/ﬁd11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV uo ::
+
+S.K.Ames et al.
+
+ 
+
+where awareness of these parameter settings is needed. The ﬁnal
+user-deﬁned parameter setting limits the number of candidate
+taxonomy identiﬁer considered and was set to 50 early on to
+ensure efﬁcient run times with the understanding that accuracy
+costs are incurred for genetic fragments associated with a com-
+plex taxonomic hierarchy. LMAT’s fast run times allow the soft-
+ware to be run initially with default settings and quickly rerun on
+targeted subsets of reads as needed.
+
+The reported LMAT tests focus on identifying known
+organisms in complex samples, which the results show still
+presents a major challenge. The use of relatively short reads
+(25—100 bases) indicate that even known sequences can be difﬁ-
+cult to taxonomically classify when they represent short genetic
+elements conserved among multiple taxa. LMAT analysis on
+human clinical samples exhibits a high read label rate allowing
+the much smaller pool of unlabeled reads to be interrogated for
+more distant evolutionary relationships with other tools. For
+some environmental samples, more of the microbial contents
+are expected to be highly divergent from the reference database
+and populated with greater amounts of non-microbial eukaryotic
+DNA. In these cases lower, rates of read labeling are obtained.
+The Supplementary Material shows the high scoring read label
+rates (score 21) for four different environmental samples range
+from 10 to 60%, but relaxing the default minimum read label
+score threshold increases the read label rate to >50% in all cases.
+We ﬁnd that the species identiﬁed by reads with low scores are
+frequently the same as those identiﬁed by high conﬁdence, high
+scoring reads. One can pull out additional lower scoring reads for
+taxa that are likely present as indicated by the higher scoring
+reads, thus diminishing the fraction of unclassiﬁed reads. The
+ﬂexibility of adjusting the score threshold without rerunning
+the whole analysis enables LMAT to rapidly screen large
+environmental datasets and obtain a large fraction of labeled
+reads.
+
+Although the full library should be fast enough to run on large
+metagenomes, marker libraries still have a speed advantage.
+Recently published marker library approaches like MetaPhlAn
+rely on bacterial marker genes, which cannot be applied directly
+to other microbial contents. 0ther marker libraries like Sequedex
+(Berendzen et al., 2012) rely on an individual marker sequence to
+contain the taxonomic signal in a single contiguous genetic elem-
+ent. By contrast, our method resolves the taxonomic signal
+across the entire read with a scoring procedure. Individual
+k-mers may contain part of the signal with the intersection of
+taxonomic labels from multiple k-mers yielding a stronger signal,
+and thus accuracy should improve with sequencer read length.
+The reference database size is a function of genetic and taxo-
+nomic diversity allowing near neighbors to be added with only
+a limited increase in the database size. As the number of neighbor
+strains increase, strain level discrimination run time costs grow.
+Although our method reports strain level discrimination, accur-
+acy was measured at the species level because minimum genome
+coverage affects accuracy and the available synthetic test sets
+focus on species discrimination. Future work will include design-
+ing better strain discrimination tests and expand the database to
+include functional annotation.
+
+ACKNOWLEDGEMENTS
+
+This work was performed under the auspices of the US
+Department of Energy by Lawrence Livermore National
+Laboratory under Contract DE-AC52-07NA27344.
+
+Funding: Laboratory Directed Research and Development
+(33-ER-2012 and 08-ER-2011); DOE Ofﬁce of Science
+(KJ0402000-SCW1076).
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Angiuoli,S.V. et al. (2011) Resources and costs for microbial sequence analysis
+evaluated using virtual machines and cloud computing. PLoS One, 6, e26624.
+
+Barthelson,R. et al. (2011) Plantagora: modeling whole genome sequencing and
+assembly of plant genomes. PLoS One, 6, e28436.
+
+Berendzen,J. et al. (2012) Rapid phylogenetic and functional classiﬁcation of short
+genomic fragments with signature peptides. BM C Res. Notes, 5, 460.
+
+Brady,A. and Salzberg,S. (2011) PhymmBL expanded: conﬁdence scores, custom
+databases, parallelization and more. Nat. Methods, 8, 367.
+
+Davenport,C.F. et al. (2012) Genometa—a fast and accurate classiﬁer for short
+metagenomic shotgun reads. PLoS One, 7, e41224.
+
+Drge,J. and McHardy,A.C. (2012) Taxonomic binning of metagenome samples
+generated by next-generation sequencing technologies. Brief. Bioinform, 13,
+646—655.
+
+Evans,J. (2006) A scalable concurrent malloc(3) implementation for freebsd. In:
+BSDCan - The Technical BSD Conference. Ottawa, Canada.
+
+Huson,D.H. et al. (2007) MEGAN analysis of metagenomic data. Genome Res., 17,
+377—386.
+
+Keller,A. et al. (2012) New insights into the tyrolean iceman’s origin and phenotype
+as inferred by whole-genome sequencing. Nat. Commun, 3, 698.
+
+Knight,R. et al. (2012) Unlocking the potential of metagenomics through replicated
+experimental design. Nat. Biotechnol., 30, 513—520.
+
+Langmead,B. et al. (2009) Ultrafast and memory-efficient alignment of short dna
+sequences to the human genome. Genome Biol., 10, R25.
+
+Leung,H.C. et al. (2011) A robust and accurate binning algorithm for metagenomic
+sequences with arbitrary species abundance ratio. Bioinformatics, 27, 1489—1495.
+
+Liu,B. et al. (2011) Accurate and fast estimation of taxonomic proﬁles from meta-
+genomic shotgun sequences. BM C Genomics, 12 (Suppl. 2), S4.
+
+Loh,P.-R. et al. (2012) Compressive genomics. Nat. Biotechnol., 30, 627—630.
+
+Mande,S.S. et al. (2012) Classiﬁcation of metagenomic sequences: methods and
+challenges. Brief. Bioinform, 13, 669—681.
+
+Martin,J. et al. (2012) Optimizing read mapping to reference genomes to determine
+composition and species prevalence in microbial communities. PLoS One, 7,
+e36427.
+
+Mende,D.R. et al. (2012) Assessment of metagenomic assembly using simulated
+next generation sequencing data. PLoS One, 7, e31386.
+
+Mohammed,M.H. et al. (2011) SPHINX—an algorithm for taxonomic binning of
+metagenomic sequences. Bioinformatics, 27, 22—30.
+
+Pell,J. et al. (2012) Scaling metagenome sequence assembly with probabilistic de
+bruijn graphs. Proc. Natl. Acad. Sci. USA, 109, 13272—13277.
+
+Richter,D.C. et al. (2008) MetaSim: sequencing simulator for genomics and meta-
+genomics. PLoS One, 3, e3373.
+
+Schatz,M.C. et al. (2010) Cloud computing and the DNA data race. Nat.
+Biotechnol., 28, 691—693.
+
+Segata,N. et al. (2012) Metagenomic microbial community proﬁling using unique
+clade-speciﬁc marker genes. Nat. Methods, 9, 811—814.
+
+Sharma,V.K. et al. (2012) Fast and accurate taxonomic assignments of metage-
+nomic sequences using metabin. PLoS One, 7, e34030.
+
+Teeling,H. and Gléckner,F.0. (2012) Current opportunities and challenges in mi-
+crobial metagenome analysis—a bioinformatic perspective. Brief. Bioinform, 13,
+728—742.
+
+Venter,J.C. et al. (2004) Environmental genome shotgun sequencing of the sargasso
+sea. Science, 304, 66—74.
+
+ 
+
+2260
+
+112 /810'S112umo[p101x0'sot112u1101u101q/ﬁd11q 111011 pepcolumoq
+
+910K ‘09 lsnﬁnV uo ::
+

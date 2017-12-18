@@ -1,0 +1,1070 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 24 2014, pages 3541—3547
+doi: 10. 1 093/bioinformatics/btu713
+
+ 
+
+Sequence analysis
+
+Advance Access publication October 28, 2014
+
+KmerStream: streaming algorithms for k-mer abundance
+
+estimation
+
+Pall Melsted1’2’* and Bjarni v. Halldorsson2’3’*
+
+1Faculty of Industrial Engineering, Mechanical Engineering and Computer Science, University of Iceland, Reykjavik,
+Iceland, 2deCODE Genetics/Amgen, Reykjavik, Iceland and 3School of Science and Engineering, Reykjavik University,
+
+Reykjavik, Iceland
+
+Associate Editor: Gunnar Ratsch
+
+ 
+
+ABSTRACT
+
+Motivation: Several applications in bioinformatics, such as genome
+assemblers and error corrections methods, rely on counting and keep-
+ing track of k—mers (substrings of length k). Histograms of k—mer fre-
+quencies can give valuable insight into the underlying distribution and
+indicate the error rate and genome size sampled in the sequencing
+experiment.
+
+Results: We present KmerStream, a streaming algorithm for estimat-
+ing the number of distinct k—mers present in high-throughput sequen-
+cing data. The algorithm runs in time linear in the size of the input and
+the space requirement are logarithmic in the size of the input. We
+derive a simple model that allows us to estimate the error rate of the
+sequencing experiment, as well as the genome size, using only the
+aggregate statistics reported by KmerStream.
+
+As an application we show how KmerStream can be used to compute
+the error rate of a DNA sequencing experiment. We run KmerStream
+on a set of 2656 whole genome sequenced individuals and compare
+the error rate to quality values reported by the sequencing equipment.
+We discover that while the quality values alone are largely reliable as a
+predictor of error rate, there is considerable variability in the error rates
+between sequencing runs, even when accounting for reported quality
+values.
+
+Availability and implementation: The tool KmerStream is written in
+C+ + and is released under a GPL license. It is freely available at
+https://github.com/pmelsted/KmerStream
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Contact: pmelsted@hi.is or Bjarni.Halldorsson@decode.is.
+
+Received on April 6, 2014; revised on July 30, 2014; accepted on
+October 22, 2014
+
+1 INTRODUCTION
+
+k—mers are one of the most fundamental objects used when ana-
+lyzing DNA sequencing data. Many assembly algorithms
+(Gnerre et al., 2011; Li et al., 2010; Zerbino and Birney, 2008)
+start by constructing a de Bruijn graph, a graph containing all
+k—mers for some ﬁxed k. Some of the most commonly used al-
+gorithms for aligning reads to a reference genome start by ﬁnd-
+ing short exact matches of a ﬁxed length k (commonly referred to
+as a seed); an index of all k—mers is constructed and from this
+index an initial alignment of a part of the read is found.
+
+ 
+
+*To whom correspondence should be addressed.
+
+In this work, we focus on the problem of estimating the
+number of distinct k—mers in a set of sequencing reads.
+This problem is related to k—mer counting, in the sense that
+if we can solve k—mer counting we can report the number of
+distinct k—mers. However, the methods we develop are an
+order of magnitude faster and use only a fraction of the
+memory compared with current k—mer counting software. We
+develop streaming algorithms to solve this problem, a framework
+ﬁrst proposed by Alon et al. (1996). A similar approach is used
+by KmerGenie (Chikhi and Medvedev, 2014) which samples k-
+mers to approximate the frequency histogram of k—mer
+occurrences.
+
+Sequencing errors cause considerable problems for k—mer
+based algorithms for both assembly and read mapping; in assem-
+bly these may cause the assembly to become disconnected and
+increases both the memory usage and computational time. In
+read mapping it may lead to increased computational overhead
+and the true location of the read not being found. The removal
+or correction (Meacham et al., 2011; Schroder et al., 2009) of
+erroneous bases and erroneous fragments is therefore a common
+preprocessing step in the analysis of DNA sequences, in particu-
+lar when doing de novo assembly or read mapping to a reference
+assembly. Several programs (Kelley et al., 2010; Li et al., 2010;
+Liu et al., 2013) use k—mers to explicitly ﬁx or remove sequencing
+errors in the dataset and it is recommended to use them prior to
+assembly (Salzberg et al., 2012).
+
+A number of software programs have been written for quality
+control of DNA sequencing data, including F astQC (http://
+www.bioinformatics.babraham.ac.uk/projects/fastqc/). FastQC
+has a number of functionalities useful for quality control, includ-
+ing giving a distribution of the quality values assigned by the
+sequencer, quality distribution by position, N content and GC
+content, identifying overrepresented k—mers and sequence length
+distribution. However, the k—mers identiﬁed tend to be short, 6
+basepairs by default, and although they are useful for identifying
+contaminants they are not unique enough in the underlying
+genome to be useful for assessing the sequencing error rate, in-
+dependent of what is given by the DNA sequencers.
+
+The problem of k-mer counting for high throughput sequen-
+cing data sets has been well studied (Kurtz et al., 2008; Marqais
+and Kingsford, 2011), given a set of reads report the coverage of
+each k—mer, i.e. how many reads contain that k—mer. Current
+methods for obtaining aggregate statistics of k—mer data are
+based on keeping track of all k—mers in a set of reads.
+
+ 
+
+© The Author 2014. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 3541
+
+112 [3.10811211an[p.IOJXO'SODBIIHOJIITOTQ/ﬂ(11111 IIIOJJ pepsolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+P.Melsted and B. V.Halld6rsson
+
+ 
+
+Much work has been done on reducing memory requirements,
+based on exact or approximately correct methods of keeping
+track of a large set of k—mers, this work includes using succinct
+set representations (Conway and Bromage, 2011) or probabilistic
+encodings such as Bloom ﬁlters (Chikhi and Rizk, 2012; Melsted
+and Pritchard, 2011; Pell et al., 2012), whereas recent advances
+have focused on more speed (Deorowicz et al., 2013; Roy et al.,
+2014). Although the impact on memory usage is considerable,
+compared to previous approaches, these methods require storing
+all k—mers, explicitly or implicitly, in memory. Thus the amount
+of resources will grow linearly with the input size. Many methods
+also rely on having access to all the reads for multiple passes over
+the data or require additional disk space for storing intermediate
+results. Thus all of the above methods suffer from ‘the curse of
+deep sequencing’ (Roberts et al., 2011) in which more sequencing
+can overwhelm the program in terms of memory usage and the
+algorithms simply fail to make use of increased amounts of data.
+
+1.1 Contribution
+
+The main contribution of this article is a streaming algorithm for
+estimating efﬁciently the number of k—mers that occur exactly
+once in a data set, taking care of identifying the k—mer with its
+reverse complement. The time requirement for this algorithm is
+only a constant factor times the time taken to read the data and
+requires space that is only logarithmic in the size of the dataset.
+This method can be extended to give an estimate of the k—mer
+abundance histogram. Additionally our algorithm reports fre-
+quency moments of the k—mer count, which are aggregate statis-
+tics of the histogram. For experimental validation we show the
+results of running KmerStream on reads from a single lane of
+PhiX control sequences. We show the distribution accuracy of
+the estimator compared to the accurate k—mer counts and that
+the estimators are almost always within the approximation levels
+guaranteed.
+
+Additionally we formulate a simple error model, both from the
+estimates KmerStream produces as well as the true k—mer counts.
+Both error estimates are then compared to the true k—mer error
+rate obtained from mapping k—mers to the reference genome of
+PhiX174. The results in Section 3.2 show that our simple error
+model underestimates the true error rate, however only by a few
+percent on average.
+
+As a simple application of our method we use it to estimate the
+error rate in a sequencing dataset, conditioned on the per base-
+pair quality value given by the sequencing equipment. Each base-
+pair in the read is assigned a quality value on PHRED scale, an
+assessment of the probability that the basecall is correct. It is up
+to the sequencing equipment, and the basecalling method used,
+to assess this probability from raw data. Unlike most other meth-
+ods designed for estimating error of sequencing data, our method
+does not require the mapping of the data to a reference genome
+as a preprocessing step. The low computational overhead of our
+method makes it suitable to identify quality issues early on in the
+analysis pipeline. The method can therefore be used as a ﬁltering
+step to determine the quality of a run, quickly determining errors
+before the read mapping or assembly stage. We ran the method
+on a set of 2656 whole genome sequenced individuals. Our results
+suggest that the error probabilities given by the Illumina HiSeq
+machines are largely accurate. Our results also show that once we
+
+have conditioned on an error probability given by the sequencing
+equipment there is considerable variance in the sequencing error,
+suggesting that sequencing error needs to be reassessed on a per
+sample basis.
+
+2 METHOD
+
+We start by giving the background behind our work, we then present our
+algorithm for estimating the number of unique k—mers. Finally we show
+how this estimate can be used to estimate the error rate in a sequencing
+experiment, independent of the error rate reported by the sequencing
+equipment.
+
+2.1 Background
+
+A common task is to generate the abundance histogram for the k—mers.
+Generating the exact histogram requires storing a large number of k—mers
+in memory and can be done with k—mer-counting tools such as Jellyﬁsh
+(Marqais and Kingsford, 2011) or BFCounter (Melsted and Pritchard,
+2011). Counting all k—mers in high-throughput sequencing datasets re-
+quires tens, or even hundreds of gigabytes of memory, whereas the
+method we propose requires less than 10 MB. Recently, a method was
+proposed that generates an approximation of the histogram based on
+sampling k—mers (Chikhi and Medvedev, 2014), this method however
+does not have a guaranteed error rate associated with it.
+
+We propose to not consider the exact histogram itself, but to compute
+statistics based on the histogram counts, which can be found using less
+memory and more speed than current methods by using streaming
+algorithms.
+
+We deﬁne f, to be the number of distinct k—mers that appear i times in
+the set of reads. The histogram is then simply a table of the f,- values. One
+of the key statistics we are interested in is f1, the number of singleton
+k—mers, i.e. k—mers that appear exactly once in the set of reads. Previous
+studies (Melsted and Pritchard, 2011) have shown that when a genome is
+being sequenced at relatively high coverage the majority of singleton
+k—mers do not come from the genome, and are generated from sequencing
+errors. Also, the number of singleton k—mers grows with increased cover-
+age, whereas the number of k—mers from the genome will approach a
+ﬁxed number as coverage increases.
+
+Given the frequencies f, of the histogram, we deﬁne the k-th frequency
+moment, Fk, as
+
+00
+Fk = Z ik 'fi (1)
+i=1
+In addition to the number of singleton k—mers f1, we are interested in
+three moments; F0, F1 and F2. F0 is the number of distinct k—mers in the
+set of reads and F1 is simply the number of k—mers in the reads, counted
+with repetition. The second moment, F2, puts a higher weight on the
+number of k—mers that have high abundance values.
+
+For each of the frequency moments streaming algorithms have been
+developed, that can estimate their value to within a factor of (1 :I: 8) with
+high probability using only 0(8‘2-10g(N)) memory, where N is the
+number of distinct k—mers. It should be noted that estimating the fre-
+quency is solved in the general setting of counting arbitrary items in a
+stream, but for the remainder of the paper we will focus exclusively on the
+k-mer counting case.
+
+Estimating the second moment, F2, was ﬁrst solved in the seminal
+work of Alon, Matias and Szegedy (Alon et al., 1996). This article also
+formalized the framework and popularized the research ﬁeld. The ﬁrst
+rigorous estimator for the number of distinct elements, F0 is from (Bar-
+Yossef et al., 2002), although earlier work from (Flajolet and Nigel
+Martin, 1985) applies as well. The ﬁrst moment, F1, is easiest to construct
+as we can maintain a single counter that is incremented once for each
+k—mer.
+
+ 
+
+3542
+
+112 ﬁhO'smumo[pJOJXO'sopchogurorq/ﬁd11q IIIOJJ pepsolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+Streaming algorithms for k-mer abundance estimation
+
+ 
+
+2.2 Estimating F0 and f1
+
+To compute the f1 estimator we use a hashing approach similar to the
+approach of Bar-Yossef et al. (2002). The high level idea of the algorithm
+is to sample the stream at different rates, and afterwards select the sam-
+pling rate that gives the best result. For each k—mer a we compute the
+hash value h(a) and ﬁnd the least signiﬁcant 1 when the value is written in
+binary, e.g. if h(a) =01101002 then the least signiﬁcant 1 is in the third
+position. In the special case when h(a) = 0 we deﬁne the position to be the
+number of bits used to represent h(a) (64 in our experiments). If the hash
+value ends in w zeros, then 2‘” divides h(a) and the binary representation
+of h(a) ends in 1, followed by w zeroes. Assuming the hash values are
+random half the k—mers will have w = 0, a quarter will have w = 1, etc.
+
+In order to estimate the number of distinct k—merswe use as our data
+structure a list of arrays, T, one for each potential value of w, we say that
+the array Tw is at level w, and we say that all k—mers with value w hash to
+this level. Each array has a ﬁxed size R that is only dependent on the error
+parameters 8, and each element in the array is a 2-bit number storing
+values from 0 to 3. When processing a k—mer a we look into the array T w.
+Conditioned on the value of w, the w + 1 least signiﬁcant bits are no
+longer random as they must end in a 1, followed by w zeros. We discard
+the lowest w + 1 bits by dividing by 2W+1 and use the result of the div-
+ision, modulo the size of the array, as an index into the array Tw and
+increase the counter there. As we are only interested in F0 and f1, in the
+application presented here we limit the counter to two bits and if the
+counter is at 3, we do nothing. An extension of this work would be to
+allow the counter to count more bits, the algorithm could then be used to
+estimate f, for general i.
+
+When the number of k—mers is much larger than R the array in T1 will
+almost certainly be full, i.e. all the values will be at 3. This indicates that
+sampling at a rate of one half is too small, and so we should look at lower
+sampling rates. Algorithm 1 estimates f1 by relating it to the probability
+that a counter in an array has value 0 or value 1, respectively. To get a
+good estimate for those probabilities we require that the number of dis-
+tinct k—mers that hash to the array is roughly of the same size as the array
+itself. Thus after we have processed all the k—mers we can ﬁnd the most
+appropriate array T w to use. In our analysis we ignore the possibility of
+two distinct k—mers having the same hash value, as we use 64-bit hash
+values and a pairwise random hash function we expect to have less than
+10 collisions for 10 billion distinct k—mers.
+
+If we look at a ﬁxed level w, the probability of a counter being 0
+depends only on the number of distinct k—mers that hashed to this level,
+NW, and the size of the array, R. This probability is p0 = (1 — @NW, as the
+probability of each k—mer hashing to this counter is %. Note that the
+multiplicity of the k—mer does not factor in here, since each k—mer will
+always hash to the same counter every time it appears. If we can estimate
+this [)0 accurately, then we can solve for NW to get an approximation on the
+number of distinct k—mers that hash to the level w. Solving
+
+1 NW
+170 = (1 —  (2)
+for NW yields
+_ 1n (Po)
+w — m (3)
+
+Since the sampling rate is 2%, we can use the estimate for NW to approximate
+the number of distinct k—mers. Our estimator for [)0 is 130 = %, where to is
+the number of counters with value 0 in the array T w. The estimator of the
+number of distinct k—mers in the dataset is then
+
+A 1 ‘—°
+F0 = 2W n(R)1
+In“ — x)
+Although this would work for any value of w, i.e. all values of w have
+the same expectation, different values of w have different variance. If we
+
+(4)
+
+use w = 1, then nearly all values in T w will be non-zero, giving a poor
+point estimate of 120. Similarly if w is too high, so that only a handful of
+elements map to T w the estimate for [)0 will be poor. In general we want
+our estimates to be bounded away from 0 and 1, to this end we select the
+level w* where the fraction of empty counters is as close to 50% as pos-
+sible. By thinning the stream of hash values we can adaptively sample at
+different rates and decide on the best rate to use after we have seen all the
+data when we have to report the answer.
+
+ 
+
+Algorithm 1 Streaming algorithm for counting k—mers
+
+ 
+
+function UPDATE(a)
+z <—h(a)
+w <—Number of trailing zeros of z
+i <— |_2,,+1J(mod R)
+Tw[i_| <— min (Tw[i_| + 1, 3)
+
+function ESTIMATE-STATISTICS
+w* <— argminW||{i: Tw[i_|=0}| —%|
+po 6 
+p. e 
+f1 <— 2W*(R — 1);;71)
+F0 (— 2w* 111 (ml)
+
+i>select level
+i>Probability estimates
+
+ 
+
+ 
+
+ 
+
+Up to this point we have followed the work of Bar-Yossef et al. (2002)
+for estimating F0, the estimator here is identical to the one derived in
+Theorem 2 of (Bar-Yossef et al., 2002). We now show how to extend
+these results to obtain an accurate estimate of f1.
+
+We deﬁne a singleton to be a k—mer that occurs once and let x1 be the
+number of singletons that hash to level w. We note that each counter with
+a value of 1 has to be the result of a singleton k—mer hashing to this
+counter, since for non-singleton k—mers the counter would have been
+increased at least twice. On the other hand some singleton k—mers will
+hash to the same counter as some other k—mer so we must ﬁnd a way to
+relate x1 to some probability we can compute. The probability that a
+counter contains the value 1 is
+
+951 1N—1
+=—1—— W 5
+P1 R( R) ()
+
+This is seen by choosing the one singleton k—mer that should hash to the
+counter from the x1 possible candidates. The chosen singleton hashes to
+the counter with probability % and all the other NW — 1 k—mers must not
+hash to the counter with probability (1 — %)NW_1. Note that from (2) we
+
+see that the part (1 —%NW_1 is equal to 1% = $120. Thus we have
+R
+
+p1 = x—Rlﬁpo, simplifying and solving for x1 yields
+x1=(R— 1)11 (6)
+Po
+
+We estimate 171 in the same fashion as 170, namely let t1 be the number of
+counters in Tw equal to 1 and set 131 = %.
+
+As to and t1 follow a binomial distribution with R trials and probabil-
+ities p0 and 171, respectively, we can expect the error in the estimates of the
+probabilities, 130 and 131, to be on the order of ﬁ. This will then translate
+to an error rate of similar magnitude for the f1 estimator.
+
+We formalize the selection of the optimal value of win Theorem 1, the
+proof of this theorem can be found in the supplement for the article.
+
+THEOREM 1. If f1 2 5 then Algorithm 1 finds 121 such that (1 — 8)f1 5 f1
+5 (1 +8)f1 with probability at least (1 — 8). The algorithm uses
+0(W10gﬂw) memory and 0(1) time per update, where N is the
+
+number of distinct elements in the stream.
+
+ 
+
+3543
+
+112 /810's1eumo[pJOJXO'sopemJogutotq/ﬁd11q IIIOJJ pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+P.Melsted and B. V.Halld6rsson
+
+ 
+
+We note that this method can be extended to obtain estimates of higher
+frequencies, f, for i Z 2. As an example for f2, we note that if a counter
+has the value 2, this can only be obtained from two independent
+
+singletons mapping to the counter or one k-mer with frequency 2. The
+x1
+
+ﬁrst happens with probability % (1 — %)N_2 and the latter with prob-
+)N—l
+
+ability x72 (1 — i
+
+R , where x1 and x2 are the number of k-mers with
+
+frequency 1 and 2 that map to a level. Given an estimate for N and x1
+we can solve to obtain an estimate for x2. This scheme could be general-
+ized for higher values of i to obtain estimates of f,, although obtaining a
+guarantee on the error rate is left as an open problem.
+
+2.3 Estimation of k-mer error rates
+
+We can use our results to estimate error rates of a genomic sequencing
+experiment. For this we will focus solely on the k-mer error rate, i.e. given
+a k-mer from a read what is the probability that the k-mer did not ori-
+ginate from the DNA sequenced. This rate is higher than the basepair
+error rate, since we require all of the k basepairs to be intact. If the
+sequencing errors in a read were independently distributed, it would be
+easy to convert the k-mer error rate to a basepair error rate. However
+sequencing errors are not independent, generally the ends of the reads
+have higher error rates and sequencing errors can come in batches. Thus
+we will focus on the k-mer error rate in this discussion and note that
+converting it to a basepair error rate assuming independence will lead to
+an underestimate of the true basepair error rate.
+
+We use a simple generative model where total number of sampled
+k-mers with repetition, namely F1, is given. Each k-mer comes from a
+random position in the genome of size G, and with probability 8k it con-
+tains a sequencing error and is error-free with probability 1 — 8k. To ac-
+count for repeated errors, we further assume that each erroneous k-mer is
+produced by sampling a random basepair in the reference k-mer and chan-
+ging the base to one of the three other nucleotides, so that it does not
+match the reference. For each true k-mer there are 3k possible error k-mers
+and Hamming distance 1. The number of k-mers sampled at each location
+follows a Poisson distribution with mean A and so the coverage of an error-
+free k-mer is Poi(A(1 — 8k)). For a ﬁxed erroneous k-mer the coverage
+follows a PoiQilf), assuming that there is only one possible position in
+the genome that could produce this error. Our model has three parameters,
+G, A and, 8k. To obtain estimates for these parameters we require three
+statistics, namely f1, F1 and, F0. Given the Poisson distributions of the
+coverages and the number of possible k-mers G for the error-free and
+G - 3 - k for the single error k-mers, we can derive the following equations
+
+F0 = G - 3k(1 — Hail.) + a. (1 _ [Ml—81.)) (7)
+F1 2 A - G 
+, A2
+f1 =G - 3k - ﬂe 3k +GA(1 _ 8k)e-A(1—8k)
+3" (9)
+A2
+= GAake 3k + GA(1 — 8k)e—)~(1—8k)
+We can isolate A from (8) and G from (7) to obtain
+F1 F1 Ji —A(l—c )
+= _ = _ _ + _ k
+A G F0 (3"(1 e 3") (1 e l) (10)
+Similarly we derive by canceling the common factor GA from (9) using (8)
+J1; = ace—ATE? + (1 — sue—“1‘8” (11)
+1
+
+Using Equations (10) and (11) we can solve for A and 8k numerically to
+
+obtain an estimate of the coverage, k-mer error rate and ﬁnally the
+number of k-mers present in the genome.
+
+We make a couple of observations about this model. First, the assump-
+tion that all error k-mers are solely due to single nucleotide differences
+causes us to slightly underestimate the true error rate. Second, a sequen-
+cing error in one k-mer may not be detected as an error because the error
+k-mer also occurs as a true k-mer in the genome. As we have chosen
+k = 31 then in random DNA the probability that a error k-mer also
+occurs in the human genome is less than 10—9. Third, the same error
+k-mer can occur in two distinct reads by chance given high enough cover-
+age, this is modeled in our k-mer distribution model via the Poisson
+variables. Finally, our model ignores copy numbers in a diploid
+genome, either single copy from heterozygous SNPs or multi-copy
+from repetitive regions. In Section 3.3, we give the fraction of k-mers
+by copy number in the Human Genome.
+
+It has been observed that in practice sequencing reads are not ran-
+domly sampled from the genome and the true distribution is not a
+Poisson distribution. In particular, the coverage of genomic regions is
+known to be dependent on the GC rate of the basepairs (Minoche
+et al., 2011). Meacham et al. (2011) have shown that the error rate is
+site speciﬁc, i.e. that sequencing error rate varies with the location being
+considered. Nonetheless we show in Section 3.2 that this simpliﬁed model
+gives a good estimate of the k-mer error rate using only three statistics
+from the k-mer distribution, rather than the entire histogram.
+
+2.4 Implementation details
+
+The input to KmerStream is a collection of short reads S. For each read
+s e S we generate all substrings of length k in s, denoted as k-mers. When
+reads contain other characters than ACGT, such as N, we split the read
+on the non-ACGT characters and consider all k-mers in the split reads.
+For each k-mer we also consider the reverse complement of that k-mer,
+and in general make no distinction between the two when counting.
+
+We considered all k-mers that only contained basepairs that had a
+q-value above a ﬁxed threshold. Hence, if a read contains a basepair
+with a q-score less than the given threshold only k-mers to the left
+and to the right of the basepair were considered. Our computations were
+run for q-score thresholds of 0, 13, 20 and 30, corresponding to basepair
+error rates of 1, 0.05, 0.01 and 0.001, respectively. As an example, when
+using a q-score threshold of 30 then, according to the annotation given by
+the sequencing equipment, all basepairs considered should have an error
+rate of less than 0.001 or 0.1%. As many of the basepairs will have even
+lower annotated error rates, then if the annotation of the manufacturer is
+correct, the average error rate should be even lower.
+
+The software is implemented in C+ + and can read FASTQ, com-
+pressed FASTQ and BAM ﬁles. The user can select the k-mer size used,
+the error rate 8 and additionally it allows for ﬁltering k-mers based on
+quality scores. For the quality ﬁltering, all bases in a read that do not
+meet the cutoff are discarded, thus only k-mers where all the bases in the
+k-mer have good quality values are kept.
+
+3 RESULTS
+
+We start by showing that our method is both faster and uses less
+memory than a previously presented methods. In order to valid-
+ate our method for estimating the sequencing error rate, we ﬁrst
+compare our method to an exact method on a known fully
+sequenced organism. We then estimate the effect that we re-
+peated k-mers in the human genome could have on our error
+rate estimate. Finally, we apply the method to estimate error rate
+in a set of 2656 whole genome sequenced individuals. The scripts
+for the software comparisons and detailed version information
+are in the supplement.
+
+ 
+
+3544
+
+112 [glO'SIBILInOfplOJXO'SODBIIIJOJHIOIQ/[ldllq 11101; pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Streaming algorithms for k-mer abundance estimation
+
+ 
+
+3.1 Comparison to KmerGenie
+
+We compare our software, KmerStream, to KmerGenie in terms
+of running time and memory usage. As input we used the H.
+Sapiens chr 14 (36M reads) and B. Impatiens (303 M reads),
+datasets from GAGE (Salzberg et al., 2012). Both software
+were run for 4 values of k simultaneously, k= 31, 47, 63, 79
+using four threads for parallelism. As a comparison running a
+fast k—mer-counter, scTurtle (Roy et al., 2014) took 3594s using
+eight cores and 26 G of memory, for a single value of k = 31 for
+B. Impatiens.
+
+Our experiments show that KmerStream is at least 3.5 times as
+fast as KmerGenie and the memory usage is an order of magni-
+tude better, see Table 1. It should be noted that the time to read
+the H. Sapiens dataset was 63 s, and 1085 s for the compressed B.
+Impatiens dataset. Our program is therefore only about two
+times slower than the time it takes to read the data. This com-
+parison also shows that KmerStream is an order of magnitude
+faster than full blown k-mer counting, when it comes to explora-
+tory analysis.
+
+3.2 PhiX174 Validation
+
+To validate the accuracy of the k—mer error rate model proposed
+in Section 2.3, we used sequencing reads obtained from a PhiX
+control lane. We chose to use PhiX for this experiment as its
+genome is completely known and short enough for easily clas-
+sifying k—mers as belonging to the genome or not. The sequen-
+cing data from the control has 363M reads, while the genome size
+of PhiX174 is only 5386 nucleotides. This high coverage allows
+us to partition the data and repeat the estimation process on a
+real dataset, rather than working with simulated data. Due to the
+small genome size, reads were sampled so that the per basepair
+coverage would be 30-fold. This was necessary to scale down the
+coverage to values that better correspond to a normal sequencing
+coverage used for whole genome sequencing. This was repeated
+1000 times and each computational experiment run independ-
+ently. For each input we used k = 31 and classiﬁed all k—mers
+in reads as true or false, depending on whether they appeared in
+the reference sequence or not. Separate frequency histograms
+were generated for both classes of k-mers. We then ran
+KmerStream for each input obtaining estimates for f1, F1 and
+F0. The top row of Figure 1 shows the distribution of relative
+accuracy for f1 and F0 respectively. The program was run with a
+default error guarantee of 2% for F0, since for this input f1 /F0 is
+about 0.5 this results in a 4% error guarantee of f1. From the
+distribution of Figure 1 (top row), we see that the vast majority
+
+Table 1. Software comparison for running time and memory usage
+
+ 
+
+Software Parameter (k) Dataset Time Memory
+
+ 
+
+KmerStream 31,47,63,79 H. Sapiens, chr14 158s 47.7M
+
+KmerGenie 31,47,63,79 H. Sapiens, chr14 609 s 487M
+KmerStream 31,47,63,79 B. Impatiens 1835 s 52.4M
+KmerGenie 31,47,63,79 B. Impatiens 6424 s 495M
+
+ 
+
+of the experiments have estimates within the conﬁdence interval
+speciﬁed.
+
+The error rate model was ﬁtted using both the true values for
+the statistics as well as the estimated values from KmerStream.
+
+F0 estimate vs. true 11 estimate vs. true
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+o - o
+e e
+O O
+2 e
+O 0
+LO LO
+0 O
+I I I I I I I I I I
+0.96 1.00 1.04 0.96 1.00 1.04
+Model accuracy from estimated counts Model accuracy from true counts
+o o _
+a a
+O O
+2 2
+O O
+LO LO
+0 O
+I I I I I I I I I I I I I I I I
+0.88 0.92 0.96 1.00 0.88 0.92 0.96 1.00
+
+Fig. 1. Relative accuracy of KmerStream and the error model for 1000
+PhiX samples. Top row: accuracy for F0 and f1, respectively. Bottom row:
+relative accuracy of 31-mer error rate based on 31-mer estimates (left) and
+true 31-mer numbers (right)
+
+qO q13
+900 — — 900 —
+600 — 600 —
+300 — 300 —
+o — o —
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+I I I I I I I I I
+0.000 0.010 0.020 0.030 0.040
+
+31 —mer error rate
+
+I I I I I I I
+0.00 0.10 0.20 0.30
+
+31 —mer error rate
+
+q20 q30
+900 - 900 -
+600 - 600 -
+300 - 300 -
+0 - 0 -
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+I I I I I I I I I I I I I I I I I I
+0.000 0.010 0.020 0.030 0.040 0.000 0.010 0.020 0.030 0.040
+31 —mer error rate 31 —mer error rate
+
+Fig. 2. Distribution of 31-mer error rates for different quality ﬁlters for
+2656 individuals
+
+ 
+
+3545
+
+112 [3.1081120an[p.IOJXO'SODBIIIJOJHIOIQ/ﬂdllq 11101; pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+P.Melsted and B. V.Halld6rsson
+
+ 
+
+The true k—mer error rate was obtained by matching k-mers to
+the PhiX174 reference genome.
+
+Given the number of caveats listed when deriving our simpli-
+ﬁed model, as well as obtaining estimates from only three key
+statistics, we are pleasantly surprised to see how well the model
+ﬁts the actual results. Based on the true values for the k-mer
+statistics we see from Figure 1 (bottom row, right) that our
+model underestimates the k-mer error rate by 4% on average.
+When using the estimated values from KmerStream, Figure 1
+(bottom row, left) shows that we underestimate the error rate
+by 4% on average, same as using the true k-mer statistics, but we
+observe an increase in the variance of the accuracy of our
+estimate. This increase in variance is primarily because of the
+underlying variance in our estimate of the k-mer statistics. Of
+course the KmerStream method is much more efﬁcient than ob-
+taining the accurate counts, both in terms of runtime and
+memory. Based on these results we can safely interpret the
+results of the k-mer error model, at least up to a factor of 0.9
+to 1.0.
+
+3.3 Unique k-mers in the human genome
+
+The model for estimating the k-mer error rate does not take into
+account k—mers that have a high repeat count, due to repetitive
+regions, systematic errors in sequencing or heterozygous SNPs.
+To detemine the number of k-mers having high repeat count, we
+constructed the diploid genome of a single individual. As input
+we used Human reference genome build 36, genotypes called in
+that individual as determined using the GATK (DePristo et al.,
+2011; McKenna et al., 2010) genotype caller and the assignment
+of these genotypes to haplotypes using long range phasing (Kong
+et al., 2008). From this information we constructed two copies of
+each chromosome.
+
+Using Jellyﬁsh (Marqais and Kingsford, 2011) we counted a
+total of 2.552G 31-mers in this diploid genome and observe that
+4.9% of the 31-mers only occur once in the diploid genome,
+indicating that they overlap a heterozygous polymorphic
+region. Additionally, 91.7% of the 31-mers occur twice, indicat-
+ing that the region is non-polymorphic, 0.1% occur three times,
+1.9% of the 31-mers occur four times and 1.4% occur more than
+four times. In total only 3.4% of k—mers are repeated in the
+genome, suggesting that our assumptions that most k-mers
+occur uniquely in the genome is largely correct.
+
+3.4 Error rates
+
+To estimate the k—mer error rates we ran our algorithm on a data
+set of 2656 whole-genome sequenced individuals, using Illumina
+HiSeq sequencers. These individuals had an average coverage of
+15.9x and a minimum coverage of 6x. All of these data are
+sequenced under the same conditions at the same laboratory
+and have already undergone a number of quality control proced-
+ures (Styrkarsdottir et al., 2013; Gudbjartsson et al., 2014). We
+expect these data to have comparable error characteristics.
+Figure 2 shows a histogram of the average per k-mer error rate
+for different q-value thresholds and in Table 2 we give critical
+values of the distribution of the read error rate. We observe that
+without any ﬁltering on q-values, on average 5.9% of the k-mers
+are estimated to contain errors. This number varies considerably
+between samples and 5% of the samples have an estimated error
+
+rate of 11.5% or higher, while 5% of the samples have an esti-
+mated error rate of 3.7% or lower.
+
+We observe that the error rate decreases with a higher q-value
+threshold. We observe a marked uniform decline in the fraction
+of error k—mers when the threshold is increased from 0 to 13, an
+average reduction of 80%. A smaller, but clear, decrease is
+observed when the q-value threshold is increased from 13 to
+20, 25% on average. However when comparing increasing the
+threshold from 20 to 30 we observed an average change of
+—0.9%, but a median of 9%. Additionally this decrease in the
+number of error k—mers is not uniform and in 44% of all indi-
+viduals the estimated error rate increases when the q-value
+threshold is increased from 20 to 30, i.e. using q-value thresholds
+larger than 20 does not necessarily give one lower error rate
+k-mers. Furthermore the number of k-mers, i.e. the coverage of
+the data set was reduced by 25 % on average by increasing the
+q-value threshold from 20 to 30.
+
+In Table 2, we consider only the k—mers that are removed when
+the error threshold is increased We observe that when increasing
+the q-value threshold from 0 to 13, on average an estimated 96%
+of the k-mers removed are singleton k-mers. This suggests that
+unless the algorithm being used for analysis is highly robust to
+errors, then using a q-value threshold of 13 will increase the
+signal-to-noise ratio of the data, without losing coverage. On
+average of 85% of all k-mers in our dataset have q-value at all
+bases greater than 13, indicating that not considering k-mers with
+a q-value threshold less than 13 has limited impact on the
+number of k-mers being considered while it has a large impact
+on the fraction of k-mers that are error free. When we increase
+the q-value threshold from 13 to 20 an average of 91% of the
+k-mers removed are singleton k—mers and when increasing the
+threshold from 20 to 30 an average of 54% of the k—mers
+removed are singleton k-mers.
+
+4 DISCUSSION
+
+The amount of data being gathered with modern sequencing
+methods continues to grow at a faster rate than our ability to
+analyze and store the data. An alternative view to the current
+state of the art is to consider technologies that sequence DNA
+‘on the ﬂy’. In this case, the sequencing machine does not store
+all the results, but rather transmits the sequence reads as they are
+
+Table 2. Percentiles of 31-mer error rates at different q-value thresholds
+for 2656 individuals, changes in the number of 31-mers and the change in
+number of repeated 31-mers from previous threshold
+
+ 
+
+Threshold Percentile Median change in number of
+
+ 
+
+ 
+
+5 50 95 31-mers repeated 31-mers
+q0 3.7% 5.9% 11.4%
+q13 0.6% 1.1% 2.2% —23.0- 108 —0.981 - 108
+q20 0.4% 0.8% 1.8% —1.50- 108 —0.142. 108
+q30 0.3% 0.8% 2.2% —1.69 - 108 —0.696- 108
+
+ 
+
+ 
+
+3546
+
+112 [3.1081120an[p.IOJXO'SODBIIIJOJHIOIQ/ﬂdllq 11101; pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Streaming algorithms for k-mer abundance estimation
+
+ 
+
+generated. Technologies that ﬁt this framework have been pro-
+posed (Branton et al., 2008; Clarke et al., 2009) and are currently
+in development, such as technologies from Oxford Nanopore,
+but technical details are limited at this point in time.
+Regardless of the exact technologies used, this new sequencing
+paradigm opens up new opportunities for online or streaming
+analysis of the data, where we bypass the storage requirements,
+and simply plug the sequencing directly into the analysis.
+
+One beneﬁt of the algorithms we have developed is as follows;
+F0 — fl is a crude estimate of the number of k-mers that have
+been sequenced at least twice, when this number goes above a
+certain fraction of the genome size we can decide to stop sequen-
+cing. Another beneﬁt is that when the error rate goes above some
+threshold we can decide to stop the experiment immediately, not
+wasting our time on failed experiments. The method presented
+here can be particularly useful when used for a species that has
+not been previously sequenced, allowing us to get an estimate the
+coverage of this genome while sequencing prior to assembly.
+
+When we condition on the error rate given by Illumina we see
+considerable variability in the error rate between individuals.
+Hence, it is not advisable to use the error rates in a model with-
+out considering differences between individuals.
+
+Our results show that although the base pair quality values
+given by the sequencing equipment are largely correct, there ap-
+pears to be a considerable sample-dependent difference in the
+error rate conditioned on the base pair quality rate reported by
+the manufacturer. Our recommendation based on the results of
+sequencing 2656 individuals is to estimate both the number of
+k-mers F0 as well as the coverage and k-mer error rate for mul-
+tiple q-value thresholds and decide on a case by case basis.
+
+Conflict of interest: None declared.
+
+REFERENCES
+
+Alon,N. et al. (1996) The space complexity of approximating the frequency mo-
+ments. In: Proceedings of the twenty-eighth annual ACM symposium on Theory of
+computing. ACM, New York, NY, USA, pp. 20—29.
+
+Bar-Yossef,Z. et al. (2002) Counting distinct elements in a data stream. In:
+Randomization and Approximation Techniques in Computer Science. Springer,
+Berlin Heidelberg, pp. 1—10.
+
+Branton,D. et al. (2008) The potential and challenges of nanopore sequencing.
+Nature biotechnology, 26, 1146—1153.
+
+Chikhi,R. and Medvedev,P. (2014) Informed and automated k-mer size selection for
+genome assembly. Bioinformatics, 30, 31—37.
+
+Chikhi,R. and Rizk,G. (2012) Space-efﬁcient and exact de Bruijn graph represen-
+tation based on a Bloom ﬁlter. In: Algorithms in Bioinformatics. Springer,
+pp. 236—248.
+
+Clarke,J. et al. (2009) Continuous base identiﬁcation for single-molecule nanopore
+DNA sequencing. Nat. Nanotechnol, 4, 265—270.
+
+Conway,T.C. and Bromage,A.J. (2011) Succinct data structures for assembling
+large genomes. Bioinformatics, 27, 479—486.
+
+Deorowicz,S. et al. (2013) Disk-based k-mer counting on a pc. BM C bioinformatics,
+14, 160.
+
+DePristo,M. et al. (2011) A framework for variation discovery and genotyping using
+next-generation DNA sequencing data. Nat. Genetics, 43, 491—8.
+
+Flajolet,P. and Nigel Martin,G. (1985) Probabilistic counting algorithms for data
+base applications. J. Comput. Syst. Sci., 31, 182—209.
+
+Gnerre,S. et al. (2011) High-quality draft assemblies of mammalian genomes from
+massively parallel sequence data. Proc Natl Acad Sci, 108, 1513—1518.
+
+Gudbjartsson,D.F. et al. (2014) Large-scale whole-genome sequencing of the
+Icelandic population. Nat. Genetics. In Press.
+
+Kelley,D. et al. (2010) Quake: quality-aware detection and correction of sequencing
+errors. Genome Biol, 11, R116.
+
+Kong,A. et al. (2008) Detection of sharing by descent, long-range phasing and
+haplotype imputation. Nat. Genetics, 40, 1068—1075.
+
+Kurtz,S. et al. (2008) A new method to compute k-mer frequencies and its appli-
+cation to annotate large repetitive plant genomes. BM C Genomics, 9, 517.
+Li,R. et al. (2010) De novo assembly of human genomes with massively parallel
+
+short read sequencing. Genome Res., 20, 265—272.
+
+Liu,Y. et al. (2013) Musket: a multistage k-mer spectrum-based error corrector for
+Illumina sequence data. Bioinformatics, 29, 308—315.
+
+Marc,ais,G. and Kingsford,C. (2011) A fast, lock-free approach for efﬁcient parallel
+counting of occurrences of k-mers. Bioinformatics, 27, 764—770.
+
+McKenna,A. et al. (2010) The Genome Analysis Toolkit: a mapreduce framework
+for analyzing next-generation DNA sequencing data. Genome Res., 20,
+1297—1303.
+
+Meacham,F. et al. (2011) Identiﬁcation and correction of systematic error in high-
+throughput sequence data. BM C Bioinformatics, 12, 1—1 1.
+
+Melsted,P. and Pritchard,J. (2011) Efﬁcient counting of k-mers in DNA sequences
+using a Bloom ﬁlter. BM C Bioinformatics, 12, 333.
+
+Minoche,A.E. et al. (2011) Evaluation of genomic high-throughput sequencing data
+generated on illumina hiseq and genome analyzer systems. Genome Biol. 12,
+R1 12.
+
+Pell,J. et al. (2012) Scaling metagenome sequence assembly with probabilistic de
+Bruijn graphs. Proc. Natl Acad. Sci., 109, 13272—13277.
+
+Roberts,A. et al. (2011) RNA-Seq and ﬁnd: entering the RNA deep ﬁeld. Genome
+Med, 3, 74.
+
+Roy,R.S. et al. (2014) Turtle: Identifying frequent k-mers with cache-efﬁcient algo-
+rithms. Bioinformatics, 30, 1950—1957.
+
+Salzberg,S.L. et al. (2012) GAGE: A critical evaluation of genome assemblies and
+assembly algorithms. Genome Res., 22, 557—567.
+
+Schr6der,J. et al. (2009) SHREC: a short-read error correction method.
+Bioinformatics, 25, 2157—2163.
+
+Styrkarsdottir,U. et al. (2013) Nonsense mutation in the LGR4 gene is associated
+with several human diseases and other traits. Nature, 497, 517—520.
+
+Zerbino,D.R. and Bimey,E. (2008) Velvet: algorithms for de novo short read as-
+sembly using de Bruijn graphs. Genome Res., 18, 821—829.
+
+ 
+
+3547
+
+112 [3.1081120an[p.IOJXO'SODBIIIJOJHIOIQ/ﬂdllq 11101; pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+

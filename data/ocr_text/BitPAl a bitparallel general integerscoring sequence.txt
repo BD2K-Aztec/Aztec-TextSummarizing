@@ -1,0 +1,1255 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 22 2014, pages 3166—3173
+doi:10. 1093/bioinformatics/btu507
+
+ 
+
+Sequence analysis
+
+Advance Access publication July 29, 2014
+
+BitPAI: a bit-parallel, general integer-scoring sequence
+
+alignment algorithm
+
+Joshua Loving1’2’*, Yozen Hernandez“2 and Gary Benson
+
+123*
+
+1Laboratory for Biocomputing and Informatics, 2Graduate Program in Bioinformatics, and 3Department of
+Computer Science, Boston University, Boston, MA 02215, USA
+
+Associate Editor: John Hancock
+
+ 
+
+ABSTRACT
+
+Motivation: Mapping of high-throughput sequencing data and other
+bulk sequence comparison applications have motivated a search for
+high-efficiency sequence alignment algorithms. The bit-parallel ap-
+proach represents individual cells in an alignment scoring matrix as
+bits in computer words and emulates the calculation of scores by a
+series of logic operations composed of AND, OR, XOR, complement,
+shift and addition. Bit-parallelism has been successfully applied to the
+longest common subsequence (LCS) and edit-distance problems,
+producing fast algorithms in practice.
+
+Results: We have developed BitPAl, a bit-parallel algorithm for gen-
+eral, integer-scoring global alignment. Integer-scoring schemes assign
+integer weights for match, mismatch and insertion/deletion. The BitPAl
+method uses structural properties in the relationship between adjacent
+scores in the scoring matrix to construct classes of efficient algo-
+rithms, each designed for a particular set of weights. In timed tests,
+we show that BitPAl runs 7—25 times faster than a standard iterative
+algorithm.
+
+Availability and implementation: Source code is freely available for
+download at http://lobstah.bu.edu/BitPA|/BitPAl.html. BitPAl is imple-
+mented in C and runs on all major operating systems.
+
+Contact: jloving@bu.edu or yhernand@bu.edu or gbenson@bu.edu
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on February 27, 2014; revised on July 18, 2014; accepted on
+July 21, 2014
+
+1 INTRODUCTION
+
+Sequence alignment algorithms are critical tools in the analysis of
+biological sequence data including DNA, RNA and protein se-
+quences. The demands placed on computational resources by
+high-throughput experiments require new, more efﬁcient meth-
+odologies. While the standard algorithms of Smith and
+Waterman (1981) and Needleman and Wunch (1970) calculate
+the score in each cell of the alignment scoring matrix sequen-
+tially, a newer technique called bit-parallelism partially over-
+comes score dependencies so that scores can be calculated in
+parallel to achieve much higher efﬁciencies.
+
+Bit-parallel algorithms have been developed for exact and ap-
+proximate string matching problems. Early examples include the
+algorithms of Baeza-Yates and Gonnet (1992), which ﬁnds exact
+matches to a simple string pattern, and Wu and Manber (1992),
+
+ 
+
+*To whom correspondence should be addressed.
+
+which ﬁnds approximate matches to a string pattern or a regular
+expression, where the number of differences between the pattern
+and the text is at most k (counting single character substitutions
+and single character insertions and deletions or indels). The latter
+is implemented as the Unix command agrep. Additional k-differ-
+ences examples include (Wu et al., 1996), which ﬁnds matches to
+‘limited expressions’, i.e. regular expressions without Kleene clos-
+ure, (Myers, 1999), which ﬁnds matches to simple string patterns
+and emulates the dynamic programming solution used in align-
+ment, and (Navarro, 2004), which allows arbitrary integer
+weights for substitution of each pair of characters, insertion of
+each character and deletion of each character, and ﬁnds occur-
+rences of regular expressions where the sum of the edit weights is
+at most k. In most k—differences algorithms, the complexity (and
+computing time) increases with increasing k.
+
+Bit-parallel methods have been successfully applied to the
+longest common subsequence (LCS) problem (Allison and Dix,
+1986; Crochemore et al., 2001; Hyyro, 2004), and to unit-cost
+edit-distance (Hyyr6 and Navarro, 2005; Hyyr6 et al., 2005) by
+modiﬁcations of Myers’s method (1999). These algorithms
+compute the alignment score, de-linking that computation
+from the traceback, which produces the ﬁnal alignment. In the
+LCS scoring matrix, scores are monotonically non-decreasing in
+the rows and columns, and bit-parallel implementations use bits
+to represent the cells where an increase occurs. In edit-distance
+scoring, adjacent scores can differ by at most one, and the binary
+representation stores the locations of (two of the three) possible
+differences, + l, —l and zero. These algorithms are ad hoc in their
+approach, relying on speciﬁc properties of the underlying
+problems, making it difﬁcult to directly adapt them to other
+alignment scoring schemes.
+
+Below, we present a bit-parallel method for similarity and dis-
+tance based global alignment using general integer-scoring
+(Benson et al., 2013), allowing arbitrary integer weights for
+match, mismatch and indel. Other approaches have been sug-
+gested by Wu and Manber (1992) and Bergeron and Hamel
+(2002). The method of Navarro (2004) is more ﬂexible in scoring
+and applies to both simple patterns and regular expressions, but
+is much slower than our method in practice. Our contribution is
+based on an observation of the regularity in the relationship be-
+tween adjacent scores in the scoring matrix (Section 2. l) and the
+design of an efﬁcient series of bit operations to exploit that
+regularity (Section 3). Because every distinct choice of weights
+requires a different program, we show how to construct a class of
+efﬁcient algorithms, each designed for a particular set of
+weights, and provide an online C code generator for users.
+
+ 
+
+© The Author 2014. Published by Oxford University Press.
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution License (http://creativecommons.org/licenses/by/4.0/), which
+permits unrestricted reuse, distribution, and reproduction in any medium, provided the original work is properly cited.
+
+112 [3.10811211an[plOJXO'SODBIIIJOJIIIOIQ/[idllq IIIOJJ pepcolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+Bit-parallel, general integer-scoring alignment
+
+ 
+
+The complexity of our algorithms depends on the weights, not
+the ultimate score of the alignment. Our method works for gen-
+eral alphabets, but our interest derives from frequent use of
+DNA alignment when analyzing high-throughput sequencing
+data to detect genetic variation.
+
+2 METHODS
+
+The problem to be solved is stated in terms of similarity scoring, but the
+technique applies to distance scoring as well.
+
+PROBLEM. Given two sequences X and Y, of length n and m respectively,
+and a similarity scoring function S deﬁned by three integer weights M
+(match), I (mismatch) and G (indel or gap), calculate the global alignment
+similarity score for X and Yusing logic and addition operations on computer
+words of length w.
+
+We are interested in two measures of efﬁciency for the algorithms. The
+ﬁrst is standard time complexity and the second is a ratio of the word size,
+w, and the count, p, of logic and addition operations required to process
+w consecutive cells in the alignment scoring matrix. The efﬁciency,
+e = w/ p, is the average number of cells computed per operation. For ex-
+ample, when using 64 bit words, LCS has e = 64/4 = 16 [P = 4 operations
+per word (Hyyro, 2004)], and edit distance has e= 64/15 % 4.2 [an im-
+provement from 64/16 in the method of Hyyro et al. (2005) and Myers
+(1999); see Supplementary Information for details]. As P is
+independent of w, if the word size doubles, e doubles too. Note that we
+are counting only logic and addition operations, not storage of values in
+program variables. Adding store operations would be more accurate but
+the number of these operations is compiler and optimization level
+speciﬁc.
+
+We require that the alignment method be global or semi-global. That
+is, we do not restrict the initializations in the ﬁrst row or column of the
+alignment scoring matrix or where in the last row or column the align-
+ment score is obtained. Typical initializations require (i) a gap weight to
+be added successively to every cell (global alignment from the beginning
+of a sequence), and (ii) a zero in every cell (semi-global alignment where
+an initial gap has no penalty). We assume that match scores are positive
+or zero, M Z 0, mismatch and gap scores are negative, I, G< 0 and
+that the use of mismatch is possible, meaning that its penalty is no
+worse than the penalty for two adjacent gaps, one in each sequence,
+I 2 2G. While other weightings are possible, they either reduce to simpler
+problems from a bit-parallel perspective (e. g. LCS has
+G = 0, I = — 00, M = 1) or require more complicated structures than de-
+tailed here (e.g. protein alignment using PAM or BLOSUM style amino
+acid substitution tables).
+
+2.1 Function tables
+
+Let S be a recursively-defmed, global similarity scoring function for two
+sequences X and Y computed in an alignment scoring matrix:
+
+S[i—1,1'—1]+M iin=Yj
+
+S[i—1,1'—1]+I Eli/HAY,-
+S[i,1]=max
+
+S[i — 1,1]+G delete X,-
+
+S[i,j— 1]+G delete Y]-
+
+Instead of actual values of S, we store only the differences, AV, between a
+cell and the cell above, and AH, between a cell and the cell to its left:
+
+It is an easy exercise to prove that the minimum and maximum values
+for AV and AH are G and M — G, respectively. Lemma 2.1 gives the
+recursive deﬁnitions for AV and AH in terms of M, I and G.
+
+LEMMA 2.1. The values for AV are as shown below and the values for AH
+are computed similarly. That is, AH[i, 1] in matrix S is equal to V[j, z] in the
+transpose of matrix S.
+
+AViLJ] =
+Vijzl
+' M— AH[i— 1,1] Match, i.e.: iin= 
+I— AH[i — 1,1] Mismatch, i.e.: if
+I— G 2
+AVliJ- 1]
+
+G Indel from above, i.e.: if
+
+I—G
+
+A '—1, _
+H[l 11>{Amj_l]
+
+AVliJ- 1]+
+
+G — AH[i — 1,1] Indelfrom left, i.e.: if
+
+AH[i— 1,1]
+
+ 
+
+I
+
+(Vioal = G or V[0,J] = 0)
+
+ijl ijl
+
+PROOF. By substitution in the recursive formula for S. D
+
+The recursion for AV is summarized in the Function Table in Figure 1.
+Note the value I — G, which frequently occurs in the recursion, and the
+relation AH = AV. They set the boundaries for the marked zones in
+the table. These zones comprise (A V, AH) pairs, which determine how
+the best score of a cell in S is obtained in the absence of a match, either as
+an indel from the left (Zones A and B), a mismatch (Zone C) or an indel
+from above (Zone D). Borders between zones, indicated by dotted lines,
+yield ties for the best score. Figure 2 shows how the relative size of the
+Zones changes with changes in I and G.
+
+3 ALGORITHM
+
+DEFINITIONS. min= G, max=M — G, mid=I — G, low 6 {min,
+...,mid} and high 6 {mid+1,...,max}.
+
+For the illustrations in this article, we use the scoring weights:
+M=2, I: —3, G: —5,
+which yield
+min= — 5, max=7, mid=2,
+low e {—5,...,2},highe {3,...,7}.
+The AV Function Table for these weights is shown in Figure 3.
+
+ 
+
+3167
+
+112 [glO'SIBILInO[p.IOJXO'SODBIIHOJIIIOIQ/[Z(11111 IIIOIJ pepeolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+J.Loving et al.
+
+ 
+
+The algorithm proceeds row-by-row through the alignment
+matrix. For each row, the input is:
+
+o the AH values from the preceding row,
+0 the leftmost AV value in the current row and
+
+o the match positions in the current row.
+
+The computation ﬁrst determines all the remaining A V values for
+the current row and then, using those, determines the AH values
+for the current row. A central concept is a run of AHmin. This is a
+set of consecutive positions in the preceding row for which the
+values of AH all equal min (in Fig. 4, positions for which
+AH = — 5).
+
+The algorithm has the following steps (see Fig. 4), which
+follow from Lemma 21.
+
+[S11-
+I—G\V
+
+ 
+
+A‘/vl0’l.U C
+
+AV D
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+AVhigh
+
+ 
+
+ 
+
+ 
+
+M — G-(—M—I——)]
+
+G+M—I—1
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 1. Zones in the Function Table for AV. Zone A: all values are in
+Vhigh e {I— G+1,...,M— G}; Zone B: all values are in
+Vlow e {G, . . . , I — G}; Zone C: all values are in Vlow and values depend
+only on AH; Zone D: all values are G; Last row: values also apply when
+there is a match; First column: identity column for values in Vhigh
+
+ 
+
+ 
+
+ 
+
+1. Find the locations where A V= max (highest value in Zone
+A):
+
+Step 1A: because of a match between the characters in
+Sequence X and Sequence Y. These occur at match loca-
+tions where AH =min.
+
+Step 1B: in any run of AHmiI1 to the right of a match
+location in the run.
+
+2. Find the locations where AV= i,fori e {mid+ l, . . . ,max
+—1} (the remaining values in Zone A). These are computed
+in decreasing order of i. For each i, there are two categories,
+those locations:
+
+Step 2A: because of a match or a larger preceding AV
+value. These also depend on the AH value.
+
+Step 2B: because of the value i being carried through a run
+Of AHmin.
+
+3. Find the locations where AV= i, for i e {min+ l, . . . , mid}
+(the values in Zones B and C). These are computed separately
+for each value i and depend on:
+
+Step 3A: a match or the preceding AV value and the AH
+value (Zone B).
+
+Step 3B: the AH value alone (Zone C).
+
+4. Find the locations where AV=min (the values in Zone
+D). These are:
+
+Step 4: all the remaining locations with undetermined AV
+values.
+
+5. Find the current row locations where the new AH = i for:
+Step 5A: i>min.
+Step 5B: i=min.
+
+We describe the simplest case where the length of the ﬁrst
+sequence is less than the computer word size w. Longer sequences
+can be handled in ‘chunks’, where each chunk has size w. Match
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+mismatch mismatch mismatch mismatch
+gap gap | sap | gap
+0 2*gap 0 2*gap 0 2*gap 0 2*gap
+C
+C
+0 D D
+D C D
+A B
+A A B
+AH B Tl
+
+ 
+
+ 
+
+Fig. 2. Relative size of Zones as I (mismatch penalty) decreases from 2G (twice gap penalty) where there is no preference for mismatches, to zero, where
+
+mismatches are free and gaps are introduced only to obtain matches
+
+ 
+
+3168
+
+112 [glO'SIBILInO[plOJXO'SODBIIIJOJIIIOIQ/[i(11111 IIIOJJ pepeolumoq
+
+910K ‘09 lsnﬁnV uo ::
+
+Bit-parallel, general integer-scoring alignment
+
+ 
+
+positions for every row are computed before the calculation of
+the row values as is also done for the LCS and edit-distance
+problems. Details are given at the end.
+
+We present two algorithms, BitPAl and BitPAl Packed. They
+differ in the data structures used to hold and process the AH and
+AV values and their computation of Steps 3, 4 and 5. Correctness
+theorems for the various steps are presented in Supplementary
+Information.
+
+3.1 BitPAl
+
+Data Structure for BitPAl One computer word (sometimes
+called a vector) represents each possible value of AH and AV.
+Bit i in a word refers to column i in the alignment scoring matrix.
+With the weights used for illustration, there are 13 values
+{G, . . . , M— G}={—5, —4, . . . , 6, 7}, and therefore 13 words
+each, for AH and AV.
+
+ 
+
+ 
+
+ 
+
+    
+
+ 
+
+ 
+
+ 
+
+AH
+—"1 -—1 —3 —2 —1 [l I 2 '3 —I '3 f} T
+4...? 2 l U —l —2 51 4 —5 —5 —":I —"1 —5 —5
+.3 3 1 I] —1 —2 —3 4 ~"i —"J I} —"1 —'3
+4 4 1 ﬂ -1 -2 55
+AV
+5 '3 2 1 u —1 —2
+{:1 {i 3 2 1 U -l
+Tulldluatch  3 2  I]
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 3. The AV Function Table for the weights M = 2, I = — 3, G = — 5.
+Note that AVhigh, AHhigh E [3, 7]; AVlow, AHlow E [—5, 2];
+AVmi11 = AHmi11 = — 5; AVmax = AHmax = 7. The AH Function Table is
+the transpose of this table, i.e. the labels AH and AV are swapped
+
+Matches * *
+
+AHpre, —2 —5 —5 —5
+Step 1A AchW -5 7
+Step 1B —5 7
+Step 2A (for 6) -5 7
+Step 2A (for 5) —5 7
+Step 2A (for 4) —5 4 7
+Step 2B (for 4) -5 4 4 4 7
+Step 3B (for 2) —5 4 4 4 7
+Step 3A (for 0) —5 4 4 4 7
+Step 3A (for —1) —5 4 4 4 7
+Step 3B (for —4) —5 4 4 4 7
+Step 4 AVCUW —5 4 4 4 7
+
+Matches * *
+
+AHprevT 7 2 2 7
+Step 5A cum. 7 -2
+Step 5B 7 —5 -5 —2
+
+ 
+
+ 
+
+I
+.4;
+
+CDQCDCDQCDOECDQ
+
+—5
+
+Computing the A values
+
+To compute its output values, each cell needs to know its AH and
+AV input values. As in standard left to right processing, the
+output AV value from one cell becomes the input value for the
+cell to its right. All the input AH values are in the preceding row.
+
+Zone A Inspection of the Function Table (Fig. 3) reveals
+that the output values in Zone A are interdependent and re-
+quire computing in order from high to low. For example,
+output AV: 5 can be obtained in two ways from higher AV
+input values, (AV: 7, AH= — 3) and (AV: 6, AH= — 4). AV:
+5 cannot be obtained from lower AV input values.
+
+The leftmost column in the table, AHmiI1 (—5 in the example), is
+an identity column. This means that for runs of AHmin, an input
+AV value yields the identical AV ouput for every location in the
+run to the right of the input. For example, if the input AV: 5 for
+the leftmost position in a run, then the output AV for every
+position in the run is also 5 (see Fig. 4 steps 1B, 2B for 4).
+Carrying an input value through a run of AHmiI1 can be accom-
+plished with an addition (+) as seen below. Addition is similarly
+used to solve left-to-right dependency problems in LCS and edit-
+distance bit-parallel algorithms.
+
+Note in the bottom row of the Function Table that a match
+acts as an input AVmaX (7 in the example), so we will treat the
+match positions as having input AVmax.
+
+Steps 1A and 1B: The locations where AV= max, stored in the
+AVmaX vector, are calculated with four operations (Fig. 5). The
+locations are shifted one position to the right for input to sub-
+sequent calculations. The operations are—(i) an AND to ﬁnd max
+because of matches; (ii) an ADDITION (+) to carry max through
+runs of AHmiI1 and into the position following a run (because the
+result will be shifted). This causes erroneous internal bit ﬂips
+if there are multiple matches in the same run; (iii) an XOR with
+AHmiI1 to complement the bits within the AHmiI1 runs and (iv) an
+XOR with the initial AVmaX to correct any erroneous bits and
+ﬁnish the shift by removing the locations set with matches.
+
+* *
+-4 3 1 —5 —5 —5 2 3 —5 —5 6
+7
+7 7 7
+7 7 7
+5 7 7 7
+5 7 7 7
+5 7 7 7
+5 7 7 7 2 2
+5 7 7 7 0 2 2
+5 —1 7 7 7 o 2 2
+5 -1 -4 7 7 7 0 2 2
+5 —1 —4 7 7 7 0 —5 2 2 —5
+* *
+2 7 2 7 2 2 2 3 2 2 6
+-3 -2 6 —2 2 —1
+—5 —3 —2 6 —5 —5 —5 —2 2 -5 -1
+
+Fig. 4. An example of the calculation of AVCW and AHCW values. AHprev values come from the previous row. The match locations and the leftmost
+Ach,, value are known. The AVCW value for a particular column is found using the table in Figure 3. The input is the AH prev value in the same column
+and the A VCW value in the column to the left, except, when there is a match, the value in the column to the left is treated as a max and, starting with Step
+3, if the value in the column to the left is not assigned, it is treated as mid. AHmeis a modiﬁcation of AHprev in which all Match positions have been
+changed to max and all values less than mid have been changed to mid. The AHCW value for a particular column is found using the transpose of the
+table in Figure 3. The input is the AH prevlin the same column and the Ach,, value in the column to the left
+
+ 
+
+3169
+
+112 ﬂIO'sleumo[pIOJXO'soI1eu1101quIq//:d11q mot; pepeolumoq
+
+910K ‘09 lsnﬁnV uo ::
+
+J.Loving et al.
+
+ 
+
+Steps 2A and 2B: Remaining AVhigh vectors are calculated, in
+descending order from AV= max — l to AV= mid + 1 because of
+the dependencies as discussed above. The operations are: (i) ﬁnd-
+ing the locations because of a preceding higher AV value using
+AND of appropriate (A V, AH) pairs (which intersect along a
+common diagonal in the Function Table) and collecting them
+together with ORs; (ii) shifting the initial vectors right one
+position for subsequent calculations; (iii) carrying through runs
+of AHmiI1 computed in two operations, an ADDITION (+) as
+before and an XOR with AHmiI1 to complement the bits within
+the AHmiI1 runs (Fig. 6). Before the addition, those AHmiI1 pos-
+itions that have already output a AVmaX value must be removed.
+
+Steps 3A and 3B. (Fig. 7). At this point, all the AVhigh input
+values for Zone B have been computed (they are the outputs
+from Zone A), remaining output values are all AVloW. The oper-
+ations are: (i) the AND of appropriate (AV, AH) pairs, which
+intersect along a common diagonal (Zone B); (ii) the AND of
+the appropriate AH vector and all positions without a AVhigh
+output (Zone C); (iii) an OR combination of the preceding two
+results and (iv) a shift of the locations one position to the right
+for subsequent calculations.
+
+Step 4: Zone D has only one output value, AVmin. It is as-
+signed to all remaining locations as well as the zero location if
+gap penalty in the ﬁrst column is being used.
+
+Step 5: After the AV values are computed, all inputs are avail-
+able and the new AH vectors for the current row can be computed
+immediately. The Function Table for the new AH is the transpose
+of the table for A V, i.e. the input labels are swapped. Each new AH
+vector is obtained by the AND of appropriate (A V, AH) input
+pairs, which intersect along a common diagonal, collected to-
+gether with ORs. Before this can proceed, though, the Match pos-
+itions must be added to the previous row’s AHmX vector (with OR)
+and removed from all other previous row AH vectors. Also, all
+previous row AH1OW locations must be converted to AHmid.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1 1 1 1 1 1 Matches
+AND 1110 1110 111110 1110 AHmin
+0100 1000 010100 0000 AVmax (initial)
++ 1110 1110 111110 1110 AHmin
+1001 0001 100101 1110
+XOR 1110 1110 111110 1110 AHmin
+0111 1111 011011 0000
+XOR 0100 1000 010100 0000 AVmax (initial)
+0011 0111 001111 0000 >> AVmax
+(ﬁnal and shifted)
+ExampleCode:
+INITpos7 = DHneg5 &: Matches;
+DVpos?shift = ((INITpos? + DHnegS) A DHneg5) A INITpos7;
+
+ 
+
+ 
+
+ 
+
+Fig. 5. Finding AVmaX. Each line represents a computer word with low
+order bit, corresponding to the ﬁrst position in a sequence, on the left. 1s
+are shown explicitly, OS are shown only to ﬁll runs of AHmi11 and the
+ﬁrst position to the right of each run. Symbol > > indicates that the ﬁnal
+AVmax values are shifted to the right one position. Bits erroneously set by
+the ADDITION (+) are shown in bold. Sample code is from the com-
+plete listing in Supplementary Information
+
+3.2 BitPAl Packed
+
+Data structure for BitPAl packed The number of logic oper-
+ations in BitPAl scales linearly with the size of the function table.
+Many of these are the AND and OR operations to compute
+identical values along Zone B diagonals. These calculations can
+be performed more efﬁciently with a new representation. The
+idea is to store the input AH and AV values in such a way that
+they can all be added simultaneously to give the appropriate
+output values.
+
+Rather than using bit-vectors to represent single AH or AV
+values, we use them to represent binary digits (Fig. 8). We
+map the AV values {min, . . . , max} one-to-one onto the
+positive values {0, . . . , max — min} and store them in the vectors
+AVp0,AVp1,AVp2, etc. where p,- is the place holder for the ith
+power of 2. The mapping for AH is onto negative numbers, i.e.
+
+{min,...,max} are mapped to {0,...,—(max—min)}
+and stored in vectors AHp0,AHp1, Asz, etc. After addition,
+the sums will fall in {—(max—min),...,max—min}, so we
+
+use [log2(2(max — min)+ 1)] bit-vectors for AH and AV. For
+our example, the AV values are mapped to {0, . . . , 12}, the AH
+values are mapped to {0, . . . , —l2} and the sums fall within
+{—l2, .. . , 12}, so we use ﬁve vectors each for AH and AV.
+
+BitPAl Packed does not change the computation of the AV
+values in Zone A. The AH values are always maintained in the
+packed representation, but some are unpacked into the original
+representation for the Zone A computations. Once Steps 1 and 2
+are completed, all locations without a A V value are set to mid, all
+match locations are set to max, and the AV values are converted
+into the packed representation.
+
+Steps 3 and 4 are computed by ‘adding’ together the two sets
+of packed vectors using a series of AND, OR and XOR operations
+(Fig. 8) to produce the ﬁnal encoded values for AV. Any negative
+values (sign bit set) are converted to min (Zone D). For Step 5,
+the new AH values are determined with a second addition.
+Because all input AH in the range [min, mid] give the same
+result, we ﬁrst re-encode that range to mid.
+
+Packing and unpacking Packing AV vectors involves identifying
+the locations where the binary representation of the encoded
+
+ 
+
+1110 1110 11101110 AHmin (remaining)
++ l l l l X >> AV (initial shifted)
+
+ 
+
+0001 1 0001 00011110
+XOR 1110 1110 11101110 AHmin (remaining)
+
+ 
+
+1111 1 1111 11110000 >> AV (ﬁnal and shifted)
+Example Code:
+RemainDHneg5 = DHneg5 A (DVpos7shift >> 1);
+INITPOS3S = (DHnegl & DVpos7shiftorMatch)|
+(DHneg2 & DVpos65hiftNotMatch)|
+
+(DHneg3 & DVpos5shiftNotMatch)|
+
+(DHneg4 & DVpos4shiftNotMatch);
+DVpos3shift = ((INITpos3s << 1) + RemainDHnegE) A RemainDI-Ineg5;
+DVpos3shiftNotMatch = DVposSshift &: NotMatches;
+
+ 
+
+ 
+
+ 
+
+Fig. 6. Carry through runs of AHmin for remaining values in AVhigh.
+Symbol X marks a single position between runs which cannot be 1 in
+the initial shifted values
+
+ 
+
+3170
+
+112 ﬂIO'sleumo[pIOJXO'soI1eu1101uIOIq//:d11q u1011 pepeolumoq
+
+910K ‘09 lsnﬁnV uo ::
+
+Bit-parallel, general integer-scoring alignment
+
+ 
+
+values all have a speciﬁc bit set. For example, the binary repre-
+sentations for 1, 3, 5, 7, 9 and 11 all have the bit representing 2°
+set, and the binary representations for 2, 3, 6, 7, 10 and 11 all
+have the bit representing 21 set. Effectively then,
+
+AVPO ZAVl ORAV3 ORAV5 ORAV7 ORAVg ORAVH
+AVP1= AV2 ORAV3 ORAV6 ORAV7 ORAVlo ORAVH
+
+etc.
+
+where AV,- is the vector of locations with encoded value i.
+However, as can be seen for these two examples, there are
+common terms (A V3, AV7, AV11), so combining the terms as
+above leads to inefﬁciencies.
+
+Unpacking the AH vectors involves identifying locations of
+speciﬁc encoded values from the binary representation vectors.
+For example, the AH_1 locations are those (using two’s comple-
+ment, —1 = 11 111) that have all bits set and AH_2 locations are
+
+ 
+
+Example Code Zones B and C:
+
+DVnot7to3shiftorMatch = N (DVpos7shiftorMatch|DVpos65hift|
+DVpos55hift|DVpos4shift|DVpos3shift);
+DVposZshift = ((DHzero & DVpos7shiftorMatch)|
+(DHnegl & DVpos6shiftNotMatch)|
+(DHneg2 & DVpos5shiftNotMatch)|
+(DHneg3 & DVpos4shiftNotMatch)|
+(DHneg4 & DVpos3shiftNotMatch)|
+(DHneg5 & DVnot7to3shiftorMatch)) << 1;
+
+Example Code Zone D:
+
+DVneg5shift = a11_ones A (DVpos7shift|DVpos65hift|
+DVposSshift |DVpos4shift |DVpos3shift|
+DVpos25hift|DVpos1shift|DVzeroshift|
+DVneglshift |DVneg2shift |DVneg3shift|
+DVneg4shift);
+
+ 
+
+ 
+
+ 
+
+Fig. 7. Code for Zones B, C and D
+
+ 
+
+ 
+
+ 
+
+ 
+
+AV 5-4-3-2-101234567
+Encoded 0 1 2 3 4 5 6 7 8 9 10 11 12
+AH 5-4-3-2-101234567
+Encoded 0 -1 -2 -3 -4 -5 -6 -7 -8 -9 -10 -11 -12
+AV BitPAl AVBinary
+VeCtOTS place value BitPAlPacked
+-5 10 0 0 0 0 0 0 0 vectors Vectors
+-4 010000000 1 010101000
+-3 001000000 2 001111010
+-2 000100000 4 000011001
+_ ; 8 000000111
+& 000060001 signbit 000000000
+True True
+
+Value 5432 1 2 3 5 7 Value '5'4'3'2 1 2 3 5 7
+
+ 
+
+carry1 = a1 & b1;
+aplusbz = (a2 A b2) A carry1;
+carryg = (a2 & b2)|((a2 A b2) & carry1));
+
+ 
+
+ 
+
+ 
+
+Fig. 8. Top: The BitPAl Packed mapping of AH and AV values for
+the parameter set M = 2, I = — 3, G= — 5. Middle: conversion from the
+13 AV,- vectors at left to the ﬁve ‘packed’ vectors at right. Bottom: ex-
+ample code for adding the packed representation
+
+those (using two’s complement, —2 = 11 110) that have all but the
+lowest bit set. Again, effectively
+
+AH_1=AHp0 &AHP1&AHp2 &AHP3 &AHP4
+AH_2 = NAHPO &AHP1&AHp2 &AHP3 &AHP4
+
+etc.
+
+Again, there are common terms that can be combined to avoid
+inefﬁciencies. For both packing and unpacking, we use a binary
+tree structure in the code generator to guide creation of tempor-
+ary intermediate vectors so that operations are not duplicated.
+
+3.3 Other tasks
+
+Determining matches As a preprocessing step, the position of
+the matches are determined for each character a in the se-
+quence alphabet. A bit vector Match,I records those pos-
+itions in sequence X where 0 occurs. Filling all the Match,I
+simultaneously can be accomplished efﬁciently in a single pass
+through X.
+
+Decoding the alignment score The score in the last column of
+the last row of the alignment scoring matrix can be obtained by
+calculating the score in the zero column (=m * G) and then
+adding the number of 1 bits in each of the AH vectors multiplied
+by the value of the vector. Using the method described in
+(Kernighan and Ritchie, 1988), this takes 0(n+M — 2G) oper-
+ations with a small constant:
+
+M—G
+S[m, n]=m >l< G+ 2 bits,- *i
+'—G
+
+l—
+
+where bits,- is the number of 1 bits set in AH,-.
+
+{4,-?,-11)
+1000-
+?50- {4"5'31'
+E
+.9
+E
+3501:1-
+0 {3,4,5}
+250- {afaﬂk
+{0,-1,11/
+
+ 
+
+ 
+
+ 
+
+BitPAl BitPAlpackad
+
+Fig. 9. Comparison of the number of operations for BitPAl and BitPAl
+packed for different alignment weights (M, I, G)
+
+ 
+
+3171
+
+112 ﬂIO'sleumo[pIOJXO'soI1eu1101uIOIq//:d11q u1011 pepeolumoq
+
+910K ‘09 lsnﬁnV uo ::
+
+J.Loving et al.
+
+ 
+
+For BitPAl Packed, the alignment score can similarly be com-
+puted in 0(n - k) operations
+k—l .
+S[m, n]=m >l< G+Zpbitsl- >l< 2‘.
+i=0
+where pbits,- is the number of 1 bits set in AHpi, and k is the
+number of bit vectors in the packed representation.
+Several straightforward methods can be used to efﬁciently ﬁnd
+all scores in the last row or last column.
+
+3.4 Complexity and number of operations
+
+The time complexity of our algorithms is 0(znm/w) where 2 de-
+pends on the version. For BitPAl standard, 2 represents the
+combined size of Zones A, B and C (the latter reduced to a
+single row as in Fig. 3) in the Function Table. This in turn de-
+pends on the alignment weights M, I and G:
+
+(M— 2G+1)2 — (I— 26)2
+z: 2
+
+and the constant hidden in the big 0 notation is ~4 (dominated
+by two operations per cell of Zones A, B and C for AV and
+separately for AH). For the example weights used in this article,
+the number of logic and addition operations, p, per word is 265,
+yielding an efﬁciency of 64/265 % 0.24 cells per operation with
+64 bit words.
+
+For the packed version, 2 represents the size of Zone A, the
+number of distinct AH and AV values for the packing and un-
+packing steps, and the binary log of the number of distinct values
+for the addition steps:
+
+z=(M—I)2+(M—2G+1)+log2(M—2G+1).
+
+ 
+
+Unlike the standard version, the term constants are not uni-
+form (~2, 2 and 12, respectively). For the example weights used
+
+ 
+
+   
+ 
+
+ 
+
+ 
+
+Wu-iiu'lanber
+EILE-
+115-
+B
+5- I14-
+.5
+E
+0-3' _ _ _ _ . _ _ _ _ _ _ _ _ _ _ _ 1 _ _ _ EiLFE'101-lr:11131°ﬂm£ien_l _
+IIIIIIIII IIIIIIIIIIIEdilEliﬁtﬁnEell1§FWIPEsll
+[1.2-
+EtGummun Su Hence- 4 rations
+i11-
+
+ 
+
+ 
+
+4 5 1'2 1'5
+k 2 Maximum Errors for WM
+
+in this article, the number of logic and addition operations, p, per
+word is 166, yielding an efﬁciency of 64/ 166 w 0.38 cells per
+operation for 64 bit words. See Figure 9 for a comparison of
+the number of operations required by the two algorithms for
+different alignment weights.
+
+Implementation
+
+Each unique set of weights M, I and G requires a uniquely
+tailored program. To simplify usage, we have constructed a
+Web site http://lobstah.bu.edu/BitPAl/BitPAl.html that gener-
+ates C source code for download. The Web site takes as input
+the user’s alignment weights, the algorithm version (standard or
+packed), whether it will be used for short sequences (single word)
+or long sequences (multiple word) and where the ﬁnal score
+should be found.
+
+4 EXPERIMENTAL RESULTS
+
+We compared running times for several bit-parallel algorithms
+using different alignment weights: (i) BitPal, (ii) BitPAl Packed,
+(iii) NW—the classical Needleman and Wunch (1970) dynamic
+programming alignment algorithm, (iv) LCS—the bit-parallel
+LCS algorithm of Hyyré') (2004), (v) ED—our improved bit-par-
+allel, unit-cost edit-distance algorithm from the method of Hyyré')
+et al. (2005) and Myers (1999), (vi) WM—the unit-cost WV u and
+Manber, 1992) approximate pattern matching algorithm and
+(vii) N—the (Navarro, 2004) general integer scoring, approxi-
+mate regular expression matching algorithm. We implemented
+BitPAl, BitPAl Packed, NW, LCS, ED and WM. N was gra-
+ciously provided by Gonzalo Navarro.
+
+For all experiments, we used human DNA and ran 100 pattern
+sequences against 250 000 text sequences for a total of 25 million
+alignments. (Pattern and text distinctions are irrelevant for
+BitPAl, BitPAl Packed, NW, LCS and ED.) All sequences
+
+2' {ll-1 .-1}
+
+ 
+
+BitPNFacIted
+
+ 
+
+ 
+
+11) 21]
+Height of the Function Table
+
+Fig. 10. Running times. Each experiment involved 25 million alignments. For BitPAl and BitPAl Packed, alignment weights (M, I, G) are shown in
+parenthesis. All times are averages of three runs. Left: unit-cost BitPAl, unit-cost WM, LCS and ED. k is the maximum number of errors allowed for
+WM. k is not a parameter for the other algorithms and their times are shown as horizontal lines. LCS uses 4 bit operations per w cells, ED uses 15 bit
+operations, BitPAl (0, —1, —1) uses 23 bit operations. For k = 7, the times for BitPal and WM are nearly the same. By k = 15, BitPAl runs approximately
+twice as fast. Results for N are not shown on the graph. It was 118—304 times slower than BitPAl (0, —1, —1) even when optimal parameters were chosen.
+Right: variants of BitPAl and NW (shown as a horizontal line). For BitPAl, time is approximately linearly proportional to one dimension of the function
+table. For BitPAl packed, time is approximately linearly proportional to the area of the function tables. BitPAl packed (2, —3, —5) is ~7.1 times faster
+
+than NW and BitPAl (0, —1, —1) is ~24.9 times faster
+
+ 
+
+3172
+
+112 ﬂIO'sleumo[pIOJXO'soI1eu1101uIOIq//:d11q u1011 pepeolumoq
+
+910K ‘09 lsnﬁnV uo ::
+
+Bit-parallel, general integer-scoring alignment
+
+ 
+
+Table 1. Table of run times in minutes
+
+ 
+
+Algorithm Parameters (M, I, G)
+
+ 
+
+ 
+
+0, —1, —1 2, —3, 5 3, —4, —6 4, —5, —9 4, —7, —11
+BitPAl 0.284000 1.903778 2.702000 5.408722 8.517500
+BitPAl 0.390500 0.999945 1.126500 1.475222 1.755500
+
+Packed
+
+ 
+
+Note. Shown are averages over three trials for 25 million alignments. Needleman—
+Wunsch has the same runtime for all parameters, 7.056056 min.
+
+were 63 characters long. For WM, we varied k, the maximum
+number of allowed errors, from 1 to 15. For N, we varied k from
+1 to 12. All programs were compiled with GCC using optimiza-
+tion level 03 and were run on an Intel Core 2 Duo E8400
+3.0 GHz CPU running Ubuntu Linux 12.10. Results are shown
+in Figure 10 and Table 1.
+
+5 DISCUSSION
+
+The BitPAl and BitPAl packed algorithms outlined above can be
+extended in several ways. Computers now in common usage have
+special 128 bit SIMD registers (Single Instruction, Multiple
+Data). Using these, with the addition of several bookkeeping
+operations, would essentially double the efﬁciency and the
+speed of computation. Another extension derives from the unex-
+ploited parallelism of the operations. There are no dependencies
+on prior computations after the AV vectors in Zone A are com-
+puted. This means that all the computations in Zones B, C and D
+for AV and all the subsequent computations for AH can be done
+simultaneously, an ideal situation for the use of general purpose
+graphical processing units (GPGPU).
+
+Another possible extension expands the types of scoring
+schemes allowed. BLOSUM type scoring, which is useful for
+protein alignments, eliminates match and mismatch scoring
+and instead assigns different substitution weights to each pair
+of characters. Afﬁne-gap scoring replaces single character indel
+scoring with gap initiation and gap extension weights.
+
+Extension to local alignment is also possible. This is a different
+class of problem in that the best ﬁnal alignment score can occur
+in any cell of the alignment matrix. If all the cells have to be
+examined, then the time complexity shifts back to 0(nm). Hyer
+and Navarro (2006) had some success with this problem using
+unit cost weights and identifying columns in which the score of at
+least one cell exceeds a predeﬁned threshold k.
+
+The BitPAl methods have already been used to accelerate soft-
+ware for detecting tandem repeat variants in high-throughput
+sequencing data (Gelfand et al., 2014) and are well-suited to
+other DNA sequence comparison tasks that involve computing
+many alignments.
+
+Funding: This work was supported by the National Science
+Foundation (IIS-1017621 to G.B., DGE—0654108 to J.L. and
+Y.H.).
+
+Conflict of interest: none declared.
+
+REFERENCES
+
+Allison,L. and Dix,T.I. (1986) A bit-string longest-common—subsequence algorithm.
+Inf. Process. Lett., 23, 305—310.
+
+Baeza-Yates,R. and Gonnet,G.H. (1992) A new approach to text searching.
+Commun. ACM, 35, 74—82.
+
+Benson,G. et al. (2013) A bit-parallel, general integer-scoring sequence alignment
+algorithm. In: Fischer,J. and Sanders,P. (eds) Combinatorial Pattern Matching,
+Vol. 7922 of Lecture Notes in Computer Science. Springer, Berlin, Heidelberg,
+pp. 50—61.
+
+Bergeron,A. and Hamel,S. (2002) Vector algorithms for approximate string match-
+ing. Int. J. Found. Comput. Sci, 13, 53—65.
+
+Crochemore,M. et al. (2001) A fast and practical bit-vector algorithm for the longest
+common subsequence problem. Inform. Process. Lett., 80, 279—285.
+
+Gelfand,Y. et al. (2014) VNTRseek-a computational tool to detect tandem repeat
+variants in high-throughput sequencing data. Nucleic Acids Res, doi: 10.1093/
+nar/gku642.
+
+Hyyr6,H. (2004) Bit-parallel LCS-length computation revisited. In: Proceedings
+of the 15th Australasian Workshop on Combinatorial Algorithms (A WOCA
+2004 ), University of Sydney, Australia.
+
+Hyyr6,H. and Navarro,G. (2005) Bit-parallel witnesses and their applications to
+approximate string matching. Algorithmica, 41, 203—231.
+
+Hyyr6,H. and Navarro,G. (2006) Bit-parallel computation of local similar-
+ity score matrices with unitary weights. Int. J. Found. Comput. Sci, 17,
+1325—1344.
+
+Hyyr6,H. et al. (2005) Increased bit-parallelism for approximate and multiple string
+matching. J. Exp. Algorithmics, 10, 2—6.
+
+Kernighan,B. and Ritchie,D. (1988) The C Programming Language. 2nd edn.
+Prentice Hall, Upper Saddle River, NJ, USA.
+
+Myers,G. (1999) A fast bit-vector algorithm for approximate string matching based
+on dynamic programming. J. ACM, 46, 395—415.
+
+Navarro,G. (2004) Approximate regular expression searching with arbitrary integer
+weights. Nordic J. Comput., 11, 356—373.
+
+Needleman,S. and Wunch,C. (1970) A general method applicable to the search for
+similarities in the amino acid sequence of two proteins. J. Mol. Biol, 48,
+443—453.
+
+Smith,T. and Waterman,M. (1981) Identification of common molecular subse-
+quences. J. Mol. Biol, 147, 195—197.
+
+Wu,S. and Manber,U. (1992) Fast text searching: allowing errors. Commun. ACM,
+35, 83—91.
+
+Wu,S. et al. (1996) A subquadratic algorithm for approximate limited expression
+matching. Algorithmica, 15, 50—67.
+
+ 
+
+3173
+
+112 ﬂIO'sleumo[pIOJXO'soI1eu1101uIOIq//:d11q u1011 pepeolumoq
+
+910K ‘09 lsnﬁnV uo ::
+

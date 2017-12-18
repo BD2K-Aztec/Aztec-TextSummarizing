@@ -1,0 +1,985 @@
+Bioinformatics, 31 (8), 2015, 1169—1175
+
+doi: 10.1093/bioinformatics/btu815
+
+Advance Access Publication Date: 10 December 2014
+Original Paper
+
+ 
+
+Genome analysis
+
+andi: Fast and accurate estimation of
+evolutionary distances between closely related
+genomes
+
+Bernhard Haubold1'*, Fabian Klétzl1'2 and Peter Pfaffelhuber3
+
+1Department of Evolutionary Genetics, Max-Planck-lnstitute for Evolutionary Biology, 24306 Plb'n, Germany,
+2lnstitue for Neuro- and Bioinformatics, Liibeck University, 23562 Liibeck, Germany and 3Mathematical
+Stochastics, Mathematical Institute, Freiburg University, Germany
+
+*To whom correspondence should be addressed.
+Associate Editor: Alfonso Valencia
+
+Received on July 1, 2014; revised on November 6, 2014; accepted on December 7, 2014
+
+Abstract
+
+Motivation: A standard approach to classifying sets of genomes is to calculate their pairwise
+distances. This is difficult for large samples. We have therefore developed an algorithm for rapidly
+computing the evolutionary distances between closely related genomes.
+
+Results: Our distance measure is based on ungapped local alignments that we anchor through
+pairs of maximal unique matches of a minimum length. These exact matches can be looked up
+efficiently using enhanced suffix arrays and our implementation requires approximately only 1 s
+and 45 MB RAM/Mbase analysed. The pairing of matches distinguishes non-homologous from
+homologous regions leading to accurate distance estimation. We show this by analysing simulated
+data and genome samples ranging from 29 Escherichia coli/Shigella genomes to 3085 genomes of
+Streptococcus pneumoniae.
+
+Availability and implementation: We have implemented the computation of anchor distances
+in the multithreaded UNIX command-line program andi for ANchor Distances. C sources and
+documentation are posted at http://github.com/evolbioinf/andi/
+
+Contact: haubold@evolbio.mpg.de
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+1 Introduction
+
+ 
+
+The spread of infectious diseases is nowadays often monitored by
+sequencing the genomes of the outbreak strains. Since a given pan-
+demic is usually caused by the rapid expansion of a single clone,
+monitoring by sequencing leads to the accumulation of hundreds to
+thousands of similar genome sequences. For example, Petty et al.
+(2014) studied the spread of the multi-drug resistant Escherichia coli
+strain ST131, which causes extra-intestinal infections in humans.
+The authors sequenced 99 outbreak strains and reconstructed their
+phylogeny. This revealed that the outbreak was caused by a single
+lineage of ST131. On an even larger scale, Chewapreecha et al.
+(2014) studied pneumococcal carriage in a refugee camp by
+
+sequencing 3085 strains of Streptococcus pneumoniae, which causes
+pneumoniae in humans. Again, phylogeny reconstruction based on
+these genomes was an early step in the study.
+
+Classifying bacteria by clustering their genomes is set to become
+routine. For this purpose, Petty et al. (2014) computed a multiple se-
+quence alignment of their E.colz' ST131 strains using the program
+mugsy (Angiuoli and Salzberg, 2011). It is based on the MUMmer
+software (Kurtz et al., 2004), which makes mugsy one of the fastest
+multiple genome aligners available: it took only 19 h to align 5 7
+complete E.coli genomes. However, the run time of mugsy becomes
+unacceptable when applied to the recently collected samples of hun-
+dreds or even thousands of bacterial genomes.
+
+©The Author 2014. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 1169
+
+112 [3.10811211an[plOJXO'SODBIILIOJIITOTQ/ﬂ(11111 wort pepeolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+1170
+
+B. Haubold et al.
+
+ 
+
+For their study of 3085 pneumococcal isolates, Chewapreecha
+et al. (2014) mapped the sequencing reads onto a reference genome,
+thereby approximating a multiple sequence alignment. Such align-
+ment by mapping is widely used, and Bertels et al. (2014) have
+shown that its accuracy can be further improved by mapping
+against multiple reference genomes instead of the customary single
+reference. Their implementation of this idea, REALPHY, requires
+2min and 250 MB/Mbase analysed. The genome of S.pneumom'ae
+is 2.2 Mbase long, so REALPHY would run 9.4 days on the
+3085 S.pneumom'ae isolates. However, a more prohibitive aspect
+of REALPHY might be the RAM requirement of 1.7 TB.
+
+Perhaps surprisingly, it is not necessary to compute an explicit
+alignment for phylogeny reconstruction. This insight has sparked
+interest in devising alignment-free methods for rapidly calculating
+pairwise distances between genomes (Haubold, 2014), which can
+then be clustered using various quick algorithms (Felsenstein, 2004).
+
+Alignment-free distance computation is either based on counting
+words of a certain length or recording match lengths (Haubold,
+2014). When counting words, there is a choice between the trad-
+itional approach of counting exact words and a more recent method
+of looking for words that enclose one mismatch. The latter is imple-
+mented in the program co—phylog (Yi and Jin, 2013), which
+gives better distances than exact word counting while requiring only
+moderate additional resources (Haubold, 2014).
+
+Haubold et al. (2009) devised an alignment-free estimator of
+genetic distance based on match lengths. The expected match length
+is the inverse of the proportion of mismatches. For example, if 1%
+of positions between two genomes are mismatched, the expected
+match length is 100. Domazet-Loso and Haubold (2009) imple-
+mented this idea using a generalized suffix tree of all input sequences
+to look up the match lengths. Their program kr computes the dis-
+tances between the complete genomes of 29 E.coli/Shigella strains in
+just 5.5 min on a single processor. However, this takes 5.3 GB RAM
+and kr has been criticized for excessive RAM utilization
+(Cohen and Chor, 2012). Moreover, Yi and Jin (2013) noted that
+co—phylog gave a better phylogeny when applied to the bench-
+marking sample of 29 E.coli/Shigella genomes.
+
+This has prompted us to devise a replacement for kr. Our new
+strategy is to look for mismatches that are bracketed by long exact
+matches, which we call anchors. We show through simulation that
+the resulting program andi, for ANchor DIstances, is accurate, fast
+and memory efficient. Moreover, we apply andi to three sets of bac-
+terial genomes: the 29 genomes of E.coli/Shigella Yi and Jin (2013)
+used for benchmarking co—phylog, the 109 genomes of E.coli
+ST131 studied by Petty et al. (2014)—of which they sequenced
+99 strains—and the 3085 genomes of S.pneumoniae sequenced by
+Chewapreecha et al. (2014). In each case, andi quickly recovers
+pairwise distances. For the E.coli samples, we compare the new dis-
+tances to alignment-based distances and find they are so similar that
+they yield almost identical phylogenies.
+
+2 Methods
+
+2.1 Defining anchor distances
+We compute anchor distances using maximal matches by imposing
+three criteria on them: uniqueness, equidistance and a minimum
+length. In this section, we explain each of these criteria in turn,
+which sets the stage for the description of our algorithm in
+Section 2.2.
+
+Consider two DNA sequences, a query Q and a subject S.
+Taking our cue from genome alignment tools such as MUMmer
+
+Q _®___
+V
+Q _[S\__ __
+
+Fig. 1. Exact matches of a given minimum length (anchors) between query
+(0) and subject (8) sequences. A: Equally spaced anchors; here we count the
+mismatches in the intervening segment. B: Unequally spaced anchors; these
+are ignored in the distance computation. (Color version of this figure is avail-
+able at Bioinformatics online.)
+
+(Kurtz et al., 2004) and mauve (Darling et al., 2004), we call a
+unique maximal match between Q and S an anchor, if it has some
+minimum length. We look for pairs of anchors that have the same
+distance in Q and S, as shown in Figure 1A. Such anchor pairs
+approximate ungapped alignments, and we count the mismatches in
+the intervening segment. In contrast, if the anchors are unequally
+spaced as shown in Figure 1B, the regions they bracket are either not
+homologous or contain indels. We ignore such anchor pairs in our
+analysis. The total number of mismatches bracketed by equidistant
+anchors divided by the number of nucleotides covered by the an-
+chors and the bracketed regions is our estimate of the number of
+mismatches per site, dm(Q,S). This is converted to the number of
+substitutions per site using the correction by Jukes and Cantor
+(1969»
+
+_mgsy=—%nO—gadgsv.
+
+K(Q, S) is not symmetrical, that is, K(Q, S) 75 K(S, Q). We there-
+fore define the anchor distance between two sequences z' and j as the
+average Jukes—Cantor distance computed from the two possible
+labellings of i and j:
+
+_ _ K ,S + K S,
+dam) : (Q )2 < Q) _
+
+A critical parameter in the computation of da(z',j) is the min-
+imum anchor length, I. We compute this as a function of GC content
+and subject length using equation (6) by Haubold et al. (2009):
+
+Pmsx} : 1:236 (awe—mack“ - pk(%—p)x‘k)'s',
+
+where X? is the length of a match starting at position i in Q and any
+position in S, and 2p is the GC content of S. We define l to be the
+97.5% quantile of the distribution of Xf.
+
+2.2 Algorithm and implementation
+
+For computing anchor distances, we first order alphabetically all
+suffixes contained in the forward and reverse strands of S. From this
+suffix array, we compute the array of common prefix lengths be-
+tween consecutive suffixes using the <I)-algorithm listed as Algorithm
+4.4 by Ohlebusch (2013). Together with the suffix array, this lon-
+gest common prefix array forms the enhanced suffix array, E, which
+is the central input for computing K(Q, S). Algorithm 1 uses the
+function getMatch(E, string) to look for the longest prefix of
+
+112 [3.10811211an[plOJXO'SODBIILIOJIITOTQ/ﬂ(11111 wort pepeolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+Fast and accurate estimation of evolutionary distances
+
+1171
+
+ 
+
+string that matches somewhere in S. In Line 8, string is the suf-
+fix of Q that has not yet been matched against S. Function
+getMatch (not shown) is a slight variation on Algorithm 5.2 by
+Ohlebusch (2013). The matching step is repeated one residue be-
+yond the mismatched nucleotide that terminates the previous match
+until an equidistant pair of anchors (Fig. 1A) is found in Line 12.
+The mutations in the intervening segment are counted (Line 13) and
+the distance between the current and the previous match is added to
+the homologous nucleotide counter (Line 14). The search for equi-
+distant anchor pairs continues until the complete forward strand of
+Q has been traversed. Then K( Q, S) is computed as the ratio of mu-
+tations to homologous nucleotides (Line 24). This streaming of Q
+against S using an enhanced suffix array is an idea we took from
+vmatch (http://www.vmatch.de).
+
+For our suffix array computation, we use the libdivsufsort
+library (http://homepage3.nifty.com/wpage/softwarel). The function
+getMatch is based on range minimum queries, for which we use an
+algorithm and corresponding implementation by Fischer and Heun
+(2007). The memory requirement of the resulting program andi
+is dominated by the computation of the enhanced suffix array.
+To minimize the memory footprint of andi, it initially streams all
+sequences against the enhanced suffix array of the first sequence,
+then against the enhanced suffix array of the second sequence,
+and so on. Thus at any one time, only the enhanced suffix array for
+a single sequence is kept in memory. This approach also allows
+for easy parallelization, which we implemented using the OpenMP
+framework. andi runs fastest when the number of taxa is equal to
+
+ 
+
+Algorithm 1 Estimate substitutions per site
+
+ 
+
+Require: 0 {query sequence}
+Require: 8 {subject sequence}
+Require: E {enhanced suffix array of 8, forward &
+reverse}
+Require: I{minimum anchor length}
+Ensure: K {K(Q, S), substitutions per site between 0
+and S}
+1: qp <— qc <— 0 {previous and current position in 0}
+: sp <— 0 {previous position in S}
+: [D <— 0 {previous jump length}
+: s <— 0 {number of mutations (segregating sites)}
+' n <— 0 {number of homologous nucleotides}
+: a <— false {no anchor found yet}
+: while qc < |0| do
+m <— getMatch(E, quc..|O|])
+Ic <— m.length + 1 {jump by at least one position}
+if m.isUnique and m.length 2 [then
+5G <— E.position(m) {find position of match in S}
+if qc — qp 2 s6 — sp then
+s <— s + countDiff(O[qp..qc —1],S[s|[,..sc — 1])
+n ‘— n + qc — qp
+a <— true
+else
+if a = true then
+n <— n —)— [p — 1
+a <— false
+CIp ‘— Cic
+sp <— 5G
+
+ggppuoup-Iiswm
+
+NNN_\_\_\_\_\_\_\_\_\_\
+
+
+Ip <— Ic
+23: qc ‘— qc + Ic
+24: K <— s/n
+
+ 
+
+ 
+
+ 
+
+the number of processors. In that situation, all rows of the distance
+matrix are filled in simultaneously and the program takes time
+proportional to the length of the longest genome.
+
+2.3 Simulations
+
+For simulating pairs of related DNA sequences, we used our pro-
+gram simK, which is linked from the andi web page. Here is the
+command for a typical simulation run
+
+simK —1 1000000 —k 0.01 | andi
+
+where —1 is the sequence length and —k is the number of substitu-
+tions per site. Time and memory consumption was measured using
+commands such as
+
+/usr/bin/time —f “\n %E elapsed, \n%M memory” \
+andi sim. fa > sim.dist 2> andi . res
+
+on a 32 core 2.3 GHz AMD Opteron system with 256 GB of RAM.
+
+2.4 Datasets
+Apart from simulated data, we analysed three sets of genomes of
+increasing size:
+
+1. Twenty-nine E.coli/Shigella genomes used by Yi and Jin (2013)
+for benchmarking, average length 4.9 Mbase;
+
+2. One hundred and nine E.coli ST131 genomes, average length
+5.2 Mbase (Petty et al., 2014);
+
+3. Three thousand and eighty-ﬁve S.pneumom'ae genomes, average
+length 2.2 Mbase (Chewapreecha et al., 2014).
+
+Links to these datasets are also posted on the andi web site.
+
+2.5 Alignment
+
+The two E.colz' genome samples were aligned with mugsy, which
+generates output in ‘mutation annotation format’ (maf) (Angiuoli
+and Salzberg, 2011). We converted this to PHYLIP format with
+our script maf2phy.awk, also posted on the andi web site.
+Jukes—Cantor distances were computed using the program dna—
+dist, which is part of the PHYLIP package (Felsenstein, 2005).
+
+2.6 Phylogeny reconstruction
+
+Distances were clustered using neighbor and the trees midpoint
+rooted using retree, both also part of PHYLIP. Trees were plotted
+uising njplot (Perriere and Gouy, 1996) or drawgram (PHYLIP).
+Topological distances between trees were computed using the
+programs rspr (Whidden et al., 2013) or treedi st (PHYLIP).
+
+3 Results
+
+3.1 Simulations
+
+Figure 2A shows our new distance measure da as a function of
+the number of substitutions per site, K, for simulated pairs of
+100 kbase sequences, which implies a minimum anchor length of 8.
+Under these ideal conditions, da is an excellent estimator for a
+wide range of divergence values. However, for K 2 0.5 the probabil-
+ity increases that no anchor pair is found and da cannot be com-
+puted. The proportion of failed estimations therefore grows
+from 0.7% for K: 0.5 to 94% for K: 0.65 (Fig. 2B, open circles).
+This might suggest that a lower minimum anchor length yields bet-
+ter estimates. However, it leads to underestimation of distances
+(Supplementary Fig. S1). We thus recommend using andi only for
+sequences with K S 0.5.
+
+112 ﬂJO'smumo[p101x0'801112u1101utotqﬂ2d11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+    
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1172 B. Haubold et al.
+0 3
+A 10 A 10 observed time, K I: 0.01 El I I
+observed time, K = 0.1 o
+ideal time
+10‘1 102 - approximated time -
+10‘2 3 _
+10‘3 H _
+10‘4 '
+ I I I I 10—2 I I I I
+10—4 10—3 10—2 10—1 101 102 103 104 105
+Substitutions per Site (K) sequence Length (kb)
+ I I I I I
+B 1-0 I I I 1 B observed memory —E|—
+0'9 ' da 5 ' ideal memory —
+0.8 0.9 106 _
+0.7 0 8
+0.6 ‘ 8 _
+0.5 0.7 u-I A
+‘5 i9
+0.4 r 0.6 g E: -
+g 0 3 0.5 ﬂ 2
+. d _
+0.4 g g
+0.2 0.3 g _
+0.2 U" _
+0.1
+100 I I I I I
+0.1 c o I I I 0 10-1 100 101 102 103 104 105
+0.4 0.5 0.6 0.7
+
+Substitutions per Site (K)
+
+Fig. 2. Estimation of the rate of substitution on simulated pairs of 100 kbase
+sequences; shown are mean i standard deviation of 1000 iterations.
+A: Substitution rates between 4 x 10‘5 and 0.65. B: Substitution rates 20.4
+and proportion of failed estimates. (Color version of this figure is available at
+Bioin formatics onli ne.)
+
+Our main motivation for developing da is efficiency. Figure 3
+shows the time and memory consumption of andi as a function of
+sequence length. The run time would ideally be linear in the size
+of the input sequence, that is, time oc length, which is close to the
+observed run time O(length1'05). Notice also that the more divergent
+sequences with K=0.1 take slightly longer to analyse than those
+with K = 0.01. The reason for this is that the streaming of the query
+against the enhanced suffix array of the subject takes time propor-
+tional to the number of calls to the matching function. This in turn
+depends on the number of substitutions, with divergent sequences
+requiring more matching steps. Nevertheless, as a rule of thumb
+andi takes 1 s/Mbase. The memory consumption shown in
+Figure 3B is initially constant in the sequence length reflecting
+program overheads. For longer sequences, memory consumption
+is exactly linear in the size of the input data, as expected. In fact,
+we observe that 45 bytes memory are used per base pair.
+
+We conclude from our analysis of simulated data that andi
+is accurate and efficient. Next, we apply andi to three samples
+of genomes: 29 E.coli/Shigella genomes, 109 genomes of E.coli
+ST131 (Petty et al., 2014) and 3085 genomes of S.pneumom'ae
+(Chewapreecha et al., 2014). Where appropriate, we compare
+the results obtained by andi with those of co—phylog and align-
+ment-based distances.
+
+3.2 Application to genomes
+
+Figure 4 shows the phylogeny of 29 E.coli/Shigella strains computed
+from their complete genomes. These genomes are often used for
+benchmarking (Bertels et al., 2014; Yi and Jin, 2013) and are on
+
+Sequence Length (kb)
+
+Fig. 3. Time (A) and memory (B) consumption as a function of sequence
+length. Single pairs of sequences were simulated with 0.01 or 0.1 substitu-
+tions per site and analysed. (Color version of this figure is available at
+Bioin formatics onli ne.)
+
+average 4.9 Mbase long. Aligning them to compute the phylogeny in
+Figure 4A took mugsy 5 h, 33min and 2.9 GB RAM. The corres-
+ponding co—phylog computation took only 9min, 21 s and 156.8
+MB RAM. The resulting tree in Figure 4B is shorter than the reference
+from which it is separated by a topological distance of 3. Two of these
+topological differences affect short branches in clade C. The other dif-
+ference concerns the position of E.coli strain UMN026, which
+switches between the two most basal clades. With 29 threads andi
+took 19.85 and 7.2 GB RAM to compute Figure 4C. Its branch
+lengths are almost indistinguishable from the reference tree and its
+topological distance from the reference is only one due to a difference
+in clade C, where strain 536 should branch off at a more basal pos-
+ition. However, the position of strain UMN026 is correct.
+
+Figure 5 shows the andi tree constructed from 109 E.coli
+ST131 strains (Petty et al., 2014) in 1 min 21 s using 30 CPUs and
+7.7 GB RAM. The 99 strains sequenced by Petty et al. (2014) fall
+into three clades, A, B, and C, shown online in red, orange and
+green, respectively. The clades identified by andi are identical to
+those reported in the original publication based on a mugsy align-
+ment computed on our hardware in 5.6 days using 52.7 GB RAM.
+That is, andi analyses the 109 E.colz' genomes approximately 6000
+times faster than mugsy and uses seven times less RAM.
+
+As the third and final challenge, we applied co—phylog and
+andi to 3085 complete genomes of the human bacterial pathogen
+S.pneumom'ae. Its genome is 2.2 Mbase long, amounting to a dataset
+comprising 6.7 Gbase. co—phylog took 36.5 days and 2.3 GB
+RAM to compute the pairwise distances shown in Figure 6A. With
+32 threads andi took 7h, 35 min and 23.8 GB RAM to carry out
+the same computation (Fig. 6B). Unfortunately, we cannot com-
+pare these two trees to a reference tree. Moreover, their
+
+112 ﬂJO'smumo[p101x0'801112u1101utoIq/ﬁd11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Fast and accurate estimation of evolutionary distances
+
+1173
+
+ 
+
+0.002
+I—I
+
+A
+
+S. senteriae Sd197
+
+   
+ 
+    
+      
+ 
+
+S. sonnei 8504
+S. boydii CDC 3083-94
+S. be dii Sb227
+E. co iE24377A
+oli IAIl
+E. coli SE11
+S. ﬁexneri 5 str. 8401
+S. ﬁexnen' 2a str. 2457T
+S. exneri 2a str. 301
+E. coli TCC 8739
+
+ 
+
+ 
+
+ 
+
+ 
+
+S. d senteriae Sd197
+E. coli 55:H7 str. CB9615
+E. coli 0157:H7 str. Sakai
+E. coli 0157:H7 EDL933
+S. sonnei 5046
+S. boydii CDC 3083-94
+S. bolydu Sb227
+E. co iE24377A
+E. coli IAIl
+E. coli SE1 1
+S. ﬂexneri 5 str. 8401
+S. ﬂexneri 2a str. 2457T
+S. exneri 2a str. 301
+E. coli A CC 8739
+E. co
+BW2952
+str. K12 substr. DH10B
+str. K—12 substr. MG1655
+str.216{12 substr. W3110
+
+noon
+sees”
+1.1..
+
+E.
+E. coli UN
+E. coliI 9
+E. coli SMS-3-5
+E. coli 0127:H6 E2348/69
+li SS8
+
+E co
+ z". coli APEC 01
+C 1:. coli UT189
+
+E coli CFT073
+7 coli EDla
+
+E5
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+0.002
+I—I
+S. d senteriae Sd197
+
+c E. on r 0552H7 str. CB9615
+E. coli 0157:H7 str. Sakai
+E. coli _0157:H7 EDL933
+
+. sonnet s
+S. boydii CDC 3083-94
+d" 227
+
+   
+  
+
+ 
+
+ 
+
+ 
+
+952
+E. coli str. K12 substr. DH10B
+. coli str. K-12 substr. MG1655
+E. coli str. K12 substr. W3110
+'UMN026
+
+E. coli IAI39
+E. coli SMS-3-5
+.—E. coli 0127:H6 E2348/69
+E. coli 888
+I. coli APEC 01
+
+r
+0 E. coli EDla
+E. coli 536
+E. coli CFTO73
+
+ 
+
+ 
+
+h-
+, a
+
+ 
+
+Fig. 4. Phylogenies computed from the complete genomes of 29 strains of
+E.coIi/Shigella. A: Based on a mugsy alignment (Angiuoli and Salzberg, 2011);
+B: based on distances computed using co-phylog (Yi and Jin, 2013);
+C: based on da. Clade Cdiffers between all three trees; the position of strain
+UMN026 differs between A and B. (Color version of this figure is available at
+Bioin formatics onli ne.)
+
+Robinson—Foulds distance (Robinson and Foulds, 1981) is 4570,
+which is disconcertingly large. However, we found that the average
+Robinson—Foulds distance between 10 random trees with 3085
+leaves is 6166. Also, the longest branches indicated by arrows
+in Figures 6A and B harbour the same three strains sequenced
+in lanes 6680_6#10, 6775_1#8 and 6823_7#22. It would be inter-
+esting to further investigate what sets these strains apart.
+
+4 Discussion
+
+Our new distance measure, da, approximates local alignments by an-
+choring them with long, unique matches (Fig. 1). The requirement
+that the matches are equidistant in the query and the subject
+(Fig. 1A) is equivalent to restricting the analysis to ungapped align-
+ments. andi is therefore a cross between the early version of BLAST
+(Altschul et al., 1990) and the genome aligner MUMmer (Kurtz et al.,
+
+1.1724259
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 5. The phylogeny of 109 E.coliST131 strains based on da computed from
+complete genome sequences. Clades A—C colored online as defined by Petty
+et al. (2014). (Color version of this figure is available at Bioinformatics online.)
+
+2004): From early BLAST it inherits the idea of ungapped local
+alignments, from MUMmer the idea of looking up unique matches by
+indexing the subject.
+
+Domazet-Loso and Haubold (2009) had previously used the
+power of indexing algorithms to estimate the number of substitu-
+tions from the match length distribution. Their program kr works
+on the same principle as the average common substring distance
+(Cohen and Chor, 2012; Ulitsky et al., 2006), except that kr imple-
+ments theory by Haubold et al. (2009) to transform common sub-
+string lengths to mutation rates.
+
+Fast as the average common substring methods are, they suffer
+from two disadvantages: First, local fluctuations in the mutation
+rate affect the average match length. As a result, the same number of
+mutations can lead to different distances depending on the degree to
+which the mutations are clustered. Haubold et al. (2013) have used
+this property to devise a test for recombination. andi does not have
+this problem as it counts mutations directly rather than inferring
+them from match lengths. The second disadvantage of match-length
+based methods is that matches induced by non-homologous
+
+112 ﬂJO'smumo[p101x0'801112u1101utoIq/ﬁd11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+1174
+
+B. Haubold et al.
+
+ 
+
+/
+
+ 
+
+ 
+
+ 
+
+Fig. 6. Phylogeny of 3085 stains of S.pneumoniae (Chewapreecha et al.,
+2014). A: Based on distances computed using co-phylog (Yi and Jin, 2013);
+B: based on da. Arrows highlight strains discussed in the text. (Color version
+of this figure is available at Bioinformatics online.)
+
+regions are hard to distinguish from matches induced by highly di-
+vergent regions. Even a moderate divergence of K = 0.1 implies an
+average match length of 10. Compare this to the expected length of
+a random match in a 1 Mbase sequence, which according to the the-
+ory by Haubold et al. (2009) is 10.4. To overcome this limitation of
+match length distances, Leimeister and Morgenstern (2014) pro-
+posed a k-mismatch generalization. They show that this outperforms
+the classical zero-mismatch version of their distance. However, it re-
+mains unclear how to choose the critical parameter h when applying
+this method.
+
+Instead of a generalized mismatch approach, we bracket muta-
+tions with paired anchors. This should give more accurate results
+than kr, and andi did compute a better tree for 29 E.colz' genomes
+than co—phylog, which in turn gave a better tree than kr. Hence,
+andi is substantially more accurate than kr.
+
+The accuracy of andi is excellent when applied to simulated se-
+quences with a wide range of substitution rates, K (Fig. 2).
+However, at K > 0.5 the search for suitable anchors fails increas-
+ingly often (Fig. 2B), which cannot be overcome by lowering the
+minimum anchor length (Supplementary Fig. S1). Hence, our
+method is effectively limited to K305.
+
+To get an intuition for the evolutionary times implied by
+K = 0.5, consider the average synonymous substitution rate in mam-
+mals of 3.51 x 10_9 (Li, 1997, p. 420). The last common ancestor
+that can occur in a tree restricted to K305 lived 0.5/3.51/10_9/2
+= 71 X 106 years ago. This would allow the analysis of great apes,
+which diverged 15.7 X 106 years ago (Hedges et al., 2006) and mice
+(Muridae, 26.9 X 106 years), but not of these two groups together
+(92.3 x 106 years).
+
+Apart from maximizing accuracy, we strove to minimize time
+and memory usage by implementing three ideas: (i) Streaming of
+query against subject as first implemented in vmatch speeds up suf-
+fix array construction compared with the suffix array of all input se-
+quences underlying kr; it also uses much less memory. Our second
+idea was (ii) to construct only as many enhanced suffix arrays as
+there are genomes in the sample, rather than constructing an
+enhanced suffix array for each pairwise comparison. This means
+that for a sample of n genomes andi requires only 11 suffix array
+constructions, whereas a program like mugsy requires the computa-
+tion of O(n2) suffix trees. The third idea was (iii) multithreading,
+which allows access to the multi-processor architecture of modern
+computers. However, other programmers might have chosen a
+different combination of time/memory consumption. For example,
+vmatch uses half as much memory as andi for suffix array
+construction, but is slower than the libdivsuf sort library
+we used.
+
+When clustering hundreds of genomes, efficiency becomes para-
+mount. As shown in Figure 3, andi uses only 1s/Mbase and 45
+bytes/bp when applied to simulated sequences. There is an intimate
+connection between the efficiency of andi and its limitation to
+closely related sequences: andi approximates local alignments by
+concatenating exact matches. Looking up exact matches is fast,
+but this strategy breaks down for divergent sequences where
+homologous matches become shorter than random matches.
+This phenomenon is also the reason why fast genome alignment
+programs like mauve and mugsy work best when applied to
+closely related genomes (Angiuoli and Salzberg, 2011; Darling
+et al., 2004).
+
+The accuracy and efficiency observed with simulated data
+carried over to the analysis of genomes. Here, we compared andi
+to co—phylog as Haubold (2014) had found this to be the best
+alignment-free distance estimator for long sequences. However,
+andi gave a more accurate tree when compared to the tree based on
+the mugsy alignment (Fig. 4). This improvement in accuracy came
+without a time penalty as co—phylog computed its tree 36 times
+faster than mugsy, while andi was a thousand times faster than the
+alignment. The superior speed of andi comes from the structure of
+its algorithm and the multithreading, without multithreading, andi
+would still be 1.6 times faster than co—phylog when applied to
+the 29 E.coli/Shz'gella genomes. The memory consumption of andi
+is strictly linear in the number of threads, while time is roughly
+inversely proportional to the number of threads. This gives the
+
+112 ﬂJO'smumo[p101x0'801112u1101utoIq/ﬁd11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Fast and accurate estimation of evolutionary distances
+
+1175
+
+ 
+
+user the opportunity to trade speed for memory and processors,
+depending on the hardware available.
+
+Aligning the 109 genomes of E.coli ST131 took mugsy 5 .6 days
+and 52.7 GB RAM. Compare this to the 5 h 33 min it took mugsy
+to align 29 E.coli genomes. In other words, a 3.8 times larger sample
+took 24.6 times longer to align. In contrast, andi took with 1 min,
+21 s only 4.1 times longer, yielding the correct classification of
+strains into clades A—C in Figure 5. Moreover, the memory require-
+ment of mugsy grew 18-fold, while that of andi grew by only 7%
+to 7.7 GB. These comments are not meant to imply that the mugsy
+alignment computed in the original study was superfluous; it was
+used for a number of analyses apart from phylogeny reconstruction,
+including the detection of horizontal gene transfer (Petty et al.,
+2014). However, quick clustering of genomes is useful, if only as a
+quality control step.
+
+For our final application, we chose the set of 3085 genomes of
+S.pneumoniae, because here an alignment program like mugsy
+would run far longer than anyone is willing to wait. The current
+method for comparing sets of bacterial genomes this size is mapping
+the reads to a reference genome. There is some debate as to the
+accuracy of the resulting trees (Bertels et al., 2014). andi takes
+as input assembled contigs, which are generated from the raw
+reads early on in all genome sequencing projects. Given these
+contigs, andi analyses them in 7h and 35 min using 23.8 GB RAM
+on a 32 processor computer. Such computing resources are available
+in most genomics labs. The three outlier strains identified by andi
+are identical to those found by co—phylog after a 36.5 days run.
+This is gratifying and underlines the usefulness of our program.
+
+Acknowledgement
+
+We thank Angelika Bersch-Haubold and Frederic Bertels for comments on
+the manuscript.
+
+Funding
+
+PP is supported by the Deutsche Forschungsgemeinschaft through grant
+Pf672/3-1.
+
+Conﬂict of Interest: none declared.
+
+References
+
+Altschul,S.F. et al. (1990) Basic local alignment search tool. ]. Mol. Biol., 215,
+403—410.
+
+Angiuoli,S.V. and Salzberg, S.L. (2011) Mugsy: fast multiple alignment of
+closely related whole genomes. Bioinformatics, 27, 334—342.
+
+Bertels,F. et al. (2014) Automated reconstruction of whole-genome
+phylogenies from short-sequence reads. Mol. Biol. Evol., 31, 1077—1088
+
+Chewapreecha,C. et al. (2014) Dense genomic sampling identiﬁes highways of
+pneumococcal recombination. Nat. Genet, 46, 305—309.
+
+Cohen,E. and Chor,B. (2012) Detecting phylogenetic signals in eukaryotic
+whole genome sequences. ]. Comput. Biol., 19, 945—956.
+
+Darling,A.C.E. et al. (2004) Mauve: multiple alignment of conserved genomic
+sequence with rearrangement. Genome Res., 14, 1394—1403.
+
+Domazet-Lo§0,M. and Haubold,B. (2009) Efﬁcient estimation of pairwise
+distances between genomes. Bioinformatics, 25, 3221—3227.
+
+Felsenstein,]. (2004) Inferring Phylogenies. Sinauer, Sunderland, MA.
+
+Felsenstein,]. (2005) PHYLIP (phylogeny interference package) version 3.6.
+
+Fischer,]. and Heun,V. (2007) A new succinct representation of rmq-
+information and improvements in the enhanced sufﬁx array. Lect. Notes
+Comput. Sc., 4614, 459—470.
+
+Haubold,B. (2014) Alignment-free phylogenetics and population genetics.
+Brief. Bioinform., 15, 407—418.
+
+Haubold,B. et al. (2009) Estimating mutation distances from unaligned gen-
+omes]. Comput. Biol., 16, 1487—1500.
+
+Haubold,B. et al. (2013) An alignment-free test for recombination.
+Bioinformatics, 29, 3121—3127.
+
+Hedges,S.B. et al. (2006) TimeTree: a public knowledge-base of divergence
+times among organisms. Bioinformatics, 22, 2971—2972.
+
+Jukes,T.H. and Cantor,C.R. (1969) Evolution of protein molecules. In: H.N.,
+Munro (ed.) Mammalian Protein Metabolism, vol. 3, Academic Press, NY,
+pp. 21—132.
+
+Kurtz,S. et al. (2004) Versatile and open software for comparing large gen-
+omes. Genome Biol., 5, R12.
+
+Leimeister,C.-A. and Morgenstern,B. (2014) kmacs: the k-mismatch average
+common substring approach to alignment-free sequence comparison.
+Bioinformatics, 30, 2000—2008.
+
+Li,W.-H. (1997) Molecular Evolution. Sinauer, Sunderland, MA.
+
+Ohlebusch,E. (2013) Bioinformatics Algorithms. Enno Ohlebusch.
+
+Perriere,G. and Gouy,M. (1996 ) WWW-Query: an on-line retrieval system for
+biological sequence banks. Biochimie, 78, 364—369.
+
+Petty,N.K. et al. (2014) Global dissemination of a multidrug resistant
+Escherichia coli clone. In Proceedings of the National Academy of Sciences,
+111, 5694—5699, USA.
+
+Robinson,D.F. and Foulds,L.R. (1981) Comparison of phylogenetic trees.
+Math. Biosci., 53, 514—525.
+
+Ulitsky,I. et al. (2006) The average common substring approach to phyloge-
+nomic reconstruction. ]. Comput. Biol., 13, 336—350.
+
+Whidden,C. et al. (2013) Fixed-parameter algorithms for maximum agree-
+ment forests. SIAM]. Comput, 42, 1421—1466.
+
+Yi,H. and Jin,L. (2013) Co-phylog: an assembly-free phylogenomic approach
+for closely related organisms. Nucleic Acids Res., 41, e75.
+
+112 ﬁrosleumo[p101x0'801112u1101utotqﬂ2d11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+

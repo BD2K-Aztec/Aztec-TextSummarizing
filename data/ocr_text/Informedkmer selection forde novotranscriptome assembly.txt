@@ -1,0 +1,1209 @@
+Bioinformatics, 32(11), 2016, 1670—1677
+
+doi: 10.1093/bioinformatics/btw217
+
+Advance Access Publication Date: 28 April 2016
+Original Paper
+
+ 
+
+Sequence analysis
+
+Informed kmer selection for de novo
+transcriptome assembly
+Dilip A. Durai1'2 and Marcel H. Schulz1'2'*
+
+1Cluster of Excellence on Multimodal Computing and Interaction, Saarland University, Saarbriicken, 66123,
+Germany and 2Department for Computational Biology and Applied Algorithmics, Max Planck Institute for
+Informatics, Saarbriicken, 66123, Germany
+
+*To whom correspondence should be addressed.
+Associate Editor: Gunar Ratsch
+
+Received on April 7, 2015; revised on December 31, 2015; accepted on April 17, 2016
+
+Abstract
+
+Motivation: De novo transcriptome assembly is an integral part for many RNA—seq workflows.
+Common applications include sequencing of non—model organisms, cancer or meta transcrip—
+tomes. Most de novo transcriptome assemblers use the de Bruijn graph (DBG) as the underlying
+data structure. The quality of the assemblies produced by such assemblers is highly influenced by
+the exact word length k. As such no single kmer value leads to optimal results. Instead, DBGs over
+different kmer values are built and the assemblies are merged to improve sensitivity. However, no
+studies have investigated thoroughly the problem of automatically learning at which kmer value to
+stop the assembly. Instead a suboptimal selection of kmer values is often used in practice.
+
+Results: Here we investigate the contribution of a single kmer value in a multi—kmer based assem—
+bly approach. We find that a comparative clustering of related assemblies can be used to estimate
+the importance of an additional kmer assembly. Using a model fit based algorithm we predict the
+kmer value at which no further assemblies are necessary. Our approach is tested with different de
+novo assemblers for datasets with different coverage values and read lengths. Further, we suggest
+a simple post processing step that significantly improves the quality of multi—kmer assemblies.
+Conclusion: We provide an automatic method for limiting the number of kmer values without a sig—
+nificant loss in assembly quality but with savings in assembly time. This is a step forward to mak—
+ing multi—kmer methods more reliable and easier to use.
+
+Availability and lmplementation:A general implementation of our approach can be found under:
+https://github.com/SchulzLab/KREATION.
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+Contact: mschulz@mmci.uni—saarland.de
+
+ 
+
+1 Introduction
+
+ 
+
+With the massive amounts of RNA—seq data (Sultan et 61]., 2008)
+produced for many non—model organisms, the interest for de novo
+analyses of RNA—seq data has increased over the last few years.
+These analyses include the de novo assembly of full length tran-
+scripts, expression level computation of novel transcripts, detecting
+differentially expressed transcripts and detection of related genes in
+close species or polymorphism detection (Davidson and Oshlack,
+2014; Haznedaroglu et 61]., 2012; Le et 61]., 2013; Sloan et 61]., 2012).
+
+©The Author 2016. Published by Oxford University Press.
+
+Due to the large number of applications, several methods have
+been proposed for the de novo transcriptome assembly. Most of
+these methods are based on building a de Bruijn graph (DBG) from
+the RNA—seq reads. The nodes of the DBG are substring of length 13
+(also know as kmers) obtained from the reads and two nodes are
+connected if they have 13—1 overlap. After obtaining the DBG, vari-
+ous heuristic algorithms are used to predict alternative transcripts
+from each DBG component. These algorithms either use a single
+kmer value (Chang et 61]., 2015; Grabherr et 61]., 2011; Xie et 61].,
+
+1670
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution Non-Commercial License (http://creativecommons.org/licenses/by-nc/4.0/),
+which permits non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact
+
+journals.permissions@oup.com
+
+112 /§JO'S{eu1no prOJXO'SOTlBIHJOJUTOTQ/ﬁdllq 11101; popeommoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+kmer selection for de novo transcriptome assembly
+
+1671
+
+ 
+
+2014) or merge transcripts generated from multiple kmer values to
+obtain a final non—redundant assembly (Peng et 61]., 2013; Robertson
+et 61]., 2010; Schulz et 61]., 2012; Surget—Groba and Montoya—Burgos,
+2010). A multi—kmer based approach outperforms a single—kmer
+based approach as one kmer size rarely fits all genes (Chang et 61].,
+2015; Peng et 61]., 2013; Schulz et 61]., 2012). Large kmer values
+resolve repeats and regions with many errors, whereas small kmer
+values are necessary to connect lowly expressed transcripts that have
+low—coverage regions. Hence even for most single kmer methods it is
+beneficial to run the assembler for different kmer values and merge
+the final results.
+
+But the question about the core set of kmer sizes that are needed
+to achieve a good quality assembly has received little attention for
+multi—kmer methods. Currently, approaches (i) use the default kmer
+series of the assembler which is tuned on a limited number of data—
+sets, (ii) select an arbitrary subset of kmer sizes or (iii) use all pos—
+sible kmer sizes for the assembly. In practice that means that most
+often the resulting assembly is suboptimal. Either important kmer
+sizes are missed (cases 1—2) and therefore the sensitivity is reduced
+or the complete assembly contains more misassemblies than neces—
+sary and has wasted computational resources (case 3).
+
+Selecting a suitable kmer size for de novo assembly has been pre—
+viously explored in the context of genomic sequencing. For example
+(Chikhi and Medvedev, 2014) devised a method to select the best
+kmer size for de novo genome assembly. Simpson devised a method
+to estimate a number of interesting characteristics like paths with
+variations or repeats in the DBG for different kmer sizes from a FM-
+index over the reads (Simpson, 2014). Further, computing an opti—
+mal kmer range for de novo read error correction was also proposed
+(Ilie et 61]., 2011, Schulz et 61]., 2014). However, all these methods as—
+sume a uniform coverage distribution and are not applicable to non—
+uniform RNA—seq data.
+
+Here we investigate in detail how the number of kmer assemblies
+can be minimized to save computational resources, without a large
+loss in sensitivity and without using a reference annotation for as—
+sembly quality assessment. We introduce the KREATION (Kmer
+Range EstimATION) algorithm that is based on two novel contribu—
+tions: (i) a comparative clustering of single kmer assemblies to define
+extended clusters which gives a notion of the assembly quality and
+(ii) a heuristic model assessment that allows to predict the optimal
+stopping point for a multi—kmer assembly method. We show that
+our new de novo strategy automates the choice of kmer sizes to ex—
+plore, while achieving close to optimal performance.
+
+2 Methods
+
+2.1 Evaluation of assemblies
+
+We use standard metrics for the evaluation of our assembled tran—
+scripts. We align transcripts against the reference genome using Blat
+(Kent, 2002,version 36) and compare it with annotated Ensembl
+transcripts (Cunningham et 61]., 2014,version 65). Then we compute
+the number of Ensembl transcripts that are overlapped to at least 80
+or 100% by an assembled transcript, and term them as 80 and
+100%-bits, respectively. We defined 80%-/9it improvement rate as
+the ratio of the 80%—hits obtained from the multi—kmer assembly
+compared to a single—kmer based assembly. Further, we compute
+misassemblies by counting the number of aligned transcripts whose
+aligned region is g 95% of the total transcript length. All transcripts
+that are not misassemblies are considered to be correct. We also
+compute nucleotide sensitivity and specificity as explained by
+(Schulz et 61]., 2012).
+
+2.2 Transcriptome assembly
+
+We used the de novo transcriptome assemblers Oases (Schulz et 61].,
+2012, version 0.2.08), SOAPdenovo—Trans (Xie et 61]., 2014, version
+1.03) and Trans—ABySS (Robertson et 61]., 2010 version 1.5.3) for
+our analyses. All assemblers were run with default parameters ex—
+cept the kmer parameter for the DBG and insert length for the
+paired—end sequencing data sets. Transcripts shorter than 100bps
+were removed from the final assembly.
+
+SOAPdenovo—Trans doesn’t have its own merge script and the
+merge script of Gases and TransABySS provides little informa-
+tion about the clusters obtained. Further, it was shown that the
+oases_merge script has suboptimal performance compared to CD—
+HIT-EST clustering (Haznedaroglu et 61]., 2012). Hence we used
+CD-HIT-EST (Fu et al., 2012, version 4.6.1—2012—08—07) for cluster—
+ing individual kmer assemblies, as detailed in Section 2.3.
+
+In order to analyze how selecting arbitrary kmer values inﬂuences
+assembly performance we created three sets of random kmers. All the
+sets contained kmers spread across the read length, see Table 1.
+
+We denote as best-k the assembly where the highest number
+80%—hits was achieved for a dataset. For the analyzed datasets these
+were assemblies obtained from k: 25 for brain, 13: 23 for human
+Embryonic Stem Cell (hESC), k: 27 for T—cell and HeLa.
+
+2.3 Clustering assembled transcripts
+We use the CD—HIT—EST software, for clustering transcripts
+assembled by individual kmer sizes and merging sets of transcripts
+from distinct kmers. CD—HIT—EST is a fast clustering technique that
+reports final clusters with all sequences contained in the cluster. It
+uses a greedy algorithm to iteratively grow clusters and multicore
+parallelization for fast clustering. We run CD-HIT-EST with 10
+threads.
+
+Consider two sets of assembled transcripts, T1 : {t%,...,t;}
+and Tl : {t%,...
+each produced by running a de novo assembler for one or more
+
+,ti} with n and m many sequences respectively,
+
+kmer values. Let C : {c1, . . . , cl} be the set of 1 sequence clusters ob—
+tained by applying a sequence clustering algorithm to T1 and 72,
+denoted as ComputeClusters(T1, 72). We define the following no-
+tions on clusters: a cluster c E C is called unique with respect to 72 if
+it holds that c C 72, namely that all sequences in c are only from as—
+sembly 72. Further we call the longest sequence of a cluster c E C
+the representative of c, denoted as rep(c). A cluster c E C is called ex-
+tended by Tz if rep(c) E Tl and c is not unique. We denote e : ex—
+tended(C, T2) as the number of extended clusters in C with respect to
+Tl (See Supplementary Figure S1). Collectively we denote all clus—
+ters that are extended or unique with respect to 72 as novel clusters
+with respect to 72. All remaining cluster are called old.
+
+2.4 Predicting the assembly stopping point via
+assessment of model fit
+
+We analyzed assemblies generated by different de novo assemblers
+and observed that with an increase in kmer size the number of
+
+Table 1. Sets of random kmer values used to analyze the effect of
+selecting arbitrary kmer values on the assembly. Rows represents
+the sets and columns represent the dataset with read length men-
+tioned in brackets
+
+ 
+
+ 
+
+Brain (50) TCell (45) hESC (50) HeLa (76)
+Set1 25,33,37,45 25,33,37,45 25,33,37,45 25,39,53,61
+Set2 25,31,35,43 25,31,35,43 25,31,35,43 35,43,57,69
+Set3 23,33,37,45 23,33,37,45 23,33,37,45 51,55,69,71
+
+ 
+
+112 /§JO'S{eu1no [p.IOJXO'SOTlBIHJOJUTOTQ/ﬁdllq 11101; popeommoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+1672
+
+D.A.Durai and M.H.Schulz
+
+ 
+
+correct transcripts produced by the assembler follows approximately
+an exponential distribution, see Results. We show that the number
+of extended clusters in consecutive assemblies behave similarly
+and can thus be used in a de novo setup. Our rationale was that
+once this exponential trend does not hold anymore for increasing
+kmer values, the number of extended clusters is not dominated by
+correct transcripts, but rather by missassemblies or redundant
+assemblies.
+
+We summarize our approach for the above insight in
+algorithm 1: Given a set of reads and a minimal kmer, denoted
+kmin, the assembler explores an a priori fixed series of kmer values X :
+(k1, . . . , kn) where 131 : kmm. This series is computed using a
+function  In our case we use the simple function: f (k) = k —l— 2, as
+Gases and SOAPdenovo—Trans can use odd kmer values only
+and we wanted to use the same set of kmer values for all assem—
+blers to maintain consistency. For each [a an assembly is produced
+(line 7). All new transcripts in Tki are clustered with the previous
+transcripts using the function ComputeClusters(T, Tkl.) to produce C
+(line 8). The number of extended clusters e,- with respect to Tki is
+computed (using extended(C,Tki)) and its log count is stored in y,-
+(line 9).
+
+We then assume the following linear model:
+
+Y2ﬂ0+ﬂ1X+€7 (1)
+
+where Y : (321,322, . . . ,yn) denotes the series, with y,- : log10(e,-). ﬁg
+and ﬂl are the constants representing slope and intercept of the line
+respectively. Gaussian noise is denoted by e.
+
+We are interested in analyzing the linear model fit with an
+increase in number of data points. More precisely, if we have a
+linear model fit on n — 1 datapoints (where n > 3, since we re—
+quire at least three datapoints to model a line to avoid prema—
+ture stopping of the assembly), we want to assess the error in
+predicting the nth datapoint using the line. We fit a line (lm) with
+Y : (321,322, . . . ,yn_1) and X : (131,132, . . .,k,,_1) and estimate the
+coefficients [8,14 = (60,61) by minimizing the residual sum of
+squares (line 10):
+
+A . n—1 A
+[311—1 = are mﬁln 2,21 (yz — yﬂz, (2)
+
+where y, : ﬂo —l— ﬂl k,- is the predicted value of 32,-. Assuming that
+this line would also explain 3)", we use the estimated coefficients to
+compute y, for 13,, (line 11). We compute the error between 37,, and
+its actual value:
+
+mm) = on — 9,)? <3)
+
+We increment n and repeat the above procedure until n reaches
+the stopping point. For any given kmer series of length m, we define
+the deviation score (d_score) as the cumulative sum of point—wise
+error estimates:
+
+d_scorem : 2:124 err(n) . (4)
+
+The stopping point is determined by applying a threshold to the
+d_score (line 13). The d_score is expected to remain close to zero for
+data points which follow a linear trend. It increases considerably
+and crosses the threshold value at a point where the quality of the
+linear fit degrades i.e. the fitted line is no longer able to explain the
+additional datapoint. If the d_score is less than the cutoff, the algo—
+rithm continues and updates all the variables (line 16—18).
+Otherwise the algorithm terminates and produces the final
+assembly.
+
+ 
+
+Algorithm 1. Computation of largest kmer for a de novo tran—
+scriptome assembler with KREATION
+
+ 
+
+1: Input: Reads R, read length 1, function f, 13min, threshold t
+2: i = 1
+
+3: k,- = kmin
+
+4: d_score : 0
+
+5: Tprevious : g
+
+6: repeat
+
+7: Tki : TranscriptomeAssembly(R, 13,-)
+
+8: C : ComputeClusters(TpreUious, Tki)
+
+9: y,- : log(extended(C, Th.»
+
+10: (ﬁOa ﬂ1)i—1 : 11110317 kl ' ' ' 7 lei—1): (3’17 3’2 ' ' ' villi—1))
+11: 712ﬂ0+ﬂ1 ki
+
+12: d_score—l— : (y,- — 
+
+13: if d_score > tthen
+
+14: break
+
+15: else
+
+16: Tprevious = Tprevious U Tie,-
+
+17: i = i-l- 1
+
+18: k,- : f(/e,-_1) D Compute next [a value
+19: end if
+
+20: until k g l
+21: Output: transcripts Tprevious U Tki
+
+ 
+
+2.5 De novo removal of misassemblies
+A disadvantage of merging several single kmer assemblies is the
+increased number of misassemblies in the final result. In principle,
+misassembled transcripts should only occur at kmer values that are
+shorter than repeat length and thus they are unlikely to occur at all
+different kmer values. To accommodate this idea we devised the fol—
+lowing method. Assume we run our assembly for the values
+[a : {k1,k2,k3,k4}. After producing the final clustering C of the
+transcripts of these four assemblies Tk1,Tk,,Tk3,Tk4 we consider
+the clusters c in which only transcripts of a certain Tkx exist, i.e.
+which are unique with respect to Tkx. We termed these clusters as
+single-k clusters. We classified all the single—k clusters and tran—
+scripts shorter than a predefined length threshold (300 bp for all
+datasets) as misassemblies.
+
+For measuring the difference in misassemblies between multi—
+kmer assembly (say Tmulti) and single—kmer assembly (say Tsingle) we
+
+ 
+
+ 
+
+define:
+. b d
+mlsassembly rate = ﬂ (5)
+expected
+where,
+observed : #misassemblies in Tmulti 7 (6)
+leultil
+#misassemblies in T in
+expected : S glc (7)
+
+lTsingle l
+
+2.6 Data retrieval and preprocessing
+
+All datasets were downloaded from the SRA (http://www.ncbi.nlm.
+nih.gov/sra). Five RNA—seq datasets were used for analysis: 147M
+paired—end reads of length 50 bps for human brain (Barbosa—Morais
+
+112 /§JO'S{eu1no [p.IOJXO'SOTlBIHJOJUTOTQ/ﬁdllq 11101; popeommoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+kmer selection for de novo transcriptome assembly
+
+1673
+
+ 
+
+et al., 2012, SRR332171), 45M paired—end reads of length 45 bps
+for T—cell (Heap et al., 2010, SRX011545), 142M single—end reads
+of length 50 bps from hESCs (Au et al., 2013, SRR1020625), 64M
+paired—end reads of length 76 bps from HeLa cell lines (Cabili et al.,
+2011, SRR309265) and 60M, 101bp paired—end reads from IMR90
+cell lines from ENCODE (http://genome.ucsc.edu/cgi—bin/thileUi?
+g=ngncodeCshlLonanaSeq).
+
+The quality of transcriptome assembly is highly affected by the
+presence of sequencing errors (Le et al., 2013). Hence as a prepro—
+cessing step, all datasets were error corrected using SEECER version
+0.2 (Le et al., 2013) with default parameters, except for HeLa where
+we used ks: 31 for SEECER. After each single kmer assembly we re—
+move redundant transcripts in the same assembly by using CD-HIT-
+EST clustering (sequence identity 99%) (Fu et al., 2012) and only
+retaining the representative sequences of clusters.
+
+3 Results
+
+3.1 Common kmer selection strategies are suboptimal
+
+Multi—lemer de novo transcriptome assemblers build the DBG for
+several kmer values. Conceptually, the task is to find the best multi—
+lemer assembly given a set of possible values K : {k1, . . . , Ian} and a
+set of reads R. There are two problems to this: (i) which metric
+should be used to define optimal performance? (ii) how to efficiently
+
+find K Q K, such that K achieves optimal performance for R, given
+that there are 1  many such subsets?
+
+For the first problem, one performance measure used often in the
+literature is the number of annotated 80%—hits in a sequence data—
+base. This is determined by aligning the transcripts to a reference se—
+quence and comparing it with existing gene annotation, (see
+‘Methods’). This metric does not consider the specificity of the
+assembled transcripts and does not penalize for the amount of mis-
+assemblies. Here, we suggest to optimize the sensitivity of the multi-
+le assembly using the number of 80%—hits and use a misassembly re—
+moval strategy for the final assembly. We define the number of
+80%—hits Ensembl transcripts that are obtained by running the as—
+sembler for all values in K for a dataset R as optimal. With this no—
+tion, we can measure the performance of any multi—lemer assembly
+with K C K in terms of % of optimal. For example, if the exhaustive
+assembly using K produces 2000 80%—hits, we set that as optimal. If
+another multi—le assembly produces 1500 80%—hits, then it recon—
+structed 75% of the optimal value.
+
+The second problem is rarely addressed in the literature, in par—
+ticular the problem of selecting a subset K given R. In practice, the
+following heuristics are common: (i) use the best single kmer assem—
+bly according to an evaluation criteria, e.g. the one with the most
+BlastX hits in a close species. Here we represent this strategy by an
+optimistic approach selecting the single kmer assembly that has the
+highest number of known reference transcripts assembled, termed
+Best-la. (ii) Select an arbitrary subset of possible kmer values. We
+created 3 such sets for each dataset, which are called Set 1—3 (see
+‘Methods’). (iii) The last strategy is to run the assembly for the full
+set of values in K. In this work we introduce KREATION (Kmer
+Range EstimATION), a data—driven heuristic approach which tries
+to maximize sensitivity without running the full set of kmer
+assemblies.
+
+In Figure 1, we show the performance of all three previous strat—
+egies using the Cases assembler (Schulz et al., 2012) on four differ-
+ent human RNA—seq datasets that have different read lengths and
+sequencing depth (see ‘Methods’). Compared to running the full set
+
+Set:
+
+5513
+
+Se“
+
+ 
+
+ 
+
+Best-Ir
+
+Full
+
+ 
+
+Color Key
+
+K R EATID N
+
+ 
+
+ 
+
+E m c: =
+E d m 3
+a: I E l—
+
+?{I lit 93 100
+
+'11: of optimal
+
+Fig. 1. Comparison of kmer selection strategies: random selection of a set of
+kmers (Set 1-3), best possible single kmer based assembly (Best-k), using
+KREATION introduced here and merging assemblies over all possible kmers
+(Full). Each column denotes one of the datasets analyzed. The intensity of the
+heat map encodes how many of the optimal number of 80%-hits are achieved
+by the approach (% of optimal)
+
+of kmers, which by definition is optimal, choosing a random set or
+picking the Best—la shows a loss in performance up to 30%. In par—
+ticular, each setup outperforms the others on a different dataset,
+such that no one strategy can be recommended. KREATION
+achieves close to optimal performance (Fig. 1).
+
+3.2 Clustering of consecutive kmer assemblies reveals
+assembly progress
+
+The main focus of this work is to define a data—driven procedure
+that predicts an optimal stopping point for a de novo multi—lemer as—
+
+sembler. As we mentioned earlier, we want to find a subset K that
+shows a similar number of 80%—hits compared to the full assembly.
+First, we investigated the contribution of each single—kmer assembly
+to the performance of the full assembly using Cases. In Figure 2, we
+plot the number of correct transcripts that are assembled in their
+longest form in a particular single kmer assembly (x—axis). It can be
+seen that the assembly with the smallest kmer value contributes
+most of the correct transcripts and that a decreasing exponential
+trend can be observed, with higher kmer values being less important.
+
+From this we conclude that the problem of finding K from all pos-
+
+sible subsets 1  can be simplified. We suggest to consider a
+
+series of increasing kmer values (k1,...,kn), where
+131 < k2,..., < kn. In this work we used the series of kmers
+k1 = lei—1 + 2.
+
+In Figure 3 (bottom) it is shown how the performance (% of op—
+timal, left y-axis) changes when the multi—le assembly is constructed
+up to index i in the series, i.e. T,- : Tkl U . . . U Tki, by merging tran-
+scripts, (see ‘Methods’). Similar to our observation in Figure 2 we
+see that higher la values contribute little to the assembly, e.g. 99% of
+the optimal sensitivity is reached at la: 39.
+
+In a de novo circumstance, how can we predict the index i such
+that the obtained sensitivity is close to optimal sensitivity? We
+observed that the number of transcripts going from i to i—l— 1 always
+increases, i.e. |Ti| > |Ti+1|, illustrated for a dataset in
+Supplementary Table 1. However, we know from Figure 2 that for
+higher la values the number of correct transcripts decreases approxi—
+mately exponentially. Correct transcripts, as in Figure 2, need to be
+novel. These novel transcripts in 7,11 are the representative se—
+quences of clusters that either extend transcripts in T,- (extended
+clusters) or form unique clusters, without any transcript from T,-
+
+112 /§JO'S{eu1no [p.IOJXO'SOTlBIHJOJUTOTQ/ﬁdllq 11101; popeommoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+1674
+
+D.A.Durai and M.H.Schulz
+
+ 
+
+35000
+
+ 
+
+17500
+
+No. of correct transcripts
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 2. Total number of correct transcripts (y-axis) which were assembled dur-
+ing iteration of kmer k (x-axis) in the final merged assembly. Correctness of
+transcripts is determined through alignment to the genome, see ‘Methods'
+section
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+5 $ 2
+
+A3 - ._ -I-log(extended) +d_score
+
+DD
+
+2
+
+E
+
+3 ID-
+
+3 2 5 - o 9 a
+
+U ' ' 2
+
+3 m
+
+'U
+
+C
+
+3
+
+5 0.01
+
+T 0 ' ' ' ' ' ' ' ' - ' - ' -o.2
+
+23 27 31 35 39 43 47
+100 r b 22
+
+I ‘ ’
+I A’
+
+To I Ir A, ' g
+
+.E J.’ g
+
+B. | +% of optimal 3
+
+IE 85 I d-Runtime 11 i
+
+O | S.
+I - a
+I v
+I
+
+70 I I I I I I I I I I I I 0
+
+23 27 31 35 k 39 43 47
+
+Fig. 3. Concordance between d_score, behaviour of extended clusters and the
+assembly of known transcripts. (top) The number of extended clusters (pri-
+mary y-axis, log10 base) and d_score (secondary y-axis) is shown as a func-
+tion of increasing k values in the multi-k assembly (x-axis), see text. The
+d_score crosses the threshold value (dotted horizontal line) at a kvalue after
+which no significant contribution is made to the assembly. This can be seen
+from the bottom plot which shows the contribution of each kmer (x-axis) to-
+wards assembly of optimal number of known 80%-hits (y-axis). The vertical
+dotted line represents the kmer where the assembly is stopped
+
+(see ‘Methods’). For KREATION we use the CD-HIT-EST algo-
+rithm that preserves sequence to cluster memberships in its output
+and its clustering heuristic has an added advantage of being very fast
+in practice.
+
+100
+
+ 
+
+85
+
+   
+
+% of optimal
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+70 I I I
+23 27 31 35 39 43 47 23 27 31 35 39 43 47
+k k
+
+Fig. 4. Analysis of optimal kmer value for Trans-ABySS (left) and
+SOAPdenovo-Trans (right) on the brain dataset. The points in the curve repre-
+sents how much of the final 80% transcripts (final here means the 80% tran-
+script discovered using all k-values and thus termed optimal) are predicted
+by a multi-k assembly up to the current kmer (x-axis). The dashed line in each
+plot represents the optimal kmer suggested by KREATION
+
+In our de novo setup some of the novel clusters will represent
+misassemblies. These misassemblies generally arise from the unique
+clusters (Supplementary Figure S2). Extended clusters constitute
+more 80%—hits than unique clusters (Supplementary Figure S3).
+Therefore, we can approximate the number of correct transcripts for
+Ti+1 by counting extended clusters.
+
+In Figure 3 (top) we show how the logarithm of the number of
+extended clusters for the brain dataset behaves for different la values.
+As the number of extended clusters also contains misassemblies we
+observed the exponential trend, visible as a line in log space, only up
+to la : 35. Afterwards, when fewer genuine transcripts are contrib—
+uted by 7,11, this trend changes. Hence, once the curve starts to de—
+viate significantly from a straight line, dropping towards small
+cluster numbers, it may be advisable to stop the assembly as we do
+not expect contributions to the overall assembly.
+
+3.3 Stopping the assembly by assessment of model fit
+But how to measure if the exponential fit is worse after adding an—
+other kmer assembly?
+
+We tested the following method. Suppose we run our assembly
+for values la : 121,122, . . . ,len. We first fit a linear model to the log
+counts of extended clusters for all indices until n — 1, (see
+‘Methods’). Assuming that the predicted linear model would also ex—
+plain the response variable of the current index n, we predict the log
+count of extended clusters for n. We then deduce the error between
+the actual value and the predicted value. The process is repeated
+for all values of n and after each iteration errors are summed up
+defining our deviation score (dJcore). Normally the error is close to
+zero for data points which follow a linear trend and hence the result—
+ing d_score is very small. The error becomes significantly larger at a
+point where the curve starts to deviate from the straight line. This re-
+sults in a noticeable increase in d_score. As seen in Figure 3 (top),
+the value of d_score remains close to zero until la : 37. Namely, until
+a kmer value where all the points are well approximated by a
+straight line. Beyond this kmer the dJcore increases significantly
+and goes above a pre—defined threshold (0.01 in our case). This point
+corresponds to a kmer that shows close to 99% of the optimal value
+(Fig. 3 bottom, dotted line). Therefore, stopping at this point results
+in almost no loss of assembly sensitivity and a significant reduction
+in runtime (Fig. 3 bottom, secondary axis). We tested this heuristics
+with other assemblers on the same dataset and found a similar be—
+haviour (Fig. 4). Hence we used this heuristic to design the
+KREATION algorithm, see Algorithm 1.
+
+112 /§JO'S{12u1no [p.IOJXO'SOTlBIIIJOJUTOTQ/ﬁdllq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+kmer selection for de novo transcriptome assembly
+
+1675
+
+ 
+
+Table 2. Analysis of assembly results with all assemblers on the five datasets
+
+ 
+
+ 
+
+ 
+
+ 
+
+Oases
+Dataset kmer range No. Transcripts Sens. (%) Spec. (%) 100%—hits 80%—hits Runs saved %hrs reduced Runtime (hrs)
+Brain KREATION 462 896 46.59 68.98 6264 42 540 6 32 15
+Brain Full 468 056 46.74 68.94 6315 42 629 — — 22
+hESC KREATION 196 824 37.58 73.13 12 783 42 899 8 31 9
+hESC Full 203 042 37.43 73.62 13 105 43 635 — — 13
+HeLa KREATION 113 009 24.06 78.81 4243 25 625 15 10 162
+HeLa Full 119 009 24.1 77.43 4284 25 721 — — 180
+TCell KREATION 129 868 19.11 77.91 3050 18 650 5 15 6
+TCell Full 132 975 19.05 75.42 3131 18 918 — — 7
+IMR90 KREATION 1 362 744 49.65 37.21 22 165 59 253 14 34 600
+IMR90 Full 1 384 061 49.55 36.75 22 246 59 700 — — 901
+SOAPdenovo—Trans
+Dataset kmer range No. Transcripts Sens. (%) Spec. (%) 100%—hits 80%—hits Runs saved %hrs reduced Runtime (hrs)
+Brain KREATION 295 870 33.28 63.08 4192 25 416 5 9 11
+Brain Full 298 286 33.28 63.35 4235 25 621 — — 12
+hESC KREATION 226 974 35.52 60.34 8072 34 914 5 25 6
+hESC Full 229 635 35.45 60.27 8128 35 087 — — 8
+HeLa KREATION 139 955 25.63 61.89 3413 23 308 15 20 60
+HeLa Full 144 909 25.63 60.3 3456 23 559 — — 75
+TCell KREATION 94 233 18.79 73.37 2598 16 589 4 34 4
+TCell Full 94 925 18.8 73.48 2624 16 634 — — 6
+IMR90 KREATION 1 836 920 38.58 8.65 11 936 45 276 17 10 573
+IMR90 Full 1 847 582 38.99 9.71 12 720 47 308 — — 635
+TransABySS
+Dataset kmer range No. Transcripts Sens. (%) Spec. (%) 100%—hits 80%—hits Runs saved %hrs reduced Runtime (hrs)
+Brain KREATION 348 824 36.88 64.59 6715 36 531 5 10 18
+Brain Full 350 814 36.39 64.14 6766 36 629 — — 20
+hESC KREATION 263 654 36.5 59.61 10 514 40 845 9 40 6
+hESC Full 274 615 36.72 57.95 10 975 41 618 — — 10
+HeLa KREATION 143 423 26.8 68.56 4210 26 841 20 24 100
+HeLa Full 173 170 26.9 65.24 4402 27 460 — — 130
+TCell KREATION 108 830 20.47 75.74 3572 212 347 4 25 4.5
+TCell Full 109 990 20.44 75.84 3608 21 409 — — 6
+IMR90 KREATION 1 396 311 44.32 19.5 18 761 57 922 23 29 560
+IMR90 Full 1 470 188 46.03 22.8 20 653 60 095 — — 780
+
+ 
+
+The ﬁrst row for each dataset analyses the transcripts obtained by running the assembly till the optimal kmer. The second row for each dataset represents the re-
+
+sults obtained by running the assembly till a feasible kmer closest to the read length. KREATION used a d_score threshold of 0.01 for all the cases.
+
+3.3.1 Application to other datasets
+
+In addition to the brain dataset, we tested KREATION on four other
+data sets with different read length and coverage (see ‘Methods’). In
+all cases the point where d_score crosses the threshold value coin—
+cides with a kmer value close to the optimum (see Supplementary
+Figure S4—S7).
+
+We list the complete numbers for all five datasets in Table 2. As
+the table shows, consistently for all datasets the stopping point only
+leads to a small decrease in the 100 and 80%—hits. Further the final
+number of transcripts is reduced without affecting the nucleotide
+sensitivity and specificity. We also show the number of kmer assem—
+blies not computed and the time saved due to KREATION. In par-
+ticular, for the longer read datasets (HeLa and IMR90) KREATION
+avoids a significant number of assemblies, saving up to days of com—
+putation on our computing cluster. Note that the clustering done
+after each kmer assembly, only takes in the order of a few minutes
+as CD-HIT-EST is parallelized and very fast (Fu et al., 2012).
+
+3.3.2 Effect of d_score threshold
+
+The threshold t for d_score is an important parameter for
+KREATION. We tested our approach for various values of t =
+(0.001, 0.005, 0.01, 0.05, 0.1, 0.2) on all datasets and assemblers.
+
+We found that selecting a threshold of 0.001 leads to at least a 50%
+reduction in runtime, and at the same time a loss up to at most 9%
+in comparison to the full assembly. A high threshold value results in
+achieving an almost 100% optimal assembly, but results in insignifi-
+cant reduction of runtime (Fig. 5). For our analyses we chose a
+threshold value of 0.01, which seems to be a good tradeoff between
+runtime and quality of the final assembly, but other values may be
+preferred by the user.
+
+3.4 Single—kclusters are enriched in misassemblies
+
+The major drawback of a multi—lemer based assembly is the gener—
+ation of a high number of misassemblies. We observed, and also
+various studies have shown, that misassemblies are generally shorter
+in length (see Supplementary Figure S8) and hence a large percent—
+age of them can be removed by applying a length cutoff (300 bp in
+our case) on the final transcripts (Fig. 6 top). As clustering tran—
+scripts produced by different lemer assemblies is an integral part of
+KREATION, we wondered how misassemblies are distributed over
+the clusters. We observed that clusters which contained transcripts
+from only one kmer value consisted of a large number of misassem—
+blies. We termed these clusters single-la clusters (see ‘Methods’).
+Removing these clusters also reduces the number of misassemblies
+
+112 /§JO'S{12u1no [p.IOJXO'SOTlBIIIJOJUTOTQ/ﬁdllq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+D.A.Durai and M.H.Schulz
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1676
+ ' t r T
+a  - g
+.g -
+a 96 -
+o .
+III—
+0 94 -
+°\° .
+92 -
+90 - - - - - -
+0.001 0.005 0.01 0.05 0.1 0.2
+d_score threshold
+100 -
+U - a i
+3 90 -
+:5 .
+“E’ 80 -
+.5 .
+x' 70 -
+ﬂ! .
+E  -
+III—
+0 .
+°\° 50 -
+40 - - - - - -
+
+ 
+
+ 
+
+ 
+
+0.001 0.005 0.01 0.05 0.1 0.2
+d_score threshold
+
+Fig. 5. Analysis of KREATION performance with different d_score thresholds.
+(top, higher is better) Assembler performance is measured as % of optimal
+(y-axis) for different d_score thresholds (x-axis). (bottom, lower is better)
+KREATION runtime is shown in comparison to the time taken by the Full as-
+sembly (y-axis). Each box plot shows the results for all three assemblers
+applied to the five data sets
+
+significantly (Fig. 6 top). We found that removing all transcripts
+which are either shorter than the length cutoff or which belong to
+single—la clusters reduces more misassemblies as compared to apply—
+ing only one of the above mentioned filters (Fig. 6 top).
+
+Further we wanted to check whether merging assemblies from
+multiple kmer values as done in KREATION is better than the sin—
+gle—kmer assembly with the highest sensitivity (k1 in our case). In
+other words, we wanted to check whether we are generating more
+misassemblies than useful transcripts, when we merge assemblies
+from multiple kmer values. For this, we define 80%-bit improve-
+ment rate as the fold—change of 80%—hits from the assembly gener—
+ated by the lowest kmer and misassembly rate as the ratio of
+observed to the expected number of misassemblies. Figure 6 (bot—
+tom) shows the comparison between these two metrics for all
+KREATION assemblies computed, separated by dataset. In an ideal
+situation, the 80%—hit improvement rate should be better than the
+misassembly rate and hence all the points in the graph should be
+above the diagonal. We show that for most of the datasets the cor—
+responding points are either above the diagonal or close to the diag—
+onal, except for the HeLa dataset assembled by TransABySS, which
+has a misassembly rate of 1.93. We conclude that the multi—lemer
+based assembly approach followed by appropriate filtering of misas-
+semblies is better than the single kmer based assembly.
+
+El Single-k III Length cutoff l Single-k + length cutoff
+100
+
+ 
+
+% of misassemblies reduced
+on
+o
+I
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+0
+Cases SOAPTrans TransABySS
+oHeLa uBrain ATCeII thSC OIMR9O
+
+2
+E III 0
+a) .
+E x A III>< A
+g o o
+2
+9- -
+.§ 1 o
+.H
+E
+o\° .
+o
+00
+
+o I I
+
+0 1 2
+
+Misassembly rate
+
+Fig. 6. Analysis of different misassembly removal strategies. (top) The bar
+plot represents the performance of various removal strategy in terms of per-
+centage of misassemblies removed on Brain dataset. Single-k cluster re-
+moval (white bar) and 300 bp length cutoff based removal (grey bar) removes
+a high percentage of misassemblies. A combination of both methods (black
+bar) performs better than applying only one strategy. (bottom) Comparison
+of 80%-hit improvement rate and misassembly rate for all computed assem-
+blies (see ‘Methods')
+
+4 Discussion and conclusion
+
+We have presented KREATION, an algorithm that is able to auto—
+matically stop a de novo multi—le transcriptome assembly at a kmer
+value close to the optimal sensitivity. We showed that clustering
+newly assembled transcripts with all assemblies made in previous
+rounds can be used to estimate how many transcripts have been im—
+proved due to the last round, by counting extended clusters. We
+empirically found that the number of extended clusters falls expo—
+nentially with increasing la, when we consider to run the multi—le
+assembler from smaller kmer values to larger ones, as is most rea—
+sonable for transcriptome assemblies. This motivated us to predict
+the kmer value at which the assembly should stop by selecting the
+kmer where deviation to the expected exponential trend deviates
+considerably, as measured with the designed the d_score. We have
+shown that thresholding the d_score works well for three popular de
+novo assemblers, and datasets with different coverages and read
+lengths. For longer read datasets KREATION may save days of
+computation.
+
+112 /§JO'S{12u1no [p.IOJXO'SOTlBIIIJOJUTOTQ/ﬁdllq 111011 p0p1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+kmer selection for de novo transcriptome assembly
+
+1677
+
+ 
+
+However, KREATION is a heuristic approach and there is no
+guarantee that the d_score threshold corresponds to a good stopping
+point or that there will be an optimum for the set of kmers tested, al—
+beit both is true for the datasets and assemblers tested in this work.
+Still, we think that there is a theoretical connection that is worth
+exploring further. KREATION often selects different stopping kmer
+values for each assembler when applied to the same dataset. This
+points to a complex interplay between graph structure, transcriptome
+complexity, read coverage and assembler implementations. It may be
+the reason why simpler strategies for selecting kmers do not seem to
+generalize for datasets with different characteristics (cf. Fig. 1).
+
+One disadvantage of merging the assemblies of several la values is
+the increased number of misassemblies as compared to using one
+kmer. However, recent studies have shown that appropriate filters
+(Yang and Smith, 2013) or a proper statistical treatment with repli—
+cate data (Davidson and Oshlack, 2014) allows to remove most mis—
+assemblies and therefore ease downstream analyses. Here we show
+that a large number of misassemblies stem from single—k clusters that
+can be removed easily. Together with a length cutoff on assembled
+transcripts this denotes a powerful approach to get rid of most of the
+misassemblies without removing genuine transcripts (Fig. 6,
+Supplementary Figure S9). We argue that this makes multi—lemer as—
+sembly strategies more useful for the community, but we think that
+there is still room for improvement for removing misassemblies.
+
+In a recent work (Li et al., 2014) a reference free transcriptome as—
+sembly evaluation approach was introduced. Based on a graphical
+model of the RNA—sequencing process, an assembly quality estimate
+can be computed by aligning reads to the assembled transcripts. We
+note that in principle their method may be used as an alternative func—
+tion to decide when to stop. However, this approach would constitute a
+serious runtime cost as read alignment, SAM file writing and model
+building would take in the order of hours for one kmer iteration.
+Instead, we see their work complementary to our work. We have
+focused on the question where to stop the assembly, but there are other
+parameters that are worth tuning. For example, we are currently assum—
+ing the 131 is given, which is partly due to the fact that it just needs to be
+chosen in such a way to avoid small kmers that produce misassemblies.
+
+As a conclusion, we show that an informed kmer selection ap—
+proach for de novo transcriptome assembly shows an improvement
+over simpler methods suggested so far. We believe that KREATION
+with the misassembly filters will be useful for the community and
+implemented the mentioned ideas in a software that currently sup—
+ports the de novo assemblers tested in this work (https://github.com/
+SchulzLab/KREATION).
+
+Acknowledgement
+
+We like to thank the anonymous reviewers for their constructive comments.
+
+Funding
+
+This work was supported by the Cluster of Excellence on Multimodal
+Computing and Interaction (EXC284) of the German National Science
+Foundation (DFG).
+
+References
+
+Au,K.F. et al. (2013) Characterization of the human ESC transcriptome by hy-
+brid sequencing. Proc.Natl. Acad. Sci. USA, 110, E4821—E4830.
+
+Barbosa-Morais,N.L. et al. (2012) The evolutionary landscape of alternative
+splicing in vertebrate species. Science, 338, 15 87—1593.
+
+Cabili,M.N. et al. (2011) Integrative annotation of human large intergenic
+noncoding RNAs reveals global properties and speciﬁc subclasses. Genes
+Dev., 25, 1915—1927.
+
+Chang,Z. et al. (2015) Bridger: a new framework for de novo transcriptome
+assembly using rna-seq data. Genome Biol., 16, 30. Zheng Chang and
+Guojun Li contributed equally to this work.
+
+Chikhi,R. and MedvedeV,P. (2014) Informed and automated k-mer size selec-
+tion for genome assembly. Bioinformatics, 30, 31—3 7.
+
+Cunningham,F. et al. (2014) Ensembl 2015. Nucleic Acids Res., 43,
+D662—D669.
+
+Davidson,N.M. and Oshlack,A. (2014) Corset: enabling differential gene ex-
+pression analysis for de novo assembled transcriptomes. Genome Biol., 15,
+410.
+
+Fu,L. et al. (2012) CD-HIT: accelerated for clustering the next-generation
+sequencing data. Bioinformatics, 28, 315 0—3152.
+
+Grabherr,M.G. et al. (2011) Full-length transcriptome assembly from RNA-
+Seq data Without a reference genome. Nat. Biotechnol, 29, 644—652.
+
+Haznedaroglu,B.Z. et al. (2012) Optimization of de novo transcriptome as-
+sembly from high-throughput short read sequencing data improves func-
+tional annotation for non-model organisms. BM C Bioinformatics, 13, 170.
+
+Heap,G.A. et al. (2010) Genome-Wide analysis of allelic expression imbalance
+in human primary cells by high-throughput transcriptome resequencing.
+Hum. Mol. Genet., 19, 122—134.
+
+Ilie,L. et al. (2011) HiTEC: accurate error correction in high-throughput
+sequencing data. Bioinformatics, 27, 295—302.
+
+Kent,W.]. (2002) BLAT—The BLAST-Like alignment tool. Genome Res., 12,
+65 6—664.
+
+Le,H.S. et al. (2013) Probabilistic error correction for RNA sequencing.
+Nucleic Acids Res., 41, e109.
+
+Li,B. et al. (2014) Evaluation of de novo transcriptome assemblies from RNA-
+Seq data. Genome Biol., 15, 553.
+
+Peng,Y. et al. (2013) IDBA-tran: a more robust de novo de Bruijn graph assem-
+bler for transcriptomes with uneven expression levels. Bioinformatics, 29,
+i326—i334.
+
+Robertson,G. et al. (2010) De novo assembly and analysis of RNA-seq data.
+Nat. Methods, 7, 909—912.
+
+Schulz,M.H. et al. (2012) Oases: robust de novo RNA-seq assembly across the
+dynamic range of expression levels. Bioinformatics, 28, 1086—1092.
+
+Schulz,M.H. et al. (2014) Fiona: a parallel and automatic strategy for read
+error correction. Bioinformatics, 30, i35 6—i3 63.
+
+Simpson,].T. (2014) Exploring genome characteristics and sequence quality
+Without a reference. Bioinformatics, 30, 1228—1235.
+
+Sloan,D.B. et al. (2012) De novo transcriptome assembly and polymorphism
+detection in the ﬂowering plant Silene vulgaris (Caryophyllaceae). Mol.
+Ecol. Resour., 12, 333—343.
+
+Sultan,M. et al. (2008) A global View of gene activity and alternative splicing
+by deep sequencing of the human transcriptome. Science, 321, 95 6—960.
+
+Surget-Groba,Y. and Montoya-Burgos,].I. (2010) Optimization of de novo
+transcriptome assembly from next-generation sequencing data. Genome
+Res., 20, 1432—1440.
+
+Xie,Y. et al. (2014) SOAPdenovo-Trans: de novo transcriptome assembly with
+short RNA-Seq reads. Bioinformatics, 30, 1660—1666.
+
+Yang,Y. and Smith,S.A. (2013) Optimizing de novo assembly of short-read
+RNA-seq data for phylogenomics. BMC Genomics, 14, 328.
+
+112 /§JO'S{12u1no [p.IOJXO'SOTlBIIIJOJUTOTQ/ﬁdllq 111011 p0p1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+

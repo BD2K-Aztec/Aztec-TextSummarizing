@@ -1,0 +1,1085 @@
+ORIGINAL PAPER
+
+Vol. 29 no. 1 2013, pages 1-7
+doi: 10. 1093/bioinformatics/bts652
+
+ 
+
+Genome analysis
+
+Advance Access publication November 4, 2012
+
+Binary Interval Search: a scalable algorithm for counting interval
+
+intersections
+
+Ryan M. Layerl, Kevin Skadronl, Gabriel Robinsl, Ira M. Hall2 and Aaron R. Quinlan”
+
+1Department of Computer Science, University of Virginia, Charlottesville, VA 22904, 2Department of Biochemistry and
+Molecular Genetics and 8Department of Public Health Sciences and Center for Public Health Genomics, University of
+
+Virginia, Charlottesville, VA 22908, USA
+
+Associate Editor: Alex Bateman
+
+ 
+
+ABSTRACT
+
+Motivation: The comparison of diverse genomic datasets is funda-
+mental to understand genome biology. Researchers must explore
+many large datasets of genome intervals (e.g. genes, sequence align-
+ments) to place their experimental results in a broader context and to
+make new discoveries. Relationships between genomic datasets are
+typically measured by identifying intervals that intersect, that is, they
+overlap and thus share a common genome interval. Given the contin-
+ued advances in DNA sequencing technologies, efficient methods for
+measuring statistically significant relationships between many sets of
+genomic features are crucial for future discovery.
+
+Results: We introduce the Binary Interval Search (BITS) algorithm, a
+novel and scalable approach to interval set intersection. We demon-
+strate that BITS outperforms existing methods at counting interval
+intersections. Moreover, we show that BITS is intrinsically suited to
+parallel computing architectures, such as graphics processing units by
+illustrating its utility for efficient Monte Carlo simulations measuring the
+significance of relationships between sets of genomic intervals.
+Availability: https://github.com/arq5x/bits.
+
+Contact: arq5x@virginia.edu
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on August 16, 2012; revised on October 22, 2012; accepted
+on October 29, 2012
+
+1 INTRODUCTION
+
+Searching for intersecting intervals in multiple sets of genomic
+features is crucial to nearly all genomic analyses. For example,
+interval intersection is used to compare ChIP enrichment be-
+tween experiments and cell types, identify potential regulatory
+targets and compare genetic variation among many individuals.
+Interval intersection is the fundamental operation in a broader
+class of “genome arithmetic’ techniques, and as such, it underlies
+the functionality found in many genome analysis software pack-
+ages (Giardine et al., 2005; Kent et al., 2002; Li et al., 2009;
+Quinlan and Hall, 2011).
+
+As high-throughput sequencing technologies have become
+the de facto molecular tool for genome biology, there is an
+acute need for efﬁcient approaches to interval intersection.
+
+ 
+
+*To whom correspondence should be addressed.
+
+Microarray techniques for measuring gene expression and chro-
+matin states have been largely supplanted by sequencing-based
+techniques, and whole-exome and whole-genome experiments
+are now routine. Consequently, most genomics laboratories
+now conduct analyses including datasets with billions of
+genome intervals. Experiments of this size require substantial
+computation time per pairwise comparison. Moreover, typical
+analyses require comparisons with many large sets of genomic
+features (where set size refers to the number of intervals in the
+set). Existing approaches scale poorly and are already reaching
+their performance limits. We, therefore, argue the need for new
+scalable algorithms to allow discovery to keep pace with the scale
+and complexity of modern datasets.
+
+In this manuscript, we introduce the Binary Interval Search
+(BITS) algorithm as a novel and scalable solution to the funda-
+mental problem of counting the number of intersections between
+two sets of genomic intervals. BITS uses two binary searches
+(one each for start and end coordinates) to identify intersecting
+intervals. As such, our algorithm executes in @(NlogN) time,
+where N is the number of intervals, which can be shown to be
+optimal for the interval intersection counting problem by a
+straightforward reduction to element uniqueness (known to be
+@(NlogN) (Mirsa and Gries, 1982). In contrast, counting inter-
+sections by enumeration is less efﬁcient, as enumerating intervals
+requires time ®(M + N log N), where M is the number of inter-
+sections that can be quadratic to the input size. We illustrate that
+a sequential version of BITS outperforms existing approaches
+and show that BITS is intrinsically suited to parallel architec-
+tures. The parallel version performs the same amount of work
+as the sequential version (i.e. there is no overhead), which means
+the algorithm is work efﬁcient, and because each parallel
+thread performs equivalent work, BITS has little thread diver-
+gence. Although thread divergence degrades performance on any
+architecture (ﬁnished threads must wait for overburdened
+threads to complete), the impact is particularity acute for graph-
+ics processing units (GPUs) where threads share a program
+counter and any divergent instruction must be executed on
+every thread.
+
+1.1 The interval set intersection problem
+
+We begin by reviewing some basic deﬁnitions. A genomic interval
+is a continuous stretch of a genome with a chromosomal start
+and end location (e.g. a gene), and a genomic interval set is a col-
+lection of genomic intervals (e. g. all known genes). Two intervals
+
+ 
+
+© The Author(s) 2012. Published by Oxford University Press. All rights reserved. For Permissions, please e—mail: journals.permissions@oup.com 1
+
+1e /310's113umo [p.IOJXO'SOllBIIIJOJUIOIQ/ﬁdllq 11101; popeoIII/noq
+
+9IOZ ‘091sn3nv uo ::
+
+R. M. Layer et aI.
+
+ 
+
+a and b intersect when (a.start f bend) and (a.end Z b.start).
+The intersection of two interval sets A = {a1,a2, ...,aN} and
+B 2 {b1, b2, ...,bM} is the set of interval pairs:
+
+Z(A,B) = {(a,b)|a e A,b e B,
+
+a.start f b.end/\ a.end Z b.start}
+
+Intervals within a set can intersect, but self-intersections
+are not included in Z (A, B). There are four natural
+sub-problems for interval set intersection: (i) decision—does
+there exist at least one interval in A that intersects an interval
+in B?; (ii) counting—how many total intersections exist between
+sets A and B?; (iii) per-interval counting—how many intervals in
+B intersect each interval in A?; (iv) enumeration—what is the set
+of each pairwise interval intersections between A an B? Although
+BITS solves all four sub-problems, it is designed to efﬁciently
+count the number of intersections between two sets, and as such,
+it excels at the decision, counting and per-interval counting
+problems.
+
+1.2 Limits to parallelization
+
+Interval intersection has many applications in genomics, and
+several algorithms have been developed that, in general, are
+either based on trees (Alekseyenko and Lee, 2007; Kent et al.,
+2002) or linear sweeps of pre—sorted intervals (Richardson, 2006).
+
+The UCSC Genome Browser introduced a widely used scheme
+based on R-trees. This approach partitions intervals from one
+dataset into hierarchical ‘bins’. Intervals from a second dataset
+are then compared with matching bins (not the entire dataset)
+to narrow the search for intersections to a focused portion of
+the genome. Although this approach is used by the UCSC
+Genome Browser, BEDTools (Quinlan and Hall, 2011) and
+SAMTOOLS (Li et al., 2009), the algorithm is inefﬁcient for
+counting intersections, as all intervals in each candidate bin
+must be enumerated to count the intersections. As the number
+of intersections is at most quadratic, any enumeration-based al-
+gorithm is 0(N2).
+
+Moreover, these existing approaches are poor candidates
+for parallelization. Thread divergence can be a signiﬁcant
+problem for hierarchical binning methods. If intervals are not
+uniformly distributed (e.g. exome sequencing or RNA-seq),
+then a small number of bins will contain many intervals, whereas
+most other bins are empty. Consequently, threads searching full
+bins will take substantially longer than threads searching empty
+bins. In contrast, BITS counts intersections directly without enu-
+merating intersecting intervals; therefore, the underlying interval
+distribution does not impact the relative workload of each
+thread.
+
+Recent versions of BEDTools and BEDOPS (Neph et al.,
+2012) conduct a linear ‘sweep’ through pre—sorted datasets
+while maintaining an auxiliary data structure to track intersec-
+tions as they are encountered. Although the complexity of such
+sequential sweep algorithms is theoretically optimal, the amount
+of parallelism that exists is limited, and some overhead is
+required to guarantee correctness. Any linear sweep algorithm
+must maintain the ‘sweep invariant’ (McKenney and McGuire,
+2009), which states that all segment starts and ends, and inter-
+sections behind the sweep must be known. A parallel sweep
+
+algorithm must either partition the input space such that each
+section can be swept in parallel without violating the invariant or
+threads must communicate about intervals that span partitions.
+In the ﬁrst case, parallelism is limited to the number of partitions
+that can be created, and threads can diverge when the number of
+intervals in each partition is unbalanced. In the second case, the
+communication overhead between threads prevents work efﬁ-
+ciency and can have signiﬁcant performance implications. In
+BITS, the amount of parallelism depends only on the number
+of intervals and not on the distribution of intervals within the
+input space, and there is no communication between threads.
+
+2 METHODS
+
+A seemingly facile method for ﬁnding the intersection of A and B would
+be to treat one set, A, as a ‘query’ set, and the other, B, as a ‘database’.
+If all of the intervals in the database were sorted by their starting coord-
+inates, it would seem that binary searches could be used for each query to
+identify all intersecting database intervals.
+
+However, this apparently straightforward searching algorithm is com-
+plicated by a subtle, yet vexing detail. If the intervals in B are sorted by
+their starting positions, then a binary search of B for the query interval
+end position a,-.end a,-.end will return the interval bj e B, where 17,- is the
+last interval in B that starts before interval a,- ends (e.g. interval e in
+Fig. 1A). This would seem to imply that if 17,- does not intersect a,-, then
+no intervals in B intersect a,-, and if 17,- does intersect a,-, then other inter-
+secting intervals in B could be found by scanning the intervals starting
+before 17,- in decreasing order, stopping at the ﬁrst interval that does not
+intersect a,-. However, this technique is complicated by the possibility
+of intervals that are wholly contained inside other intervals (e. g. interval
+c in Fig. 1B).
+
+An interval bj e B is ‘contained’ if there exists an interval bk 6 B where
+bkstart 5 bj.start and bj.end 5 bk.end. Considering such intervals, if
+the interval found in the previous binary search bj does not intersect
+the query interval a,-, we cannot conclude that no interval in B intersects
+a,- because there may exist an interval bj_x e B where bj_x.end 5 a,-.start.
+Furthermore, if bj does intersect a,-, then the subsequent scan for other
+intersecting intervals cannot stop at the ﬁrst interval that does not inter-
+sect a,-; it is possible that some earlier containing interval intersects a,-.
+Therefore, the scan is forced to continue until it reaches the beginning of
+the list. As contained intervals are typical in genomic datasets, a naive
+binary search solution is inviable.
+
+2.1 Binary Interval Search algorithm
+
+We now introduce our new Binary Interval Search (BITS) algo-
+rithm for solving the interval set intersection problem. This algo-
+rithm uses two binary searches to identify interval intersections while
+avoiding the aforementioned complexities caused by contained
+intervals. The key observation underlying BITS is that the size of the
+intersection between two sets can be determined without enume-
+rating each intersection. For each interval in the query set, two binary
+searches are performed to determine the number of intervals in the
+database that intersect the query interval. Each pair of searches is in-
+dependent of all others, and thus all searches can be performed in
+parallel.
+
+Existing methods deﬁne the intersection set based on inclusion, that is,
+the set of intervals in the interval database B that end after the query
+interval a,- begins, and which begin before a,- ends. However, we have seen
+that contained intervals make it difﬁcult to ﬁnd this set directly with a
+single binary search.
+
+ 
+
+1e /310's113umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁdllq 1110.1} popeoIII/noq
+
+9IOZ ‘091sn3nv uo ::
+
+BITS
+
+ 
+
+A I II
+ﬂataha so r' "
+inleruals I. .
+-‘ r .t tt
+— _ _ _
+-
+Due ry . Que
+irltewal Ema"? search “WWW End .‘3‘
+into database sorted “HEEFEECES NEH-fat E
+by stall-1' Cﬂﬂﬂlﬁa 395 Correctly coitctude that
+a b I: d E, I If; 3:1 intersection exists
+B III I'II
+— —
+Ili' r f I'll
+— _ _ _
+r.
+-
+Query does not
+intersect interwar c.
+Thus tetsety concitide that
+query does not intersect
+ti. b r- rt r-r  If; t'nteryats a orb.
+C r.' rf
+— —
+til .I' III l-J]
+— - l— -
+,.
+-
+
+ 
+   
+
+ft rt r," f rt. It}
+
+Step 1‘: Binary search of treatystert
+rnto database sorted by
+end coordinates. This exctudes
+database interyat c.
+
+Step 2 .Ei‘inaijy search of quarry. end
+into database sorted by
+start coordtnates. This exciudes
+database intervats atg.
+
+Step 3' toferttte count of interests
+that intersect the query by sobsfracting
+the size of the excttrdad
+set from the size of the database
+
+Fig. 1. Comparing a naive binary search for interval intersection to the
+BITS approach. (A) Binary searches of intervals sorted by start coordin-
+ate will occasionally identify overlapping intervals. However, contained
+intervals prevent knowing how far one must scan the database to identify
+all intersections. (B) Contained intervals also cause single binary searches
+to falsely conclude that no intersections exist for a given query interval.
+(C) To overcome these limitations, BITS uses two binary searches of the
+database intervals: one into a sorted list of end coordinates and the other
+into a sorted list of start coordinates. Each search excludes database
+intervals that cannot intersect the query, leaving solely the intervals that
+must intersect the query
+
+Our algorithm uses a different, but equivalent, deﬁnition of interval
+intersection based on exclusion, that is, by identifying the set of intervals
+in B that cannot intersect a,-, we can infer how many intervals must inter-
+sect a,-. Formally, we deﬁne the set of intervals I (B, a,) e B that intersect
+query interval a,- e A to be the intervals in B that are neither in the set of
+intervals ending before (‘left of’, set 5 below) a,- begins nor in the set of
+intervals starting after (‘right of’, set R below) a,- ends. That is:
+
+£(B, ai) = {b E Blb.end< ai.start}
+R(B, a,-) = {b E Blb.start>a,-.end}
+713» at) = B\(£(Bs at) U 73(39 at»
+Finding the intervals in I(a,-, B) for each a,- e A by taking the differ-
+
+ence of B and the union of £(B, a,) and R(B, ai) is not efﬁcient. However,
+we can quickly ﬁnd the size of £(B, a,) and the size R(B, a,) and then infer
+
+the size of I(B, a,). With the size of I(B, a,), we can directly answer the
+decision problem, the counting problem and the per-interval counting
+problems. The size of I(B,a,-) also serves as the termination condition
+for enumerating intersections that were missing in the naive binary search
+solution.
+
+ 
+
+Algorithm 1: Single interval intersection counter
+
+ 
+
+Input: Sorted interval starts and ends B S and B E, query interval a
+Output: Number of intervals 0 intersecting a
+
+Function ICOUNT(BS, B E, a) begin
+first <— BINARYSEARCH(BS, (Lend)
+last <— B1NARYSEARCH(B E, astart)
+c <— first — last /* = |B| — (last —l—  — first» */
+return 0
+
+ 
+
+The BITS algorithm is based on one fundamental function,
+ICOUNT(BS,BE,a,-) = |1'(B,a,)| (Algorithm 1), which determines the
+number of intervals in the database B that intersect query interval a,-.
+As shown in Figure 1C, the database B is split into two integer
+lists BS 2 [b1.start,b2.start, ...bM.start] and BE 2 [b1.end,b2.end, 
+bM.end], which are each sorted numerically in ascending order. Next,
+two binary searches are performed, last = BSEARCH(BE,a,-.start) and
+first = BSEARCH(BS,a,-.end). As BE is a sorted list of each interval end
+coordinate in B, the elements with indices less than or equal to last in BE
+correspond to the set of intervals in B that end before a,- starts (i.e. to the
+‘left’ of a,-). Similarly, the elements with indices greater than or equal to
+first in BS correspond to the set of intervals in B that start after a,- ends
+(i.e. to the ‘right’ of a,-). From these two values, we can directly infer
+the size of the intersection set I(B,a,-) (i.e. the count of intersections in
+B for a,-):
+
+|B| —fiVSt = |R(B,ar)l
+last = |£(B, ai)|
+|B| — (last + (131 —first)) = 11w, am
+
+Using the subroutine ICOUNT(BS, BE, a,-), all four interval set intersec-
+tion problem variants can be solved. Pseudocode for the decision,
+per-interval counting and enumeration sub-problems can be found in the
+Supplementary Material.
+
+2.1.1 The BITS solution to the counting problem As BITS
+operates on arrays of generic intervals ((start,end)), and input ﬁles are
+typically chromosomal intervals ((chrom, start, end)), the intervals in each
+dataset are ﬁrst projected down to a 1D generic interval. This is a
+straightforward process that adds an offset associated with the size of
+each chromosome to the start and end of each interval. The resulting
+interval arrays A and B are input to the COUNTER (Algorithm 2) that
+sets the accumulator variable c to zero; then for each a,- e A, accumulates
+c = c + ICOUNT(BS, BE, a,). The total count c is returned.
+
+2.2 Time complexity analysis
+
+The time complexity of BITS is O((|A| + |B|)longl), which can be
+shown to be optimal by a straightforward reduction to element unique-
+ness (known to be @(NlogN) (Mirsa and Gries, 1982). To compute
+ICOUNT(BS, BE, a,-) for each a,- in A, the interval set B is ﬁrst split into
+two sorted integer lists BS and BE, which requires O(|B| log|B|) time.
+Next, each instance of ICOUNT(BS,BE,a,-) searches both BS and BE,
+which consumes O(|A| log |B|) time. For the counting problems, combin-
+ing the results of all ICOUNT(BS, BE, ai) instances into a ﬁnal result can be
+accomplished in O(|A|) time.
+
+ 
+
+1e /310's113umo [p.IOJXO'SOilBIIHOJUIOIQ/ﬁdllq 1110.1} prBOIIIAAOG
+
+9IOZ ‘091sn3nv uo ::
+
+R. M. Layer et aI.
+
+ 
+
+ 
+
+Algorithm 2: Interval intersection counter
+
+ 
+
+Input: Database interval array B and query interval array A
+Output: Number of intersections 0 between A and B
+
+Function COUNTER(A, B) begin
+
+BS <— [b1.start, . . . , blBl .start]
+BE <— [b1.end, . . . , blBlend]
+SORT(BS)
+
+SORT(BE)
+
+c <— 0
+
+forz' <— 1 to IAI d0
+L c <— c + ICOUNT(Bs, BE, A111)
+
+return 0
+
+ 
+
+ 
+
+2.3 Parallel BITS
+
+Performing a single operation independently on many different inputs
+is a classic parallelization scenario. When based on the sub-routine
+ICOUNT(BS,BE, a) , which is independent of all ICOUNT(BS,BE,X) for
+intervals x in the query set where a 75 x, counting interval intersections
+is a pleasingly parallelizable problem that easily maps to a number of
+parallel architectures.
+
+NVIDIA’s CUDA is a single instruction multiple data (SIMD) archi-
+tecture that provides a general interface to a large number of parallel
+GPUs. The GPU is organized into multiple SIMD processing units,
+and the processors within a unit operate in lock-step. The BITS algorithm
+is especially well suited for this architecture for a number of reasons.
+First, CUDA is optimized to handle large numbers of threads. By assign-
+ing each thread, one instance of ICOUNT(BS,BE, a), the number of
+threads will be proportional to the input size. CUDA threads also execute
+in lock-step and any divergence between threads will cause reduced
+thread utilization. Although there is some divergence in the depth of
+each binary search performed by ICOUNT(BS,BE, a), it has an upper
+bound of O(log |B|). Outside of this divergence, ICOUNT(BS,BE, a) is a
+
+ 
+
+1 El"
+Ei'ttiSEd Uniform Di'tierent
+distribution distribution distributions
+
+F?
+"U
+E 1st-
+D
+'11
+In
+E
+E
+E _
+iii 1 7
+E D
+E
+:1
+iI _
+
+1'36- UGSC 1.3.5.“
+
+tics-r: int treat: 1' air BED NEW
+EIEIZI 276% BED 2115-.“
+1 DE:
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+BITS BED UCSC BITS BED UCSC BITS BED UCSC
+
+Exons {query} u. Exons {query} u. Exome {query} u.
+Esome {database} Genome {database} Genome {database}
+
+classic SIMD operation (Kirk and ku, 2010). Finally, the only data
+structure required for this algorithm are a sorted array, and thanks to
+years of research in this area, current GPU sorting algorithms can sort
+billions of integers within seconds (Merrill and Grimshaw, 2011; Satish
+et al., 2009).
+
+3 RESULTS
+
+3.1 Comparing BITS to extant sequential approaches
+
+We implemented a sequential version of the BITS algorithm
+(‘BITS-SEQ’) as a stand-alone C++ utility. Here, we assess the
+performance of this implementation relative to BEDTools
+intersect and UCSC Genome Browser’s (‘UCSC’) (Kent
+et al., 2002) bedIntersect utilities (see Supplementary
+Material for details). We compare the performance of each tool
+for counting the total number of observed intersections between
+sets of intervals of varying sizes (Fig. 2). The comparisons pre-
+sented are based on sequence alignments for the CEU individual
+NA12878 by the 1000 Genomes Project (The 1000 Genomes
+Project Consortium, 2010), as well as RefSeq exons. Owing to
+the different data structures used by each algorithm, the relative
+performance of each approach may depend on the genomic dis-
+tribution of intervals within the sets. As discussed previously,
+tree-based solutions that place intervals into hierarchical bins
+may perform poorly when intervals are unevenly distributed
+among the bins. We tested the impact of differing interval distri-
+butions on algorithm performance by randomly sampling 1
+and 10 million alignment intervals from both whole-genome
+and exome-capture datasets for NA12878 (see Supplementary
+Material). Each algorithm was evaluated considering three differ-
+ent interval intersection scenarios. First, we tested intervals from
+diﬂerent distributions by comparing the intersection between
+exome-capture alignments and whole-genome alignments. As
+
+ 
+
+1 0‘3
+Biased Uniform Ditto-rent
+distribution distribution distnbutions
+
+1;; _
+E .
+g 10*
+L1
+:13
+U]
+E _
+E _ ; _
+E
+v , one: sex
+g 10' BED as II
+E UCSC 2 tit UCSC tax
+3 BED not eat: trait I
+II
+
+1 0'3
+
+1 US:
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+BITS BED UCSC BITS BED UCSC BITS BED UCSC
+
+Esons {query} u. Euons {query} u. Exome {query} 1r.
+Eitome {databasej Genome {database} Genome {databasel
+
+Fig. 2. Run times for counting intersections with BITS, BEDTools and UCSC ‘Kent source’. (A) Run times for databases of 1 million alignment
+intervals from each interval distribution. (B) Run times for databases of 10 million alignment intervals from each interval distribution. Bars reﬂect the
+mean run time from ﬁve independent experiments, and error bars describe the standard deviation. Gray bars reﬂect the run time consumed by data
+structure construction, whereas white bars are the time spent counting intersections. Above each BITS execution time, we note the speed increase relative
+to BEDTools and ‘Kent source’, respectively. ‘Exons’ represents 400351 RefSeq exons (autosomal and X, Y) for the human genome (build 37).
+
+BED = BEDTools; UCSC 2 ‘Kent source’
+
+ 
+
+1e /310's113umo [p.IOJXO'SOilBIIHOJUIOIQ/ﬁdllq uIOJj prBOIIIAAOG
+
+9IOZ ‘091sn3nv uo ::
+
+BITS
+
+ 
+
+each set has a large number of intervals and a different genomic
+distribution, we expect a small (relative to the set size) number of
+intersections. We also tested a uniform distribution by counting
+intersections between Refseq exons and whole-genome sequen-
+cing alignments. Here, each interval set is, for the most part,
+evenly distributed throughout the genome; thus, we expect each
+exon to intersect roughly the same number of sequencing inter-
+vals, and a large number of sequencing intervals will not intersect
+an exon. Finally, we assessed a biased intersection distribution
+between exons and exome-capture alignments. By design, exome
+sequencing experiments intentionally focus collected DNA se-
+quences to the coding exons. Thus, the vast majority of sequence
+intervals will align in exonic regions. In contrast to the previous
+scenario, nearly every exon interval will have a large number of
+sequence interval intersections, and nearly all sequencing intervals
+will intersect an exon.
+
+3.1.1 BITS excels at counting intersections In all three interval
+distribution scenarios, the sequential version of BITS had super-
+ior runtime performance for counting intersections. BITS was
+between 11.2 and 27.9 times faster than BEDTools and between
+1.2 and 5.2 times faster than UCSC (Fig. 2). This behaviour is
+expected, whereas the BEDTools and UCSC tree-based algo-
+rithms must enumerate intersections to derive the count, BITS
+infers the intersection count by exclusion without enumeration.
+
+3.1.2 BITS excels at large intersections and biased
+distributions The relative performance gains of the BITS
+approach are enhanced for large datasets (Fig. 2B). As tree-based
+methods have a ﬁxed number of bins, and searches require a
+linear scan of each associated bin, the number of intervals
+searched grows linearly with respect to the input size. In the
+worst-case where all intervals are in a single bin, a search
+would scan the entire input set. In contrast, BITS uses binary
+searches; hence, the number of operations is proportional to
+log10g of the input size, regardless of the input distribution.
+Similarly, exome-capture experiments yield biased distributions
+of intervals among the UCSC bins. Consequently, most bins in
+tree-based methods will contain no intervals, whereas a small
+fraction contain many intervals. When the query intervals have
+the same bias, the overhead of the UCSC algorithm is more oner-
+ous, as a small number of bins are queried and each queried bin
+contains many intersecting intervals that must be enumerated to
+count overlaps. As the BITS algorithm is agnostic to the interval
+distributions, it will outperform the UCSC algorithm (Fig. 2A
+and B) for common genomic analyses, such as ChIP-seq and
+RNA-seq, especially given the massive size of these datasets.
+
+3.2 Applications for Monte Carlo simulations
+
+Identifying statistically signiﬁcant relationships between sets of
+genome intervals is fundamental to genomic research. However,
+owing to our complex evolutionary history, different classes of
+genomic features have distinct genomic distributions, and as
+such, testing for signiﬁcance can be challenging. One widely
+used, yet computationally intensive, alternative solution is the
+use of Monte Carlo (MC) simulations that compare observed
+interval relationships to an expectation based on randomization.
+All aspects of the BITS algorithm are particularly well suited for
+MC simulations measuring relationships between interval sets.
+
+Table 1. Runtime (seconds) comparison for MC simulations"1
+
+ 
+
+Number of MC iterations
+
+ 
+
+ 
+
+Size Tool 1 100 1000 10 000
+165 BITS-CUDA 0.73 1 4 28
+BITS-SEQ 0.41 7 68 680
+UCSC 0.17 14 138 1381
+1e6 BITS-CUDA 2 3 1 103
+BITS-SEQ 5 120 I 200 I 2 000
+UCSC 6 878 8780 87800
+1e7 BITS-CUDA 14 22 97 835
+BITS-SEQ 66 2235 22 350 223 500
+UCSC 568 28 508 285 080 2 850 800
+
+ 
+
+aTimings in italics were extrapolated owing to long run times.
+
+As described, all intersection algorithms begin detecting intersec-
+tions between two interval sets by setting up their underlying
+data structures (e.g. trees or arrays). The BITS set-up process
+involves mapping each interval from the 2D chromosomal inter-
+val space (i.e. chromosome and start/end coordinates) to a 1D
+integer interval space (i.e. start/end coordinates ranging from 1
+to the total genome size). Once the intervals are mapped, arrays
+are sorted by either start or end coordinates. In contrast, the
+UCSC set-up places each interval into a hash table. As shown
+in Figure 2, data structure set-up is a signiﬁcant portion of the
+runtime for all approaches.
+
+However, in the case of many MC simulation rounds, where
+a uniformly distributed random interval set is generated and
+placed into the associated data structure, the set-up step is
+faster in BITS, whereas the set-up time remains constant in
+each simulation round for UCSC. For BITS, the mapping step
+is skipped in all but the ﬁrst round, and in each simulation
+round, only an array of random starts must be generated. The
+result is a 6x speed-up for MC rounds over the cost of the initial
+intersection set-up. For UCSC, both the chromosome and the
+interval start position must be generated and then placed into the
+hash table with no change in execution time.
+
+This speed-up in BITS is extended on parallel platforms, where
+the independence of each intersection is combined with efﬁcient
+parallel random number generation algorithms (Tzeng and Wei,
+2008) and parallel sorting algorithms (Merrill and Grimshaw,
+2011; Satish et al., 2009). MC simulations have obvious task
+parallelism, as each round is independent. BITS running on
+CUDA (‘BITS-CUDA’) goes a step further and exposes
+ﬁne-grain parallelism in both the set-up step, with parallel
+random number generation and parallel sorting, and the inter-
+section step where hundreds of intersections execute in parallel.
+The improvement is modest for a single intersection (only paral-
+lel sorting can be applied to the set-up step) where BITS-CUDA
+is 4x faster than sequential BITS and 40x faster than sequential
+UCSC. However, as the number of MC rounds grows, perform-
+ance improves dramatically. At 10 000 MC rounds and 1e7 inter-
+vals, BITS-CUDA is 267x faster than sequential BITS and
+3414x faster than sequential UCSC. An improvement of this
+scale allows MC analyses for thousands of experiments (e.g.
+25 281 pairwise comparisons in Section 3.3).
+
+ 
+
+1e /810's113umo [p.IOJXO'SOilBIIHOJUIOIQ/ﬁdllq uIOJj prBOIIIAAOG
+
+9IOZ ‘091sn8nv uo ::
+
+R. M. Layer et aI.
+
+ 
+
+We demonstrate the improved performance of BITS over 3.3 Uncovering novel genomic relationships
+
+UCSC for MC simulations for measuring the signiﬁcance of The efﬁciency of BITS for MC applications on GPU architec_
+
+the overlaps between interval 36‘s in Table 1' AS bOth the tures provides a scalable platform for identifying novel relation-
+number Of MC rounds and the SIZE Of the dataset grows” the ships between large-scale genomic datasets. To illustrate
+
+Speed'up Of bOth sequential BITS and BITS'CUDA increases BITS-CUDA’s potential for large-scale data mining experiments,
+
+over UCSC: For the large:St .Comparison (167 intervals and we conducted a screen for signiﬁcant genomic co-localization
+10000 “manglle BITS'SEQ ls 12X ﬁlm” than UCSC» and among 159 genome annotation tracks using MC simulation
+BITS'CUDA ls 267x faSter than BITS'SEQ and 3414X faSter (see Supplementary Material). This analysis was based on func-
+
+than sequential UCSC- tional annotations from the ENCODE project (ENCODE
+
+Emichment score
+{log2 {observed intersection comtt median simulated intersection count]
+
+ 
+
+HERETrTE-EE- i-SmETn'ir-Ei HSkZTmEE
+
+lit-r Tbs Ere:
+
+Idsﬁ Par" 1'1r‘gli'1
+
+ - -r-,-- 2am.
+
+'al1 ' 'a" f“ ._"i T-EH'
+
+tgr‘J IT,.IT"_-.rr Egg-"ﬁr"
+
+{Ll-id? lbp “git-1
+
+Gmyo Egr‘l-1 l'u'li-til
+
+Tal1—‘l Taft-IJl Fgr‘i-?
+
+Gaop—i Sit-5r Gabe-2'
+
+Srf-E Srf-1 Srt-l
+
+H'f-P USN-1 {-1"-‘
+
+Ule .'~.-:-”=-‘ Usfi-E'
+
+ililli ﬁlm-3 Js“-.r
+
+Lien-2 Listi—i Art‘s—1
+
+Rfi-cE. AtIE-E‘ um
+
+2nf143 Juno FAIRE
+
+Era-5L Fit-"'43 Dnase
+
+Dnase Pol2 FAIRE
+
+Enf143 Cith JLtnd
+
+pr ‘r'yi-i Iu'lui'i
+
+Rth Un-rr'reth “tart-2
+
+Egr‘l-‘l Eqn-2 EpiG islands
+
+Taf'l-2 End-2 Taft-1
+
+Nrfi Nrﬂ Sp1-1
+
+Geno-2 Gabp-‘l Un-rneth
+
+F‘oIE-E -'ol23 F'cIE-'
+
+F'oIE-Eh-B-E Pol24hﬂ-1 PoIE-l
+
+F'ol2-2 Pol2-2 PolE
+
+PolE-iihB-Z PoIEIihEli-i PolE-i
+
+ilnlﬂﬁnE E T‘CIL-‘ﬁ'ili‘ 1 E'UTRS
+
+(lab: :3 Gen: 1 Promoters
+
+Slab-2 Suﬁ-“l Finn‘-
+
+S-p‘l-E Hot-'2 Epi-l
+
+SHE-2 BIKE-‘-  '
+
+Gmyc Conservation Sub If
+Semi-math Geri-ii i'r'atl' Exons "
+
+Dounsiream E'LITRs Semi-neth ' ' 'T'J Tul:
+
+air-iii ueh Meth lo — il—
+
+HauZ‘I-E FtauE‘I-E Wholejena
+
+. I— I |- I
+Ftad3'1-‘I RauW-E' Reﬁt-1 a.“ ' #
+Hetl.“:-| HetISI-I' FAIRE -- 'I t
+
+nasaie JLi'd 2‘eﬂT-3'   :  
+HEIltSEmeB ' I-’-I=.L3'|.'J'I1.L‘. ' ' IZiI-{L‘ilii'mtll
+:‘Iﬂkﬂmet i-l-EILZEImm H3It35rne3
+HEkElac HSkETa-c H4k20rne1
+H3I-dlme3 HﬂkaineE‘ H3k4ine1
+Eats-“line? liiil-crii'itr'l Polﬂb
+'Ifiltsi-‘i'i‘n’: lit-tile: l'Ji}"_EJ-I'
+Hﬂ-kﬂac HEIt-imeE H3k-1rne3
+thf 37:" H3It4rne1
+Segdups tiliigiI Gtcf
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+I
+L1 lntrons Microaatellitee _ . I'll:-
+mﬁu-tn£-:qu-_:NNt-t N:HH"EUJID|_II'U_=NWFF -IiI-ﬂ1-w - r- ruwﬁﬁmFthtl-OMFPBUMFE
+tneff-t5gééaéﬁﬁ-ﬁéégﬁwmﬂmgxé'oéé mmcit-hr:gtnéwm:E‘EcéméEEEEWITEEEE
+a: esaeeaeemsusaacaaﬁeaae cause reee°EEPNEWE “H E
+R _ .:_ r‘l|Luka‘cﬁrr::‘Iruuﬂllimrz'ﬁkmélul ammo? Mei-nﬁgsuigueeﬁgﬁleEEhm
+#53::sginwegqﬂnebwngéaﬁegﬁﬂwdw“areogasegtweﬁﬁeEETEEEE
+Ir I.":-"".-~ur’-|_CD1—  N' TIIII I-'-—_|Z.I 
+"af— ii.- HIV—'1: —_"-,.I no :Iq—EL {GEL I 4:14:53 Emit: [_ E lld: Btu-mm"; H
+ﬁgnwcum and ﬁﬁjmjﬁmmgﬁ eragﬁmﬁsowwmg er EEJLEBEVPEFwE
+.- _-' -t,| .- 3. w u - '.' J 2' (“TI—1' -
+Ea ll" HEEw‘TEJ‘gEWEQﬁeSEIEmENEE EﬁgﬂlEWWNEEEEFPE'TMEEREL$E*%
+._ :r-_ o.  . or — cl : -—1- . u no
+5N '- 1413:1331:- "'-'g E  $551.7: [qt-'4 ENrTI'_Ii'ﬂE'-';iaiﬂh g'I- #ﬂgﬁgiamgﬁgg
+s: E‘s- i-'|:|ﬁ.l  IILIJ — '— '— _E - I . . '13
+s .m PM a “o e as; sewerage sswdta meet me
+. I— 1— . _|:i' 11 U 1:I'L' _
+I n: :_ . c: :nEE or .II '13- '5‘“
+m '1: (1] 'CI' £2“ E Lou NEE 
+{U m E —-tr'.'-‘l  " m mmIq-TI‘JI ‘—
+; Lu o C‘le' Um... El: EEm-v I":I _I
+e n “a we a salt I
+E n g _'-ir:-.""!l
+F'I HI
+I I
+
+Fig. 3. BITS-CUDA measurements of spatial correlations among 159 genome features from the ENCODE project and from the UCSC Genome
+Browser. For each comparison, we show an enrichment score reﬂecting the log2 ratio of the observed count of intersections over the median count of
+intersections from 10 000 MC simulations. Each set of three labels on the x and y axes correspond to three consecutive rows or columns, respectively.
+Assays from the GM12878 cell line are in green, Hl-hESC in blue and K562 in red. Annotation tracks from the UCSC Genome Browser are in black
+
+ 
+
+1e /810'spewinofpinxosot1euu0jutotq//:d11q Incl; popeoIHAAoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+BITS
+
+ 
+
+Project Consortium, 2007) for the GM12878, Hl-hESC and
+K562 cell lines, including assays for 24 transcriptions factors
+(often with replicates), 8 histone modiﬁcations, open chromatin
+and DNA methylation. We also included diverse genome anno-
+tations from the UCSC genome browser (e. g. repeats, genes and
+conserved regions).
+
+Using BITS-CUDA, we measured the log2 ratio of the
+observed and expected number of intersections for each of the
+25281 (i.e. 159* 159) pairwise dataset relationships using le4
+MC simulations (Fig. 3). As expected, this analysis revealed
+that (i) the genomic locations for the same functional element
+are largely consistent across replicates and cell types; (ii) methy-
+lated and semi-methylated regions are similar across cell types;
+and (iii) most functional assays were anti-correlated with gen-
+omic repeats (e.g. microsatellites) owing to sequence alignment
+strategies that exclude repetitive genomic regions. Perhaps not
+surprisingly, this unbiased screen also revealed intriguing pat-
+terns. First, the strong enrichment among all transcription fac-
+tors (TF) assays suggests that a subset of TF binding sites is
+shared among all factors. This observation is consistent with
+previous descriptions of ‘hot regions’ (Gerstein et al., 2010).
+In addition, there is a signiﬁcant, speciﬁc and unexplained
+enrichment among the Six5 TF and segmental duplications.
+
+Pursuing the biology of these relationships is beyond the scope
+of the current manuscript; however, we emphasize that the ability
+to efﬁciently conduct such large-scale screens facilitates novel
+insights into genome biology. This analysis presented a tremen-
+dous computational burden made feasible by the facility with
+which the BITS algorithm could be applied to GPU architec-
+tures. Indeed, each iteration of our MC simulation was tested
+for intersections among 4 billion intervals among the 25 000
+datasets, yielding >44 trillion comparisons for the entire simula-
+tion. Although this simulation took 9069 min on a single com-
+puter with one GPU card, we estimate that it would take at least
+112 traditional processors to conduct the same analysis using
+standard approaches, such as the UCSC tools or BEDTools.
+
+4 CONCLUSION
+
+We have developed a novel algorithm for interval intersection
+that is uniquely suited to scalable computing architectures, such
+as GPUs. Our algorithm takes a new approach to counting inter-
+sections: unlike existing methods that must enumerate intersec-
+tions to derive a count, BITS uses two binary searches to directly
+infer the count by excluding intervals that cannot intersect one
+another.
+
+We have demonstrated that a sequential implementation of
+BITS outperforms existing tools and illustrated that BITS is
+task efﬁcient and highly parallelizable. BITS is also memory ef-
+ﬁcient: our MC simulation required 217 Mb of random access
+memory and the sequential implementation consumed 412 Mb of
+random access memory, versus 790 Mb for UCSC and 3588 Mb
+for BEDTools. We show that a GPU implementation of BITS is,
+therefore, a superior solution for MC analyses of statistical rela-
+tionships between genome intervals sets.
+
+Given the efﬁciency with which the BITS algorithm counts
+intersections, it is also well suited to other genomic analyses,
+
+including RNA-seq transcript quantiﬁcation, ChIP-seq peak
+detection and searches for copy-number and structural variation.
+Moreover, the functional and regulatory data produced by pro-
+jects, such as ENCODE, have led to new approaches (Favorov
+et al., 2012) for measuring relationships among genomic features.
+We recognize the importance of scalable approaches for
+detecting such relationships, and we anticipate that our new
+algorithm will foster new genome mining tools for the genomics
+community.
+
+ACKNOWLEDGEMENTS
+
+The authors are grateful to Anindya Dutta for helpful discus-
+sions throughout the preparation of the manuscript and to Ryan
+Dale for providing scripts that aided in the analysis and inter-
+pretation of our results.
+
+Funding: NHGRI (NIH lR01HG006693-01 to A.Q.).
+
+Conflict of Interest: none declared.
+
+REFERENCES
+
+Alekseyenko,A.V. and Lee,C.J. (2007) Nested containment list (NCList): a new
+algorithm for accelerating interval query of genome alignment and interval
+databases. Bioinformatics, 23, 1386—1393.
+
+ENCODE Project Consortium (2007) Identiﬁcation and analysis of functional ele-
+ments in 1% of the human genome by the ENCODE pilot project. Nature, 447,
+799—816.
+
+Favorov,A. et al. (2012) Exploring massive, genome scale datasets with the
+GenometriCorr package. PLoS Comput. Biol, 8, 61002529.
+
+Gerstein,M.B. et al. (2010) Integrative analysis of the Caenorhabditis elegans
+genome by the modENCODE project. Science, 330, 1775—1787.
+
+Giardine,B. et al. (2005) Galaxy: a platform for interactive large-scale genome
+analysis. Genome Res., 15, 1451—1455.
+
+Kent,W.J. et al. (2002) The human genome browser at UCSC. Genome Res., 12,
+996—1006.
+
+Kirk,D. and ku,W. (2010) Programming Massively Parallel Processors: A
+Hands-0n Approach. Elsevier, Burlington, MA.
+
+Li,H. et al. (2009) The sequence alignment/map (SAM) format and SAMtools.
+Bioinformatics, 25, 2078—2049.
+
+McKenney,M. and McGuire,T. (2009) A parallel plane sweep algorithm for
+multi-core systems. In Proceedings of the 17th ACM SIGSPA T IAL
+International Conference on Advances in Geographic Information Systems.
+GIS ’09, pp. 392—395. ACM, New York, NY, USA.
+
+Merrill,D. and Grimshaw,A. (2011) High performance and scalable radix sorting: a
+case study of implementing dynamic parallelism for GPU computing. Parallel
+Process. Lett., 21, 245—272.
+
+Mirsa,J. and Gries,D. (1982) Finding repeated elements. Sci. Comput. Progr., 2,
+143—152.
+
+Neph,S. et al. (2012) BEDOPS: high performance genomic feature operations.
+Bioinformatics, 28, 1919—1920.
+
+Quinlan,A.R. and Hall,I.M. (2011) BEDTools: a ﬂexible suite of utilities for
+comparing genomic features. Bioinformatics, 26, 841—842.
+
+Richardson,J.E. (2006) fjoin: simple and efﬁcient computation of feature overlaps.
+J. Computat. Biol, 13, 1457—1464.
+
+Satish,N. et al. (2009) Designing efﬁcient sorting algorithms for manycore GPUs. In
+International Symposium on Parallel and Distributed Processing, 2009. IPDPS
+’09, pp. 1—10. IEEE.
+
+The 1000 Genomes Project Consortium (2010) A map of human genome variation
+from population-scale sequencing. Nature, 467, 1061—1073.
+
+Tzeng,S. and Wei,L.Y. (2008) Parallel white noise generation on a GPU via crypto-
+graphic hash. In Proceedings of the 2008 Symposium on Interactive 3D Graphics
+and Games. BB ’08, pp. 79—87. ACM, New York, NY, USA.
+
+ 
+
+1e /810'sieumo [p.IOJXO'SOIlBIHJOJUIOIQ/ﬁdllq urorj prBOIIIAAOG
+
+9IOZ ‘091sn8nv uo ::
+

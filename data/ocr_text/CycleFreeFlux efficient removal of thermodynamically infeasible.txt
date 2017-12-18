@@ -1,0 +1,916 @@
+Bioinformatics, 31 (13), 2015, 2159—2165
+
+doi: 10.1093/bioinformatics/btv096
+
+Advance Access Publication Date: 19 February 2015
+Original Paper
+
+ 
+
+Systems biology
+
+CycleFreeFlux: efficient removal of
+thermodynamically infeasible loops from flux
+distributions
+
+Abdelmoneim Amer Desouki1'4 Florian Jarrez, Gabriel Gelius-Dietrich1
+and Martin J. Lercher1'3
+
+1Institute for Computer Science, 2Institute for Mathematics, 3Cluster of Excellence on Plant Sciences, Heinrich
+Heine University, 40225 Diisseldorf, Germany, and 4Faculty of Computers and Informatics, Suez Canal University,
+lsmailia, Egypt
+
+Associate Editor: Jonathan Wren
+
+Received on April 4, 2014; revised on January 27, 2015; accepted on February 10, 2015
+
+Abstract
+
+Motivation: Constraint-based metabolic modeling methods such as Flux Balance Analysis (FBA)
+are routinely used to predict metabolic phenotypes, e.g. growth rates, ATP yield or the fitness of
+gene knockouts. One frequent difficulty of constraint-based solutions is the inclusion of thermo-
+dynamically infeasible loops (or internal cycles), which add nonbiological fluxes to the predictions.
+Results: We propose a simple postprocessing of constraint-based solutions, which removes in-
+ternal cycles from any given flux distribution v(0) without disturbing other fluxes not involved in the
+loops. This new algorithm, termed CycleFreeFlux, works by minimizing the sum of absolute fluxes
+||v||1 while (i) conserving the exchange fluxes and (ii) using the fluxes of the original solution to
+bound the new flux distribution. This strategy reduces internal fluxes until at least one reaction of
+every possible internal cycle is inactive, a necessary and sufficient condition for the thermo-
+dynamic feasibility of a flux distribution. If alternative representations of the input flux distribution
+in terms of elementary flux modes exist that differ in their inclusion of internal cycles, then
+CycleFreeFlux is biased towards solutions that maintain the direction given by v(°) and towards so-
+lutions with lower total flux ||v||1. Our method requires only one additional linear optimization, mak-
+ing it computationally very efficient compared to alternative strategies.
+
+Availability and implementation: We provide freely available R implementations for the enumer-
+ation of thermodynamically infeasible cycles as well as for cycle-free FBA solutions, flux variability
+calculations and random sampling of solution spaces.
+
+Contact: lercher@cs.uni-duesseldorf.de
+
+ 
+
+ 
+
+1 Introduction
+
+Constraint-based methods for the functional analysis of metabolic
+networks (CBM or COBRA methods) rely on stoichiometric equa-
+tions and do not require kinetic information for individual reactions.
+They are thus applicable to genome-scale metabolic systems (Lewis
+et al., 2012). Flux-balance analysis (FBA), which involves the maxi-
+mization of a fitness-related objective function in steady-state condi-
+tions (Orth et al., 2010), has been successfully applied to predict
+
+phenotypes such as growth rates, ATP yield and the effects of gene
+knockouts. Recent publications have applied FBA to predict drug
+targets (Colijn et al., 2009; Plata et al., 2010), While others have
+used FBA to study the evolution of metabolic systems (Barve and
+Wagner, 2013; Pal et al., 2005, 2006).
+
+FBA predicts the maximal value of the objective function—often
+the yield of biomass production (Orth et al., 2010; Schuster et al.,
+2008)—together with a set of ﬂux values for all reactions included
+
+©The Author 2015. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 2159
+
+112 [3.10811211an[plOJXO'SODBIILIOJIITOTQ/ﬂ(11111 wort pepeolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+2160
+
+A.A.Desouki et al.
+
+ 
+
+in the metabolic system (a ‘flux distribution’) (Colijn et al., 2009).
+One of the difficulties of FBA predictions is that they frequently in-
+clude thermodynamically infeasible internal cycles, i.e. sets of
+reactions that together carry a ﬂux that has no inﬂuence on the
+exchange reactions of the model (De Martino et al., 2013; Price
+et al., 2002; Schellenberger et al., 2011; Schilling et al., 2000;
+Wright and Wagner, 2008). These are metabolic ‘perpetual motion
+machines’ and do not occur in biological reality. Such internal cycles
+thus distort predicted flux distributions and should be removed
+from the predictions. Thermodynamically infeasible cycles affect not
+only the predictions of FBA, but also those of many other con-
+straint-based analysis methods. In particular, thermodynamically
+infeasible cycles distort the output of sampling algorithms that aim
+to characterize the steady-state solution space, and lead to the as-
+signment of unrealistically high values to the ﬂux ranges that can be
+carried by individual reactions in flux variability analysis (FVA)
+(Mahadevan and Schilling, 2003).
+
+At least for FBA, there exists a strategy that ensures the thermo-
+dynamic feasibility of the flux distribution: the minimization of the
+sum of absolute fluxes under the additional constraint of an optimal
+value for the original objective function (minimization of total ﬂux,
+MTF) (Holzhutter, 2004; Schuetz et al., 2012). This method aims to
+approximate a ﬂux distribution that minimizes cellular investment
+into enzymes, and is hence sometimes called parsimonious FBA
+(Lewis et al., 2010). As a side effect of its parsimonious strategy,
+MTF also removes any internal cycles. MTF solutions do not repre-
+sent the full thermodynamically feasible solution space of the ori-
+ginal FBA problem; hence, they cannot be used to characterize this
+full space, which is the purpose of random sampling algorithms and
+FVA calculations.
+
+Several approaches for the identification and/or exclusion of
+thermodynamically infeasible cycles have been proposed (De Martino
+et al., 2013; Schellenberger et al., 2011; Wright and Wagner, 2008).
+The most Widely used method, ll-COBRA (Schellenberger et al.,
+201 1), is based on the integration of thermodynamic constraints with
+FBA into a mixed-integer linear problem (MILP). However, this
+approach is computationally expensive, resulting in runtimes that se-
+verely limit its applicability to large-scale studies.
+
+Here, we propose a new algorithm, termed CycleFreeFlux, which
+removes all thermodynamically infeasible cycles from any given flux
+distribution with a single linear optimization step; this makes it
+orders of magnitude faster than previous approaches when applied
+to sampling or flux variability analyses of genome-scale metabolic
+networks.
+
+2 Results
+
+2.1 Characterization of thermodynamically feasible flux
+distributions
+
+To motivate the CycleFreeFlux algorithm, we first formally charac-
+terize thermodynamically feasible flux distributions. Consider the
+following standard FBA problem (boldface indicates vectors):
+
+max CTV
+
+subjectto: SV 2 0 (1)
+lgvgu
+Here, S is a stoichiometric matrix, Where each row corresponds
+to one metabolite, and each column contains the stoichiometric co-
+
+efficients of one reaction; v is a vector of ﬂuxes through these reac-
+tions; SV 2 0 enforces a steady state in which all internal metabolite
+
+concentrations are constant; 1 and u are vectors of lower and upper
+bounds for v, respectively, Where S is applied element-Wise; and ch
+with a constant weight vector c is a linear combination of ﬂuxes that
+is maximized (the ‘gain’ of v). In many applications, this objective
+function contains just one hypothetical flux that corresponds to the
+rate of biomass production, ch 2 125,0 (Schuster et al., 2008).
+
+In the following, we will call a ﬂux distribution ‘feasible’ if it is
+nonzero and adheres to all constraints in the FBA problem (1) (i.e. if
+it lies in the space of feasible solutions of (1)). support(v’) denotes
+the set of indices 7' with 12/ 75 0. A ﬂux distribution v’ is thermo-
+dynamically feasible if, and only if, there exists an assignment of
+free energies G to the metabolites such that the free energy change
+caused by each active reaction is strictly negative, i.e. 12/ AGi < 0 for
+all j E support(v’), with AG,- 2 szG, Where 5,- denotes the i—th col-
+umn of S (Beard et al., 2002; Schellenberger et al., 201 1).
+
+We will explicitly consider the free energies of external metabol-
+ites in order to deal correctly with thermodynamically infeasible
+ﬂux distributions that involve transport reactions (reactions that
+shuttle metabolites between internal compartments and the external
+compartment). For each external metabolite, we add one reversible
+‘exchange’ reaction between the external compartment and an add-
+itional ‘NULL’ compartment that is not explicitly modeled. Many
+genome-scale metabolic reconstructions already define exchange re-
+actions in that way. For any given free energy of a metabolite pre-
+sent in the external compartment, we can set a hypothetical free
+energy outside the external compartment that drives the exchange
+reaction in the desired direction. Thus, exchange reactions as
+defined here are always thermodynamically feasible. When consider-
+ing thermodynamical feasibility, we only need to examine internal
+reactions (including transport reactions), and it is hence convenient
+to partition the stoichiometric matrix into an internal and an ex-
+change part, S 2 (Sim, Sex].
+
+We call a nonzero ﬂux distribution Av ‘internal’ if, and only if, it
+fulfills the conditions SAv = 0, min {l,,0}gv,-§max {0,14,} for all
+ﬂuxes 12,-, and if all its exchange ﬂuxes are zero. Thus, internal flux
+distributions do not change any internal or external metabolite con-
+centrations; they can be thought of as combinations of internal
+cycles that collectively neither consume nor produce anything. If the
+constraints of (1) do not enforce any nonzero fluxes, then internal
+ﬂux distributions are also feasible.
+
+As free energy is a state variable of metabolites, the free energy
+changes of the reactions active in Av must add to zero in steady
+state: AvAG = 0 (Beard et al., 2002; Schellenberger et al., 2011).
+Thus, AvaGkZO for at least one reaction k E support(Av). There is
+hence no thermodynamic driving force for at least one reaction in
+support(Av); consequently, all internal ﬂux distributions are
+thermodynamically infeasible.
+
+The following theorem characterizes thermodynamically feasible
+ﬂux distributions:
+
+Theorem: A flux distribution v 75 0 that is feasible for (1) is
+thermodynamically feasible if, and only if, there does not exist
+any internal ﬂux distribution AV 75 0 with support(Av)Csupport(v)
+and All/€12,220 for all k.
+
+Proof: We may assume, Without loss of generality, that 12k 75 0 for
+
+all k. (If not delete the k-th component of v and the k-th column of
+
+S.) We may further assume that 12k > 0 for all k. (If not replace the
+
+k-th component ‘vk’ by ‘—vk’ and the k-th column ‘sk’ of S by ‘—sk’.)
+
+Then, by definition, v is thermodynamically feasible, if, and only if,
+
+there exists a vector of free energies G such that SLtG < 0 (i.e. each
+T
+
+th must be negative).
+
+component of the vector S
+
+112 [3.10811211an[plOJXO'SODBIILIOJIITOTQ/ﬂ(11111 wort pepeolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+Efficient removal of loops
+
+2161
+
+ 
+
+By Gordan’s theorem (see, e.g. Theorem 2.2.1 in (Borwein and
+Lewis, 2006)), this is the case, if, and only if, there does not exist a
+vector x20 with x 75 0 and Simx = 0. Identifying x with Av the claim
+follows.
+
+We have thus shown that a feasible flux distribution v is thermo-
+dynamically feasible if and only if it cannot be ‘reduced’ by subtract-
+ing an internal ﬂux distribution Av.
+
+2.2 Removing internal cycles from a given flux
+distribution
+The theorem provides the motivation for the CycleFreeFlux algo-
+rithm. We aim to reduce a given flux distribution v(0) to its thermo-
+dynamically feasible part. To achieve this goal, CycleFreeFlux
+minimizes the sum of absolute ﬂuxes while (i) all exchange ﬂuxes
+are kept constant, and (ii) no internal ﬂux is allowed to change dir-
+ection or increase in size. If the input ﬂux distribution is the output
+of a previous optimization, CycleFreeFlux additionally constrains
+the value of the objective function ch to its optimal value. We as-
+sume that there are no lower bounds l,- > 0 and no upper bounds
+14,- < 0, i.e. all ﬂuxes are allowed to be nonactive; otherwise, these
+constraints may enforce thermodynamically infeasible ﬂuxes, and
+then v(0) cannot be reduced to a feasible solution that is also thermo-
+dynamically feasible.
+
+We thus solve the following linear optimization problem:
+
+min 2 |12,-|
+
+subject to : SV 2 0
+0314-3121(0) for iwith 121(0) 20
+121(0)312,-30 forz' with 121(0) < 0
+
+12,- 2 127(0) for all exchange fluxes 12,-
+
+As ﬂuxes are not allowed to change directions, we can transform
+(2) trivially to a linear problem by replacing the sum over the abso-
+lute values by two sums over positive and negative ﬂuxes, respect-
+ively: Zi lvil : Ziwith12fo)>0 vi — Zz'with12fo)<0 vi'
+
+The flux distribution v resulting from this optimization is ‘struc-
+turally consistent’ with v(0). Here, we define a ﬂux distribution v as
+structurally consistent with an input flux distribution v(0) if v neither
+increases (in absolute value) nor inverts any fluxes compared to v(0).
+CycleFreeFlux outputs a minimal (in terms of the sum of absolute
+ﬂuxes  |1) flux distribution that is structurally consistent with the
+input ﬂux distribution v(0).
+Corollary: A ﬂux distribution v 75 0 that is feasible for (1) (with
+l303u) is thermodynamically feasible if, and only if, the output of
+the CycleFreeFlux algorithm (2) with input v(0) = v is v itself.
+
+Proof: To simplify the presentation assume again that v(0)20. If
+CycleFreeFlux returns a ﬂux v 7E v(0), then, by construction, Av :2 v(0)
+—v20 and support(Av) C support(v(0)). Thus, by the theorem, v(0) is
+not thermodynamically feasible. Conversely, if v(0) is not thermo-
+dynamically feasible, then, by the theorem, there exists an internal ﬂux
+distribution Av 75 0 with support(Av) C support(v(0)). Then, v(0) — 6A
+v is feasible for (2) for small 6 > 0, reducing the objective value in (2),
+so that CycleFreeFlux will not return v = v(0) as output.
+
+Figure 1 illustrates our strategy on a simple toy model with five
+reactions, 121, . . . ,125. All steady-state flux distributions in this model
+can be expressed as non-negative linear combinations of the three
+
+ 
+
+ 
+
+Fig. 1. A toy model illustrating our algorithms. Three metabolites (A, B, C) can
+be interconverted by three internal reactions (vz, v4, v5). A can be taken up
+from the environment through the exchange reaction v1, while B can be se-
+creted through v3. All fluxes except v2 are unidirectional, allowed to proceed
+only from left to right (which is also the nominal flux direction of v2). The
+steady-state flux distributions of this model can be expressed as positive lin-
+ear combinations of the elementary flux modes e1,e2,e3 (dashed lines). The
+cycle (:3 involves only internal fluxes (i.e. it is a type III elementary flux mode),
+and is thus thermodynamically infeasible
+
+elementary flux modes (Schuster and Hilgetag, 1994) e1, e2 and e3.
+e1 and e2 involve the exchange fluxes 121 and 123 and are thus type I
+elementary ﬂux modes (analogous to type I extreme pathways (Price
+et al., 2002)). In contrast, the loop e3 involves only the internal
+ﬂuxes 122, 124 and 125 and is hence type III (i.e. thermodynamically
+infeasible).
+
+The fluxes shown in the figure are our input flux distribution,
+v(0). To apply the CycleFreeFlux algorithm, we constrain the in-
+ternal reactions 124 and 125 to non-negative values (0312431000 and
+0312531000), while the third internal reaction, 122, is constrained to
+nonpositive values (—999312230). At the same time, we fix the ex-
+change reactions at their input values, 121 = 123 = 1 . Minimizing the
+total ﬂux under these conditions reduces the ﬂux through the in-
+ternal loop down to the point where 122 becomes zero, and hence the
+algorithm puts out v 2 e2 as the thermodynamically feasible part of
+the input ﬂux distribution v(0) 2 e2 + 999e3.
+
+Note that the decomposition of the input flux distribution v(0) in
+terms of the elementary modes is not unique: we can also write
+v(0) 2 e1 + 1000e3. Thus, v 2 e1 would be an alternative thermo-
+dynamically feasible solution consistent with the input flux distribu-
+tion v(0). This alternative inverts the direction of one internal ﬂux,
+122, and is thus not structurally consistent with v(0).
+
+The preference for structurally consistent solutions causes a cor-
+responding bias if there exist alternative decompositions of v(0) into
+elementary ﬂux modes that are structurally inconsistent with v(0); in
+addition, CycleFreeFlux is biased towards solutions with lower total
+ﬂux  |1. That there always exists a structurally consistent solution
+is caused by the fact that internal flux distributions are cycles, and
+hence it is always possible to route the thermodynamically feasible
+ﬂux through the cycle section that runs in the same direction. The
+condition of structural consistency with an input ﬂux distribution is
+what differentiates cycleFreeFlux from MTF.
+
+We can write the thermodynamically feasible output ﬂux distri-
+bution v = Z,- ocieEI) in terms of type I elementary ﬂux modes, and
+the internal ﬂux distribution AV = Z]- ﬁl-e/(HI) in terms of type III
+elementary flux modes (Price et al., 2002). This allows us to write
+
+V(0) = 2 meta) + Z [fie/(111)
+i i
+
+(3)
+withv = 2 age)”
+
+i.e. there exists a decomposition of the input ﬂux distribution into
+
+112 [BJO'SIBILIHO[plOJXO'SODBIIIJOJIITOTQ/[idnq wort pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+2162
+
+A.A.Desouki et al.
+
+ 
+
+type I and type III elementary flux modes such that the output flux
+distribution consists exactly of the type I contributions.
+
+Note that if the constraints in (1) entail lower ﬂux bounds l,- > 0
+and/or upper bounds 14,- < 0, then these enforce nonzero fluxes
+through the corresponding reactions. Such bounds are rarely used in
+FBA-type analyses. However, if such bounds are used and are
+chosen inappropriately, they may result in nonzero activities of
+thermodynamically infeasible cycles. These will be removed by our
+algorithm, resulting in an output ﬂux distribution that will not be
+feasible for the original problem. That such an inconsistency may be
+present can be detected by comparing the output of the
+CycleFreeFlux algorithm to the constraints of the original problem
+to check its feasibility. However, if one is certain that the constraints
+of (1) do not enforce internal cycles, then corresponding modifica-
+tions of the constraints in (2) to handle this case are straightforward.
+
+Futile cycles involve the consumption and/or production of ‘cur-
+rency metabolites’ such as ATP. Futile cycles are often thermo-
+dynamically feasible. They are not internal ﬂux distributions, and
+do not require special treatment in our formalism.
+
+2.3 Speed
+
+Because of their different strategies, the output of CycleFreeFlux
+and ll-FBA cannot be compared directly: ll-FBA (Schellenberger
+et al., 2011) directly solves an FBA problem within the subspace of
+thermodynamically feasible flux distributions; in contrast,
+CycleFreeFlux takes any given steady-state ﬂux distribution (which
+may or may not be the result of an FBA calculation) and removes its
+thermodynamically infeasible contributions.
+
+As the CycleFreeFlux algorithm is a postprocessing step consist-
+ing of a single linear optimization, it increases the computation time
+approximately 2-fold compared to standard FBA, and is thus
+very similar to an MTF strategy in terms of run times. Table 1 com-
+pares the run time of CycleFreeFBA (standard FBA followed by
+the CycleFreeFlux algorithm) to that of the ll-FBA algorithm pro-
+posed by Schellenberger et al. (2011). For better comparability, both
+algorithms were implemented in R and are run on the same meta-
+bolic networks, using the same numerical solver. We used the de-
+fault environments and biomass reactions supplied by the BIGG
+database (Schellenberger et al., 2010) for the Escherichia coli models
+and by the original publication for the yeast model (Mo et al.,
+2009).
+
+For the genome-scale networks of E.coli (Feist et al., 2007) and
+Saccharomyces cerevisiae (Mo et al., 2009), cycleFreeFlux is
+400—25 00 times faster than the alternative ll-FBA algorithm, which
+solves a mixed-integer linear problem instead of a standard linear
+programming problem.
+
+2.4 Cycle-free sampling
+
+The CycleFreeFlux algorithm can be applied to any given steady-
+state flux distribution. Thus, it can not only remove internal cycles
+from FBA solutions, but it can also be directly applied to random
+samples of the solution space (Bordel et al., 2010). To remove
+thermodynamically infeasible cycles from sampled flux distribu-
+tions, we reduce each sample to its contributions from type I elemen-
+tary ﬂux modes as explained above.
+
+Flux samples taken from the two solution spaces including and
+excluding internal cycles are compared in Figure 2 for the genome-
+scale metabolic model of E.coli (Feist et al., 2007). The sampled
+ﬂuxes involved in thermodynamically infeasible internal cycles
+(Fig. 2a) are reduced (Fig. 2b) to the ‘normal’ range observed for re-
+actions not involved in active loops (Fig. 2c; these nonloop fluxes
+
+Table 1. Runtime comparison between ll-FBA (Schellenberger
+et al., 2011) and CycleFreeFBA
+
+ 
+
+ 
+
+Model Reactions no Solver ll-FBAa CycleFreeFluxa
+Ec_core 95 GLPK 0.08 0.03
+Ec_core 95 CPLEX 0.42 0.04
+iMM904 1 5 77 GLPK 225 0.53
+iMM904 1 5 77 CPLEX 1 72 0. 1 6
+iAF1260 23 82 GLPK 1099 0.79
+
+ 
+
+aRun times in seconds on a standard laptop with core i7 processor and 8
+GB RAM.
+
+a-loop fluxes b-with cycleFreeFlux c—non-loop fluxes
+
+ 
+
+ 
+
+ 
+
+ 
+
+   
+
+o _
+8 - o
+o o
+w
+8 8
+o o
+8- 8 “~’
+8 m 8 s; 8
+C C E
+8 g 8 8 8
+E 8 - E 8 E 8
+u. N u. 8 u. L‘.’
+O
+o o
+8' § 8
+Jll ‘3’
+o o o
+—3 —1 1 3 —3 —1 1 3 —3 —1 1 3
+Log 1 0(flux) Log10(flux) Log10(flux)
+
+Fig. 2. Cycle-free random sampling of the solution space. (a) Histogram of the
+sampled flux values for fluxes involved in internal cycles. (b) The same fluxes after
+reduction to the cycle-free solution subspace with the CycleFreeFlux algorithm. (c)
+Flux values of reactions not involved in active internal cycles. Random samples
+were taken from the solution space of the E.coli genome-scale metabolic network
+iAF1260 in a glucose-limited aerobic medium. Flux values affected by involvement
+in active internal cycles were identified as those that changed through the applica-
+tion of CycleFreeFlux; these are summarized in (a), while all the remaining (un-
+changed) fluxes are summarized in (c)
+
+are identified as those that remain unchanged when applying the
+CycleFreeFlux algorithm).
+
+The sampling of the thermodynamically feasible solution space
+aims at covering all steady-state solutions with the same finite prob-
+ability. This aim is not fully achieved through the CycleFreeFlux al-
+gorithm, as can be seen from the example in Figure 1. Ideally, the
+two type I elementary ﬂux modes, e1 and e2, should be sampled in
+equal proportions. However, any initial sample that contains a non-
+zero ﬂux around e3 will be reduced to a flux distribution that only
+contains e2, biasing the samples towards this ﬂux mode. Any point
+in the solution space that is involved in an internal cycle and simul-
+taneously has a nonunique representation in terms of elementary
+ﬂux modes may cause a violation of uniform sampling. We note,
+however, that uniform sampling is required only when volume-
+related features are investigated. In many applications, the bias
+introduced by cycleFreeFlux may be preferable to the bias caused by
+the inclusion of thermodynamically infeasible flux distributions.
+
+ll-COBRA (Schellenberger et al., 2011) also suggests to remove
+internal cycles from sampled ﬂux distributions in a postprocessing
+step, minimizing the distance of the flux vectors between the
+sampled flux vector and the cycle-free subspace. As can be seen
+from the example in Figure 1, this strategy introduces a bias that is
+very similar to the one caused by the CycleFreeFlux algorithm.
+Thus, currently no published method exists that guarantees uniform
+
+1e /810'S{12umo[p103x0'8311em105u101w/2dug wort pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Efficient removal of loops
+
+2163
+
+ 
+
+sampling of the thermodynamically feasible solution space; as
+CycleFreeFlux increases the time for sampling only about 2-fold
+compared to methods that include internal cycles, we consider
+CycleFreeFlux the method of choice.
+
+2.5 Cycle-free flux variability analysis
+
+Flux variability analysis (FVA) calculates upper and lower bounds
+for steady-state ﬂuxes through each reaction at the optimal value of
+the objective function (Mahadevan and Schilling, 2003). Thus, FVA
+results can be used to characterize the space of alternative optimal
+solutions to an FBA problem. Thermodynamically infeasible internal
+cycles are unbounded except by a priori constraints, leading to arti-
+factual bounds for all reactions involved in such cycles (Mahadevan
+and Schilling, 2003).
+
+To exclude internal cycles from FVA, we propose
+CycleFreeFVA, an extension of the CycleFreeFlux algorithm.
+Standard FVA performs two linear optimizations for each reaction
+R,, one maximization and one minimization (Mahadevan and
+Schilling, 2003). We extend this approach by iteratively performing
+maximizations and removing cycles. To obtain the flux variability
+for reaction R, excluding thermodynamically infeasible internal
+cycles (i.e. based only on type I elementary ﬂux modes), we apply
+the following algorithm. Any constraints added in one iteration are
+maintained through further iterations, and the ﬂux distribution v(0)
+is updated accordingly in each iteration:
+
+Repeat: {
+
+find a steady state ﬂux distribution v(0) with maximal flux
+121(0) through R,;
+apply the cycleFreeFlux algorithm to v(0), resulting in a
+new flux distribution Va);
+ﬁwP=4%{
+exit iteration (as 121(0) is not affected by internal
+cycles);
+} else {
+apply the CycleFreeFlux algorithm to v(0) while
+constraining 12, 2 121(0), resulting in a new ﬂux dis-
+tribution Va) that contains one internal cycle
+involving R,;
+break the internal cycle: constrain the ﬂuxes 12,- that
+are zero in 12(1) but not in 12(2) to 12,- = 0;
+
+}
+
+The upper bound for 12, excluding internal cycles is now in 12(0)
+
+1' I
+In sum, after maximizing the flux through reaction R,, the algorithm
+checks whether the reaction is involved in internal cycles by apply-
+ing the CycleFreeFlux algorithm to the resulting flux distribution
+
+v(0); if the ﬂux 12, through R, is reduced through the removal of in-
+(0)
+i
+
+by such cycles. We identify one such cycle involving 12, by fixing 12, at
+(o
+1'
+
+cycles; afterwards, we break this cycle by reducing its ﬂux as little as
+
+ternal cycles, then the original maximum 12 was indeed influenced
+
+its original (cycling) maximum 12 ) and then removing all other
+possible, but as much as necessary. These steps are repeated until all
+loops involving 12, have been removed.
+
+The calculation of the lower bound for 12, excluding internal
+cycles is performed in the same way, replacing maximizations with
+minimizations.
+
+To see how the algorithm works, it is again instructive to con-
+sider the toy model in Figure 1. Let us assume that we want to calcu-
+late ﬂux variability within the steady-state solution space to an FBA
+problem with 123 as the objective function and 12131. 121 = 1 and
+123 = 1 are then fixed by the boundary conditions, and we need to
+
+a—loop fluxes b—using CycleFreeFVA c-non-loop fluxes
+
+_ u)—
+
+30 40
+I I
+60 80 100
+
+Frequency
+20
+I
+Frequency
+Frequency
+
+10
+I
+40
+
+20
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Log10(flux) Log10(flux) Log10(flux)
+
+Fig. 3 Cycle-free flux variability analysis. (a) Histogram of the maximal flux val-
+ues that result from involvement in internal cycles. (b) Maximal flux values of
+the same reactions after excluding internal cycles with the CycleFreeFVA algo-
+rithm. (c) Maximal flux values of reactions not affected by internal cycles.
+Analyses were performed for the E.coli genome-scale metabolic network
+iAF1260 in glucose-limited aerobic medium. Reactions affected by involvement
+in internal cycles were identified as those for which the maximum flux differed
+between standard FVA and CycleFreeFVA; these are summarized in (a) and (b),
+while the remaining (unaffected) reactions are summarized in (c)
+
+find the variability of the remaining three reactions. In standard
+FVA, we would conclude that 124 can vary within the full range
+allowed by the a priori constraints, say, 0312431000. Now let us
+apply the above algorithm for 124. The first flux distribution with
+maximal flux through 124 will be the one indicated in Figure 1,
+v(0) 2 e2 + 999e3. Application of the CycleFreeFlux algorithm re-
+duces this to v”) 2 e2. 124 changed its value between v(0) and V0),
+indicating that we’re not done yet. As the model contains only one
+internal cycle, we have Va) 2 v(0). The only reaction that is zero in
+
+2) = v(0) is 122; this reaction we now constrain to
+
+v”) but not in v(
+zero. The maximal value for 124 is now 1. Exactly the same happens
+when we consider 125.
+
+What about 122? Its maximum, 1, is not affected by the internal
+cycle e3. Its minimum is again realized in the ﬂux distribution v(0)
+2 e2 + 999e3 indicated in Figure 1. Again, we have v”) 2 e2 and
+Va) 2 v(0). Reducing the ﬂux through the cycle as little as possible,
+but as much as necessary, we identify the lower limit 03122.
+
+We applied the CycleFreeFVA algorithm to the genome-scale
+model of E.coli (Feist et al., 2007). Figure 3 shows the distribution
+of the maximal ﬂuxes for reactions that can be affected by internal
+cycles with standard FVA (Fig. 3a) and with CycleFreeFVA
+(Fig. 3b), and compares those to the distribution for fluxes not af-
+
+fected by internal cycles (Fig. 3c).
+
+2.6 Enumeration of internal cycles
+To enumerate thermodynamically infeasible cycles, we propose a
+method based on an extension of the CycleFreeFVA approach. We
+perform CycleFreeFVA for each internal ﬂux 12,, and we simply store
+the cycles removed in each iteration (i.e. Av :2 Va) — v(1)). Because
+the same cycle may be identified for each reaction involved in the
+cycle, we need to restrict the total set of identified internal cycles to
+unique reaction sets.
+
+Each set of reactions identified through this algorithm represents
+a unique internal flux distribution that cannot be reduced while
+maintaining the flux through one of its reactions (the one used for
+its identification); thus, it is an ‘elementary’ internal cycle (type III
+elementary flux mode).
+
+Can we be sure to identify all internal cycles in this way? For
+each reaction involved in internal cycles, CycleFreeFVA identifies at
+least one such cycle. Thus, each internal cycle that contains at least
+
+112 /810'S{12umo[p103x0'8311em105u101w/2dug wort pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+2164
+
+A.A.Desouki et al.
+
+ 
+
+one reaction not shared with another cycle must be identified as
+soon as this unique reaction is considered. However, it is possible to
+construct examples where all reactions in one loop are also involved
+in other loops; in this case, the corresponding loop might be missed
+by our algorithm. The enumeration algorithm is thus only approxi-
+mate: we may fail to identify some internal cycles if these share all
+their reactions with other internal cycles. On the other hand, we can
+be sure that all reactions involved in internal cycles are identified,
+and the algorithm is exact in this sense.
+
+We used our algorithm to identify thermodynamically infeasible
+cycles in the genome-scale metabolic model for E.coli (Feist et al.,
+2007). The identification of internal cycles in this network took less
+than five minutes on a standard laptop (core i7 processor and 8GB
+RAM). Excluding trivial cycles involving only two reactions (i.e. for-
+ward and backward reactions of the same stoichiometry), we identi-
+fied 26 nontrivial thermodynamically infeasible cycles. This is very
+close to the number reported by (Wright and Wagner, 2008), 27; as
+the detailed results of (Wright and Wagner, 2008) are not available,
+we could not examine if the one additional cycle consists entirely of
+reactions involved in the other cycles, which would explain why it is
+not contained in our results.
+
+Recently, (De Martino et al., 2013) reported a lower bound
+of189 nontrivial thermodynamically infeasible loops (22 reactions
+each) in the same metabolic network model. 11 of these internal
+cycles were also identified by our approach; the remaining 178
+cycles violate at least one a priori thermodynamic constraint, i.e. at
+least one reaction in the cycle carries ﬂux in a direction not allowed
+by the published model (Feist et al., 2007).
+
+3 Conclusions
+
+The CycleFreeFlux algorithm described above, MTF (Holzhiitter,
+2004), and ll-FBA (Schellenberger et al., 2011) each put out one
+thermodynamically feasible ﬂux distribution. However, these algo-
+rithms are not directly comparable, as they differ in both their goals
+and their inputs. MTF delivers very special ﬂux distributions, which
+minimize the total sum of absolute ﬂuxes ||v||1, constrained only by
+the optimal value of the objective function. In contrast, cycleFreeFlux
+takes any given steady-state ﬂux distribution (which may or may not
+be the result of an FBA calculation) and reduces it to its loopless contri-
+bution. Finally, ll-FBA solves an FBA problem such that the resulting
+ﬂux distribution already lies in the thermodynamically feasible sub-
+space. Given that the MTF ﬂux distribution will often be biologically
+more realistic than many alternative solutions to an FBA problem
+(Schuetz et al., 2012), MTF (or parsimonious FBA) should be
+the method of choice when just one thermodynamically feasible
+solution to an FBA problem is required. In contrast, CycleFreeFlux and
+ll-COBRA provide means to characterize the full space of thermo-
+dynamically feasible (optimal) steady-state solutions. CycleFreeFlux
+solutions are biased towards solutions that run in the same direction as
+internal cycles with which they overlap and towards solutions with
+lower total ﬂux  |1 whenever alternative decompositions into elem-
+entary modes exist; in many applications, these biases will not be
+important.
+
+The CycleFreeFlux algorithm and its extensions allow the reli-
+able identification and exclusion of thermodynamically infeasible in-
+ternal cycles. We implemented corresponding functions as an
+extension package for sybil (Gelius-Dietrich et al., 2013), an open-
+source library for constraint-based analyses in the framework of the
+R-project for statistical computing (R Development Core Team
+2013). The implemented CycleFreeFlux functions are orders of
+
+magnitude faster than previously available algorithms for the gener-
+ation of thermodynamically feasible random ﬂux samples and flux
+variability analyses and are freely available from CRAN (http://cran.
+r-project.org/web/packages/sybilcycleFreeFluxl).
+
+Acknowledgements
+
+A.A.D. and M.J.L. conceived of the project and wrote the manuscript. A.A.D.
+carried out the work. G.G.D. participated in the discussions and helped with
+the implementation of the sybil extension. F.]. developed the formal proof to
+the Theorem.
+
+Funding
+
+We thank Stefan Schuster for helpful discussions. A.A.D. was supported by a
+DAAD scholarship. M.].L. was supported by the German Research
+Foundation (DFG grants EXC 1028 and CRC 680).
+
+Conﬂict of Interest: none declared.
+
+References
+
+Barve,A. and Wagner,A. (2013) A latent capacity for evolutionary innovation
+through exaptation in metabolic systems. Nature, 500, 203—206.
+
+Beard,D.A. et al. (2002) Energy balance for analysis of complex metabolic net-
+works. Biophys. ]., 83, 79—86.
+
+Bordel,S. et al. (2010) Sampling the solution space in genome-scale metabolic
+networks reveals transcriptional regulation in key enzymes. PLoS Comput.
+Biol., 6, e1000859.
+
+BorweinJ. and Lewis,A. (2006) Convex Analysis and Nonlinear Optimization.
+2nd edn. CMS Books in Mathematics. Springer, New York, pp. 23—27.
+
+Colijn,C. et al. (2009) Interpreting expression data with metabolic ﬂux mod-
+els: predicting Mycobacterium tuberculosis mycolic acid production. PLoS
+Comput. Biol., 5, e1000489.
+
+De Martino,D. et al. (2013) Counting and correcting thermodynamically
+infeasible ﬂux cycles in genome-scale metabolic networks. Metabolites, 3,
+946—966.
+
+Feist,A.M. et al. (2007) A genome-scale metabolic reconstruction for
+Escherichia coli K-12 MG1655 that accounts for 1260 ORFs and thermo-
+dynamic information. Mol. Syst. Biol., 3, 121.
+
+Gelius-Dietrich,G. et al. (2013) sybil - Efﬁcient constraint-based modelling in
+R. BMC Syst. Biol., 7, 125.
+
+Holzhiitter,H.-G. (2004) The principle of ﬂux minimization and its applica-
+tion to estimate stationary ﬂuxes in metabolic networks. Federation Eur.
+Biochem. Soc. ]., 271, 2905—2922.
+
+Lewis,N. E. et al. (2010) Omic data from evolved E. coli are consistent with
+computed optimal growth from genome-scale models. Mol. Syst. Biol., 6, 390.
+
+Lewis,N.E. et al. (2012) Constraining the metabolic genotype-phenotype rela-
+tionship using a phylogeny of in silico methods. Nat. Rev. Microbiol, 10,
+291—305.
+
+Mahadevan,R. and Schilling,C. (2003) The effects of alternate optimal solu-
+tions in constraint-based genome-scale metabolic models. Metab. Eng., 5,
+264—276.
+
+Mo,M.L. et al. (2009) Connecting extracellular metabolomic measurements
+to intracellular ﬂux states in yeast. BMC Syst. Biol., 3, 37.
+
+Orth,J.D. et al. (2010) What is ﬂux balance analysis? Nat. Biotechnol., 28,
+245—248.
+
+Pal,C. et al. (2005) Adaptive evolution of bacterial metabolic networks by
+horizontal gene transfer. Nat. Genet, 37, 1372—1375.
+
+Pal,C. et al. (2006 ) An integrated view of protein evolution. Nat. Rev. Genet,
+7, 337—348.
+
+Plata,G. et al. (2010) Reconstruction and ﬂux-balance analysis of the
+Plasmodium falciparum metabolic network. Mol. Syst. Biol., 6, 408.
+
+Price,N.D. et al. (2002) Extreme pathways and Kirchhoff’s second law.
+Biophys.]., 83, 2879—2882.
+
+R Development Core Team. (2013) R: A Language and Environment
+for Statistical Computing. R Foundation for Statistical Computing, Vienna,
+Austria.
+
+112 /810'S{12umo[pJOJXO'soriemJOJurorw/2dnq IIIOJJ pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Efficient removal of loops
+
+2165
+
+ 
+
+Schellenberger,]. et al. (2010) BiGG: a Biochemical Genetic and Genomic
+knowledgebase of large scale metabolic reconstructions Database. BMC
+Bioinformatics, 11, 213.
+
+Schellenberger,]. et al. (2011) Elimination of thermodynamically infeasible
+loops in steady-state metabolic models. Biophys. ]., 100, 544—5 5 3.
+
+Schilling,C.H. et al. (2000) Theory for the systemic deﬁnition of metabolic
+pathways and their use in interpreting metabolic function from a pathway-
+oriented perspective. ]. Theor. Biol., 203, 229—248.
+
+Schuetz,R. et al. (2012) Multidimensional Optimality of Microbial
+Metabolism. Science, 336, 601—604.
+
+Schuster,S. and Hilgetag,C. (1994) On elementary ﬂux modes in biochemical
+reaction systems at steady state. ]. Biol. Syst., 2, 165—1 82.
+
+Schuster,S. et al. (2008) Is maximization of molar yield in metabolic networks
+favoured by evolution? ]. Theor. Biol., 252, 497—504.
+
+Wright,]. and Wagner,A. (2008) Exhaustive identiﬁcation of steady state
+cycles in large stoichiometric networks. BMC Systems Biol., 2, 61.
+
+112 /810'S{12umo[pJOJXO'sotiemJOJutotw/2dnq wort pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+

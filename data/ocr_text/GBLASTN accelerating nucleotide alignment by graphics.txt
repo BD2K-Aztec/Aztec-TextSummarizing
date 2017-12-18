@@ -1,0 +1,1267 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 10 2014, pages 1384—1391
+doi:10. 1093/bioinformatics/btu047
+
+ 
+
+Sequence analysis
+
+Advance Access publication January 24, 2014
+
+G-BLASTN: accelerating nucleotide alignment by
+
+graphics processors
+
+Kaiyong Zhao1 and Xiaowen Chum”
+
+1Department of Computer Science, Hong Kong Baptist University, Hong Kong, China and 2Institute of Computational
+and Theoretical Studies, Hong Kong Baptist University, Hong Kong, China
+
+Associate Editor: Dr. John Hancock
+
+ 
+
+ABSTRACT
+
+Motivation: Since 1990, the basic local alignment search tool (BLAST)
+has become one of the most popular and fundamental bioinformatics
+tools for sequence similarity searching, receiving extensive attention
+from the research community. The two pioneering papers on BLAST
+have received over 96 000 citations. Given the huge population of
+BLAST users and the increasing size of sequence databases, an
+urgent topic of study is how to improve the speed. Recently, graphics
+processing units (GPUs) have been widely used as low-cost, high-
+performance computing platforms. The existing GPU-BLAST is a pro-
+mising software tool that uses a GPU to accelerate protein sequence
+alignment. Unfortunately, there is still no GPU-accelerated software
+tool for BLAST-based nucleotide sequence alignment.
+
+Results: We developed G-BLASTN, a GPU-accelerated nucleotide
+alignment tool based on the widely used NCBI-BLAST. G-BLASTN
+can produce exactly the same results as NCBI-BLAST, and it has
+very similar user commands. Compared with the sequential NCBI-
+BLAST, G-BLASTN can achieve an overall speedup of 14.80X under
+‘megablast’ mode. More impressively, it achieves an overall speedup
+of 7.15X over the multithreaded NCBI-BLAST running on 4 CPU cores.
+When running under ‘blastn’ mode, the overall speedups are 4.32X
+(against 1-core) and 1.56X (against 4-core). G-BLASTN also supports
+a pipeline mode that further improves the overall performance by up
+to 44% when handling a batch of queries as a whole. Currently
+G-BLASTN is best optimized for databases with long sequences.
+We plan to optimize its performance on short database sequences
+in our future work.
+Availability:
+BLASTN.html
+Contact: chxw@comp.hkbu.edu.hk
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+http://www.comp.hkbu.edu.hk/~chxw/software/G-
+
+Received on August 27, 2013; revised on January 10, 2014; accepted
+on January 21, 2014
+
+1 INTRODUCTION
+
+The basic local alignment search tool (BLAST) is one of the most
+fundamental software tools in bioinformatics for matching bio-
+logical sequences (Altschul et al., 1990, 1997). Due to the explo-
+sive growth of sequence data, improving the speed of BLAST has
+become increasingly critical. In the last decade, many attempts
+have been made to design and develop new BLAST software
+
+ 
+
+*To whom correspondence should be addressed.
+
+tools for speciﬁc hardware (Fei et al., 2008; Jacob et al., 2007;
+Sotiriades and Dollas, 2007; Zhang et al., 2000) or even parallel
+supercomputers (Lin et al., 2008). Unfortunately, most re-
+searchers do not have access to these hardware platforms.
+Following the popularity of multicore processors, several
+BLAST software tools using multiple CPU cores for increased
+speed have been developed. One good example is the widely used
+National Center for Biotechnology Information (NCBI)
+BLAST, which supports multithreading in the preliminary
+stage of the BLAST algorithm (Camacho et al., 2009). Our ex-
+periments on a server with two quad-core Intel Xeon CPUs show
+that the multithreaded NCBI-BLAST can achieve an average
+speedup of 3~4X over the sequential version. NCBI-BLAST
+also supports an indexed Mega-BLAST module, which uses
+the database index to achieve an approximate speedup of
+2~4X (Morgulis, 2008). PLAST is a parallel implementation of
+BLAST (Nguyen and Lavenier, 2009) that applies a new index-
+ing technique together with SSE instructions and multithreading
+to achieve better alignment speed. KLAST is an optimized and
+extended version of PLAST, and includes a module KLASTn to
+compare two sets of DNA sequences. As compared with NCBI
+BLASTN, KLASTn can achieve good speedup with comparable
+sensitivity.
+
+In recent years, Graphics Processing Units (GPUs) have been
+widely accepted as low-cost, high-performance computing plat-
+forms (Owens et al., 2008). Compared with traditional multi-core
+CPUs, GPUs have much higher computational horsepower and
+memory bandwidth. Many bioinformatics tools have been accel-
+erated by GPUs in recent years (Dematte and Prandi, 2010; Liu
+et al., 2012a, b; Lu et al., 2012, 2013; Manavski and Valle, 2008).
+The signiﬁcant difference between GPU and CPU architectures
+has created many challenges in developing highly efficient GPU
+software (Nickolls, 2007). Without the development of carefully
+designed parallel algorithms and sophisticated optimizations, the
+huge potential of GPUs may not be fully realized.
+
+Some GPU-based software tools have been developed for
+protein sequence alignment. Ling’s GPU-based BLAST software
+can achieve a speedup of l.7~2.7X, compared with NCBI-
+BLAST (Ling and Benkrid, 2010). Recently, Vouzis and
+Sahinidis (2011) developed GPU-BLAST, which can typically
+achieve acceleration speedup of 3~4X relative to the sequential
+NCBI-BLAST. The major advantage of GPU-BLAST is that it
+can produce the same results as NCBI-BLAST.
+
+To the best of our knowledge, we are the first to provide an
+open-source GPU solution, namely G—BLASTN, for nucleotide
+sequence alignment that can produce the same results as NCBI-
+
+ 
+
+1384 © The Author 2014. Published by Oxford University Press. All rights reserved. For Permissions, please e—mail: journals.permissions@oup.com
+
+112 /310's113umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁdllq 11101; prBOIIIAAOG
+
+9IOZ ‘091sn3nv uo ::
+
+G-BLASTN
+
+ 
+
+BLAST. G—BLASTN is developed on top of the NCBI-BLAST
+source code. It currently supports the ‘megablast’ and ‘blastn’
+modes of NCBI-BLAST. For brevity, we use BLASTN to refer
+to the nucleotide blast module of NCBI-BLAST. The major idea
+behind G—BLASTN is to store a small hash table in the fast GPU
+cache memory and then scan the DNA database in parallel using
+all of the available GPU cores. We have overcome several chal-
+lenges to fully use the GPU horsepower. To achieve signiﬁcant
+speedup, some other parts of BLASTN have also been opti-
+mized. We evaluate G—BLASTN’s performance by running a
+set of experiments on human and mouse genome databases, as
+well as a partial of the NCBI nucleotide (nt) collection database.
+Using a contemporary NVIDIA GTX780 GPU with a cost of
+$650, G-BLASTN under ‘megablast’ mode can achieve signiﬁ-
+cant speedups over the multithreaded BLASTN running on
+4-core or 8-core CPUs. When running under the more sensitive
+‘blastn’ mode, G—BLASTN also achieves reasonable speedups.
+When processing a batch of queries, G-BLASTN supports a
+pipeline mode that can further improve the performance by up
+to 44%.
+
+The remainder of the article is organized as follows. In Section
+2, we brieﬂy review the main algorithms of BLASTN and present
+our design for G—BLASTN. In Section 3, we present the detailed
+implementation of G—BLASTN. In Section 4, we present the
+experimental results. We conclude the article in Section 5.
+
+2 METHODS
+
+2.1 BLASTN algorithms
+
+BLASTN is designed to efﬁciently search nucleotide databases using a
+nucleotide query sequence (Camacho et al., 2009). BLASTN’s high level
+pseudocode is given in Figure l, which consists of four stages. The ‘setup’
+stage prepares search options, reads and prepares the query sequence and
+database sequence and builds the lookup table. The ‘scanning’ stage per-
+forms a preliminary search comprising three steps: seeding, ungapped
+extensions and gapped extensions. The seeding step scans the database
+for hits (i.e. a match with some word in the lookup table). The hits are
+then extended by ungapped alignment. The alignments that exceed a
+threshold score will go through the gapped extensions. Only the gapped
+alignments that exceed another threshold score will be saved as ‘prelim—
+inary’ matches. The ‘trace—back’ stage takes the preliminary matches as
+input, considering ambiguous nucleotides and ﬁnds the locations of
+insertions and deletions. The ‘output’ stage displays the alignment results
+to the user.
+
+BLASTN’s efﬁciency relies on the assumption that any alignment
+of interest between the query and the database will contain at least one
+
+1 [Setup] prepare the BLASTN options, query, database, lookup table
+2 [Scanning] for each of N threads {
+
+2.1 while the database still has unsearched sequences {
+
+2.2 Retrieve a group of sequences from the database
+
+2.3 Seeding: ﬁnd exact word matches
+
+2.4 Ungapped extensions
+
+2.5 Gapped extensions
+
+2.6 }
+
+2.7 }
+
+3 [Trace-back] for each database sequence containing alignments,
+
+perform trace-back
+4 [Output] print the alignment results
+
+Fig. 1. High level Pseudocode of BLASTN
+
+W—gram (i.e. a subsequence of length W), where Wis a parameter known
+as cBLASTN word size’. In practice, for any given query sequence
+BLASTN will construct a lookup table that stores the offsets into the
+query where each possible w-gram occurs, where w is a parameter known
+as the ‘lookup table word size’ which is less than or equal to W. Because
+each letter can be one of (A, C, G, T}, the lookup table has 4w entries. The
+seeding procedure walks through the database sequence to ﬁnd hits. In
+each round, it fetches a w-gram, calculates its hash value, looks into the
+lookup table and records all matched offset pairs (i.e. the pair of offsets of
+the matched w-gram in the query and database, respectively) if there are
+any. When W is larger than w, it is not necessary to scan the database
+letter by letter; instead, BLASTN scans the database in strides. The max-
+imum stride size without missing any match is W—w+l. For extremely
+long nucleotide databases, the seeding procedure is usually the most
+time-consuming step.
+
+After all w-gram hits have been found, we must determine whether
+each hit belongs to a W—gram match. This is done through the mini-
+extension procedure (aka. exact match extension), which extends each
+w-gram in both the left and right directions to check the existence of exact
+W—gram matches. The mini-extension step can be time consuming if mil-
+lions of w-gram hits must be extended. Once we ﬁnd all of the W—gram
+hits, the ungapped extension step begins, allowing for mismatches.
+Ungapped alignments that exceed a threshold score are stored for
+gapped extension. In the scanning stage, gapped extension returns only
+the score and extent of the alignment while the number and position of
+insertions, deletions and matching letters are not stored. During the
+whole-scanning stage, BLASTN processes the sequence in NCBI-NA2
+format, in which each nucleic acid is represented by two bits. Hence,
+ambiguities cannot be handled. In the trace-back stage, ambiguous nu-
+cleotides are restored by converting NCBI-NA2 format into NCBI-NA8,
+and more sensitive heuristic parameters are used for the ﬁnal gapped
+alignment. Finally, the output step formats the results according to the
+user options and prints the results for the user.
+
+2.2 Design of G-BLASTN
+
+GPUs have become mature, many-core processors with much higher
+computational power and memory bandwidth than today’s CPUs.
+A GPU consists of a scalable number of streaming multiprocessors
+(SMs), each containing some streaming processors (SPs), special function
+units (SFUs), a multithreaded instruction fetch and issue unit, registers
+and a read/write shared memory. CUDA is currently the most popular
+pro gramming model for general purpose GPU computing. The best way
+to use the hundreds to thousands of GPU cores is to generate a large
+number of CUDA threads that can access data from multiple memory
+spaces during their execution, as illustrated in Figure 2. Each thread has
+its private registers and local memory. Each GPU kernel function gener-
+ates a grid of threads that are organized into thread blocks. Each thread
+block has shared memory visible to all threads within the block and with
+
+Ml.“ IluﬂLlln
+III-Pm! HIJIJ
+
+ 
+
+1111 ll
+
+mm. aria...
+
+ 
+
+ 
+
+[:51 ;l*“~--1
+
+ 
+
+ 
+
+Fig. 2. GPU memory hierarchy
+
+ 
+
+112 /310's113umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁ(1111] 11101; prBOIIIAAOG
+
+9IOZ ‘091sn3nv uo ::
+
+K.Zhao and X.Chu
+
+ 
+
+l Scanning l Trace-back Setup
+100
+
+:8 _     _. ..       .. _.   .. ||||||||| ||||||| III" "III" |||||||| III III "III "III III III II
+|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||I||||||||||||||||||||||
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||I||||||||||||||||||||||
+lllllllllllllllllllllllllllllllllll|ll|llllllllllllllllllllllllllllllllllllll|llllll|llllllllllllllllllllllllllllllll|ll|l|ll|llllllllllllllllllllllllllllllllllllllll|ll|l|ll|lllllllllllll|llllllllllllllllll|llllll|lllll|ll|llllllllllllllllllllllllllllIlIlllllIllllllIlllllll
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||I||||||||||||||||||||||
+l l lllllllllllllllllllllll|ll|lIll|lllllllllllllllllllllllllllllll llllll|ll|l|ll|lllllll l l
+lllllllllllllllllllllllllllllllllll|ll|llllllllllllllllllllllllllllllllllllll|llllll|llllllllllllllllllllllllllllllll|ll|l|ll|llllllllllllllllllllllllllllllllllllllll|ll|l|ll|llllllllllllllllllllllllllllllll|llllll|lllll|ll|llllllllllllllllllllllllllllIlIlllllIllllllIlllllll
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||I||||||||||||||||||||||
+o lllllllllllllllllllllllllllllllllll|ll|llllllllllllllllllllllllllllllllllllll|llllll|llllllllllllllllllllllllllllllll|ll|l|ll|llllllllllllllllllllllllllllllllllllllll|ll|l|ll|llllllllllllllllllllllllllllllll|llllll|lllll|ll|llllllllllllllllllllllllllllIlIlllllIllllllIlllllll
+
+HVNOMKDOWNLOOOHVNOMLDOHNWWHVNO
+HNQ‘WEDNCDOHMQ‘LDNOOOIONMVLONOOO
+HHI—Ix—Ix—lx—II—II—INNNNNNNM
+
+ 
+
+ 
+
+ 
+
+Time (%)
+
+I—‘NWhU‘IO‘N
+0000000
+
+Sequence ID
+
+Fig. 3. Proﬁling of BLASTN for 300 query sequences (500~100000
+bases) against human build 36 genome under ‘megablast’ mode. The
+lengths of the query sequences can be found in Supplementary Figure S1
+
+the same lifetime as the block. All threads have access to the same global
+memory. Two additional read-only memory spaces are accessible by all
+threads: the constant and texture memory spaces, both of which have
+limited caches.
+
+Due to the complexity of BLASTN software, exploiting GPUs to ac-
+celerate BLASTN is a non-trivial task. The main challenge is that not all
+of the steps involved in BLASTN are suitable to be parallelized by GPUs.
+To identify which steps should be parallelized, we conducted a proﬁling
+study by running 300 different queries with a broad range of lengths
+against the human build 36 genome database to analyze the time distri-
+bution of different BLASTN steps under ‘megablast’ mode (Fig. 3). We
+mainly observed the following details. The scanning stage is the most
+time-consuming and accounts for 69—93% of the total execution time.
+Surprisingly, BLASTN spends 5—25% of the total execution time in the
+setup stage, mainly initializing the mask database. The trace-back stage
+takes negligible time for most queries, but can occasionally take a very
+long time.
+
+To achieve a good overall speedup, we designed G-BLASTN as fol-
+lows. Its major component is a set of CUDA kernel functions that run on
+GPUs to signiﬁcantly accelerate the seeding and mini-extension steps in
+the scanning stage. It is designed to initialize the mask database once and
+then serve a large number of queries. Therefore, the time spent in data-
+base initialization can be largely removed. We optimized the two most
+time consuming functions in the trace-back stage and further designed a
+pipeline mode under which the trace-back, output and scanning stages
+can run simultaneously. The general framework of G-BLASTN is shown
+in Figure 4.
+
+3 IMPLEMENTATION
+
+We use CUDA C language to implement G-BLASTN based
+on NCBI BLAST 2.2.28 software package. In the following,
+we present the detailed implementation of the major modules
+of G-BLAST N.
+
+3.1 Accelerating the seeding step by GPU
+
+The main task of the seeding step is to scan the database
+sequences and identify all w—gram matches. Due to the large
+database sizes, the seeding step is the most time consuming in
+BLASTN. Fortunately, the seeding step can be parallelized due
+to the independence of the tasks at different offsets of the data-
+base. G-BLASTN ﬁrst loads the database sequences to GPU
+global memory. Then for each query sequence, it stores a copy
+of the lookup table in GPU texture memory to achieve ultrafast
+table lookup. To scan each single database sequence, many GPU
+
+fin-BLASTN Framework
+
+Prepare
+
+Database Queries Output format
+
+Setup
+
+Mask Create Tabfe
+
+AlignmI-Il:
+
+-- “r:
+
+Tron-bid:
+
+Main engine
+Wardflnder
+
+Traceback Statistics Cmp-utatiun
+
+Cl-uLpul‘.
+
+":':'-‘-r 11-" :'-l-=".I Result; formatting
+
+Fig. 4. The framework of G-BLASTN
+
+threads are generated to fully exploit the large number of GPU
+cores. The number of threads is equal to the number of thread
+blocks multiplied by the number of threads per thread block.
+As a rule of thumb, the number of thread blocks should be a
+multiple of the number of physical SMs available in the GPU.
+We empirically ﬁne-tune the thread dimensions to optimize the
+performance.
+
+The implementation of the seeding step on the GPU is a major
+challenge, however. In CUDA, each thread block is organized as
+a number of warps, and each warp of threads is executed by a
+Single Instruction, Multiple Data (SIMD) unit. When threads
+within a warp take different execution paths, the SIMD unit
+will take multiple runs to go through these divergent paths,
+which will signiﬁcantly decrease the utilization of GPU cores.
+In the case of BLASTN, the w—grams at different offsets of the
+database sequence may have no match or many matches to the
+query sequence, which can lead to severe thread branch diver-
+gence that decreases the performance signiﬁcantly. To conquer
+this challenge, we divide the seeding step into two sub-steps:
+‘scan’ and ‘lookup’. In the scan sub-step, we go through the
+whole-database sequence in parallel and record all offsets of
+the database that have at least one match to the query. Notice
+that we do not need to know how many matches have been
+found and where they are for each offset. Thus, each GPU
+thread can perform almost the same execution path and the
+effect of thread branch divergence can be minimized. In the
+lookup sub-step, we use another GPU-kernel function to recheck
+all matched offsets and construct the complete set of matched
+offset pairs. This strategy works very well because the scan sub-
+step dominates the time of the seeding step.
+
+There is yet another challenge in implementing the scan sub-
+step on the GPU. Once a thread ﬁnds a w—gram match, it in-
+creases a global counter and writes the matched offset into a
+global array, resulting in two negative consequences: (i) increas-
+ing the global counter is an atomic operation, which means only
+one among all threads can operate while others have to wait; and
+(ii) writing a single offset pair into the global array can waste a
+lot of GPU memory bandwidth. To overcome this challenge, we
+
+ 
+
+1386
+
+112 /810's112umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(1111] 1110131 pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+
+G-BLASTN
+
+ 
+
+G PU threads framework
+
+-'-.f-!‘.l-‘.."-.“.I'I.EC£C1 I GMWKTACIAETAGIMCICCE I I I I I I 1 IA ' ' “MCCCEECC
+
+To .. :ng. Tn-  Tgi 'le ... T31 Te  _T31
+
+I ' I 
+I wqu a warp k Warp El War]: it
+
+ 
+
+i
+
+Shared merrier-r: offset pairs Shared mamury: offset pairs
+
+Three Elsi-cl: Three Block
+
+Kernel 'Functierl {Threads grid}
+
+"if
+Global memory: eFf-set pairs
+
+Fig. 5. Framework of scan sub-step on GPU
+
+use a local counter and a local array for each thread block as
+temporary storage for the global counter and global array. The
+local counter and array are held in GPU shared memory. Now
+all thread blocks can operate on the local counters and arrays
+simultaneously, boosting the overall performance. Once a local
+array becomes full, the set of offset pairs is written into global
+array as a whole and the global counter is updated by an atomic
+operation. We exploit coalesced memory write operations to im-
+prove memory throughput. Meanwhile, the number of atomic
+operations on the global counter can be signiﬁcantly reduced.
+The framework of the scan sub-step on GPU is shown in
+Figure 5.
+
+For performance consideration, BLASTN supports two types
+of lookup tables for different types of queries: small and mega-
+blast (in current NCBI-BLAST, both types of lookup tables are
+supported by ‘blastn’ mode and ‘megablast’ mode). Each type of
+lookup table has its own set of algorithms. Therefore, we have to
+implement different GPU-kernel functions for different types of
+lookup tables.
+
+A small lookup table contains a simple backbone array and an
+overﬂow array, both of which are simply an array of 16-bit in-
+tegers. If the value of a backbone cell is nonnegative, it means
+that position in the lookup table contains exactly one query
+offset, which equals the cell value. If the value is —l, the corres-
+ponding w-gram does not exist in the query sequence. If the value
+is —x (x > 1), the corresponding w-gram appears multiple times in
+the query sequence and their offsets begin at offset x of the
+overﬂow array and continue until a negative value is encoun-
+tered. The pseudocode of our GPU scan and lookup kernel func-
+tions using a small lookup table are shown in Figures 6 and 7,
+respectively. The backbone array is held in GPU texture
+memory. Notice that a GPU-kernel function speciﬁes the behav-
+ior of a single GPU thread. There are hundreds of thousands of
+GPU threads simultaneously active, each of which executes the
+same instructions while working on different data items.
+
+The megablast lookup table comprises three arrays: presence
+vector (PV array), hash table (hashtable[]) and next position
+(next _pos[]). The PV array is a bit ﬁeld with one bit for each
+hash table entry. If a hash table entry contains a query offset, the
+corresponding bit in the PV array is set. The scanning process
+ﬁrst checks the PV array to see whether there are any query
+
+Input: backbone[] // in texture memory
+
+Output: P1[], P2[], globalCounter //P1 stores exact offset pairs, P2 stores
+overﬂow offset pairs, globalCounter stores the number of matches
+
+Key Variables: BlastOffsetPair localArray[K]; // in shared memory
+
+uint localCounter; // in shared memory
+
+ 
+
+l s_index = blockIdx.x*blockDim.x + threadIdx.x;
+
+2 do
+
+3 load base pairs into s from database sequence;
+
+4 h = hash_function(s);
+
+5 hv = backbone[h];
+
+6 calculate db_offset;
+
+7 if hv > —1 then
+
+8 atomicAdd(localCounter, l);
+
+9 write offset pair (hv, db_offset) into localArray;
+10 end if
+
+11 ifhv<—l then
+
+12 atomicAdd(overﬂowCounter, 1);
+
+13 write offset pair (-hv, db_offset) into P2;
+
+14 end if
+
+15 _syncthreads( ); // local bam'er
+
+16 if localCounter >= K/2 then
+
+17 if threadIdx.x == 0 atomicAdd(globalCounter, localCounter);
+18 _syncthreads( ); // local barrier
+
+19 copy the offset pairs in localArray to P1;
+
+20 if threadIdx.x == 0 localCounter = 0;
+
+21 _syncthreads( ); // local barrier
+
+22 end if
+
+23 update s_index;
+
+24 repeat until out of range
+
+25 if localCounter > 0 then
+
+26 if threadIdx.x == atomicAdd(globalCounter, localCounter);
+27 _syncthreads( ); // local barrier
+
+28 copy offset pairs in localArray to P1;
+
+29 end if
+
+Fig. 6. The GPU scan-kernel function using small lookup table
+
+Input: P1[], P2[], overﬂowTable[], globalCounter // PI is exact oﬂset pair
+array, P2 is overﬂow oﬁfset pair array, overﬂowT able is in texture memory
+Output: Pl[], globalCounter;
+index = blockIdx.x*blockDim.x + threadIdx.x;
+read pair (hv, db_offset) from P2[index];
+q_offset = overﬂowTable[hv++]; // overﬂow table lookup
+do
+atomicAdd(globalCounter, 1);
+write offset pair (q_offset, db_offset) into Pl;
+if hv <= the length of overﬂow table then
+q_offset = overﬂowTable[hv++];
+else
+break;
+end if
+12 repeat until q_offset < 0
+
+ 
+
+\OOOQONUl-PUJNH
+
+1.11.41
+P—‘O
+
+Fig. 7. The GPU lookup kernel function using small lookup table
+
+offsets in a particular lookup table entry. The hashtable[] array
+is a thick backbone with one word for each of the lookup table
+entries. If a lookup table entry has no query offsets, the corres-
+ponding entry in hashtable[] is zero; otherwise, it is an offset into
+
+ 
+
+1387
+
+112 /810's112umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(1111] 1110131 pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+
+K.Zhao and X.Chu
+
+ 
+
+Input: PV // presence vector, in texture memory
+Output: P[], globalCounter // P stores all matched oﬂset pairs
+Key Variables: BlastOffsetPair localArray[K]; // in shared memory
+
+uint localCounter; // in shared memory
+
+ 
+
+l s_index = blockIdx.x*blockDim.x + threadIdx.x;
+
+2 do
+
+3 load base pais into s from database sequence;
+
+4 h = hash_function(s);
+
+5 if BlastMBLookupHasHits(h) == 1 then
+
+6 calculate db_offset;
+
+7 atomicAdd(localCounter, 1);
+
+8 write offset pair (h, db_offset) into localArray
+9 end if
+
+10 _syncthreads( ); // local barrier
+
+11 if localCounter >= K/2 then
+
+12 if threadIdx.x == 0 atomicAdd(globalCounter, localCounter);
+13 _syncthreads( ); // local barrier
+
+14 copy offset pairs in localArray to P;
+
+15 if threadIdx.x == 0 localCounter = 0;
+
+l6 _syncthreads( ); // local barrier
+
+17 end if
+
+18 update s_index;
+
+19 repeat until out of range
+
+20 if localCounter > 0 then
+
+21 if threadIdx.x == atomicAdd(globalCounter, localCounter);
+22 _syncthreads( ); // local barrier
+
+23 copy offset pairs in localArray to P;
+
+24 end if
+
+Fig. 8. The GPU scan-kernel function using megablast lookup table
+
+Input: P, hashtable, next _pos
+
+Output: P l
+
+1 index = blockIdx.x*blockDim.x + threadIdx.x;
+2 read pair (h, db_offset) from P[index];
+3 (Loffset = hashtable[h];
+
+4 while q_offset > 0
+
+5 atomicAdd(globalCounter, l);
+6
+
+7
+
+8
+
+9
+
+ 
+
+write (q_offset-1, db_offset) to P1;
+if q_offset < the length of next _pos table then
+q_offset = next _pos[q_offset];
+else
+10 break;
+11 end if
+12 end while
+
+Fig. 9. The GPU lookup kernel function using megablast lookup table
+
+next _pos[]. The position in next _pos[] is in fact the query offset,
+and the actual value at that position is a pointer to the succeeding
+query offset in the chain. A value of zero means the end of the
+chain. The pseudocode of our GPU scan and lookup kernel
+functions using the megablast lookup table are shown in
+Figures 8 and 9, respectively. The scan-kernel function checks
+the PV array to quickly determine whether there is a match.
+To achieve the best table lookup performance, the PV array is
+held in texture memory. The lookup kernel function takes the
+output of scan function as input and checks the
+
+1 set pointer p_buf to the address of 128-bit data;
+
+2 _m128i t_buf = _mm_loadu_sil28(p_buf); // load data into register
+3 t_bu%_mm_shufﬂe_epi8(ntob_table, t_buf); // translate the data
+
+4 _mm_storeu_si128(p_buf, t_buf); // write back data
+
+Fig. 10. SSE instructions used by s_SquBMachbiNA8ToBlastNA8()
+
+hashtable[] and next _pos[] to ﬁnd the complete set of matched
+offset pairs.
+
+3.2 Accelerating the mini-extension step by GPU
+
+It is not uncommon for the scan sub-step to return millions
+of seed matches. The mini-extension step is designed to verify
+whether each w— gram match can be extended to a W- gram match
+when w< W. We can create a huge number of GPU threads to
+extend those w—gram matches simultaneously. Each GPU thread
+reads one offset pair from the matched offset pair array, extends
+on the left side and then extends on the right side. If it ﬁnds a
+W-gram match, this offset pair will be recorded for further
+gapped extension. Given that the mini-extension algorithm ex-
+hibits no big difference from the original BLASTN, we do not
+provide the pseudocode here. We note that there are two versions
+of mini-extension, one for the small lookup table and another for
+the megablast lookup table.
+
+3.3 Optimizing the trace-back step
+
+As mentioned in Section 2.2, occasionally the trace-back step
+takes quite a long time, which may counteract the speedup
+achieved by the previous steps. Unfortunately, the trace-back
+step is not naturally suitable for GPUs. We therefore resort
+to the following optimization techniques. First, function
+s_SquBMap NA2T0NA8() uses a translation table to convert
+sequence data from NCBI-NA2 to NCBI-NA8 format.
+BLASTN translates the data character by character, which
+does not fully use the CPU memory bandwidth. In
+G—BLASTN, we replace four 8-bit memory writes with a single
+32-bit memory write, which boosts the speed by two to three
+times. Second, function s_SquBMachbiNA8To BlastNA8()
+uses a l6-byte translation table to convert sequence data from
+NCBI-NA8 to BLAST-NA8 format, character by character.
+G-BLASTN uses a 128-bit union (denoted by ntob_table) to
+hold the l6—byte translation table, and then SSE instructions to
+write 16 bytes as a whole, which achieves a speedup of 3~4X.
+The SSE instructions are shown in Figure 10.
+
+3.4 Pipeline mode for multiple queries
+
+Once we have accelerated the scanning stage by GPU, other
+stages such as trace-back and output may start to occupy a rela-
+tively large portion of the total execution time, especially when
+there are many ﬁnal hits. G-BLASTN supports a pipeline mode
+when handling a batch of queries, as shown in Figure 11. The
+main advantage is that GPU and CPU can work on different
+tasks simultaneously. When the GPU is busy seeding, the CPU
+can execute the trace-back or output steps for a previous query.
+To achieve this purpose, G—BLASTN uses multithreading to
+maintain four queues: query, job, prelim and result. A master
+thread reads the queries and puts them into the query queue, and
+
+ 
+
+1388
+
+112 /810's112umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(1111] 1110131 pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+
+G-BLASTN
+
+ 
+
+Deer?
+
+m- _ _ lab Prelim Result _ m
+
+I-
+“ _ Irma-u:
+um:
+
+I- - I-
+
+h
+heeled
+".... .I  ,H  mm:
+
+Fig. 11. The pipeline mode of G-BLASTN
+
+then creates the job queue. The prelim thread(s) fetches jobs from
+the job queue and uses GPU to execute the preliminary search,
+storing the results in the prelim queue. The trace-back thread(s)
+reads from the prelim queue, executes the trace-back step and
+stores the results in the results queue. Finally, the print thread
+prints the results.
+
+4 RESULTS
+
+4.1 General setup and datasets
+
+The GPU experiments were performed on a desktop computer
+with an Intel quad-core CPU and Nvidia GTX780 GPU. The
+CPU experiments were performed on two different platforms: a
+4-core platform which is the same computer that runs the GPU
+experiments; and an 8-core platform which is a server with two
+Intel Xeon CPUs. The detailed system conﬁguration is shown in
+Table 1.
+
+We used the following two command lines to run NCBI
+BLASTN and G—BLASTN, respectively.
+
+$blastn -db <database> -query <query> -task megablastl
+blastn -outfmt 7 -out <ﬁle> -dust yes -window_masker_db
+<masker_db> -num_threads <l |4| 8>
+
+$gblastn -db <database> -query_list <query list> -task mega
+blastlblastn -outfmt 7 -out <ﬁle> -dust yes -window_masker_db
+<masker_db> -use_gpu true -mode <l|2> -num_threads
+<1|4|8>
+
+We used gettimeofdayO functions to measure the program exe-
+cution time. Each experiment was run 10 times and the average
+results are reported in this article.
+
+Databases: We chose human build 36 and mouse build 36
+genome databases for the experiments of ‘megablast’ mode. In
+addition, we constructed a database to test the ‘blastn’ mode by
+selecting all sequences with length no <2 million from NCBI nt
+database. This partial NCBI nt database has a raw size of 8.4GB
+and can well ﬁt into a single GPU card with 3GB memory after
+compression. All databases were masked with WindowMasker
+(Morgulis et al., 2006a), including low-complexity ﬁltering by
+DUST (Morgulis et al., 2006b).
+
+Queries: To test the ‘megablast’ mode, we chose queries from
+the NCBI ftp server: ftp://ftp.ncbi.nlm.nih.gov/pub/agarwala/
+indexed_megablast/queries (Morgulis, 2008). Six query sets,
+each containing 100 queries, were used, which are referred to
+as Qsmall (~500 bases, range: 501—506), Qmedium (~10 KB,
+range: 10 000—10 446) and Qlarge (~100 KB, range: 100 001—
+102 087). To test the ‘blastn’ mode, we chose the ﬁrst 500
+
+Table 1. System conﬁguration
+
+ 
+
+ 
+
+CPU Memory GPU Storage OS
+Intel Core i7- 32GB Nvidia SATA CentOS
+3820 (4-core, (DDR3 1600) GTX780 2TB 6.4 (Linux
+3.6 GHz) kernel 2.6.32)
+2 x Intel Xeon 24GB (DDR3 N/A SATA Redhat 5.5
+E5620 (8-Core, 1333) 1TB (Linux kernel 2.6.18)
+2.4 GHz)
+
+ 
+
+ 6 speedup (1-core) o speedup (4-core) speedup (8-core)
+
+O
+
+990 «o o“ o» o’ u w
+
+ 
+
+O 10 20 30 40 50 60 7O 80 90 100
+Sequence ID (human, Qsmall)
+
+speedup of Qsmall queries
+
+ o speedup (1-core) I speedup (4-core) speedup (8-ccre)
+
+ 
+
+35 u 9.. e a . o“ ’ . O u 0 o 0 o 9
+
+O Q o ' Q. 8. '. 900 ‘ .‘ .... . .... u ..99. .89 .‘ O O" r.
+30 ' A . .0.»
+O
+9- 25 O o o o
+
+O
+
+ 
+
+ 
+
+u 20 . , e
+
+% 15 ’
+
+"0.00.00 00.0.0.0..".0..00.¢I ...-'0" «.00.....00.000...'co" ........... ...-00.0: gun
+' v .
+
+ 
+
+ 
+
+ 
+
+ 
+
+0 10 20 30 40 50 60 70 80 90 100
+Sequence ID (human, Qmedium)
+
+speedup of Qmedium queries
+
+(c o speedup (l-core) O speedup (4—core) speedup (8-core)
+
+ 
+
+O 9 9. o
+25 ﬂ—,—6.—¢—.—‘—.—o—o’4—.—O—’—.—o—o—o—.—o—'—H . , . .
+
+ 
+
+ 
+
+ 
+
+o
+o o g
+o .090...ooo..o..0.".. co 9 0".
+
+..oon...ooo....o."..l ..o.. .......o...0.oo...oo
+.. ....g  ..__ ._ .__.._____~,__
+
+5 _..__. _ . L_;_
+
+o out. I c
+On. a...
+z. 
+n A
+
+ 
+
+ 
+
+0 10 20 3O 40 50 60 7O 80 90 100
+Sequence ID (human, Qlarge)
+
+speedup of Qlarge queries
+
+Fig. 12. Speedup of G-BLASTN on human genome database (GTX780
+versus Two Xeon E5620)
+
+bacterial sequences from the NCBI server: http://www.ncbi.
+nlm.nih.gov/sra/SRX338063, namely Qbac.
+
+The length information of all database and query sequences
+can be found in the Supplementary Material.
+
+4.2 Experimental results
+
+4.2.] Performance under normal mode Under normal mode,
+G—BLASTN handles the queries one at a time. We ﬁrst present
+the experimental results of ‘megablast’. The speedups over 8-core
+platform on human genome database are shown in Figure 12.
+The speedups of other experiments are shown in Supplementary
+Figures S3—S6. We also show the average speedup of each query
+set in Table 2. The overall speedups are calculated as the average
+of all 1600 query experiments for each hardware setting. As
+
+ 
+
+1389
+
+112 /810's112umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(1111] 1110131 pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+
+K.Zhao and X.Chu
+
+ 
+
+Table 2. Average speedup of G—BLASTN under ‘megablast’ mode
+
+ 
+
+Database Query Intel i7-3820 Intel Xeon E5620
+
+ 
+
+ 
+
+1-core 4—core 1-core 4-core 8-core
+
+ 
+
+Human Qsmall 10.47 5.11 26.90 12.88 10.52
+Qmedium 11.49 4.53 32.68 11.98 8.50
+Qlarge 9.22 3.37 21.07 7.54 5.25
+Qbac 10.80 5.37 26.04 12.71 10.47
+Mouse Qsmall 18.50 9.37 44.12 21.87 18.28
+Qmedium 17.84 7.39 49.16 19.11 14.32
+Qlarge 10.44 4.14 23.16 9.14 6.92
+Qbac 20.97 10.73 49.28 24.71 20.80
+Overall 14.80 7.15 35.85 16.85 13.76
+
+ 
+
+The meaning of the “overall” values are the average speedups of all query experi-
+ments for each hardware setting.
+
+Table 3. Speedup of G-BLASTN under ‘blastn’ mode using Qbac query
+set
+
+ 
+
+ 
+
+ 
+
+Database Intel i7-3820 Intel Xeon E5620
+
+1-core 4-core 1-core 4—core 8-core
+Human 4.58 1.57 8.01 2.99 2.15
+Mouse 5.02 1.83 8.84 3.51 2.70
+NCBI nt 3.37 1.29 5.71 2.36 1.74
+Overall 4.32 1.56 7.52 2.95 2.20
+
+ 
+
+The meaning of the “overall” values are the average speedups of all query experi-
+ments for each hardware setting.
+
+compared with 4-core Intel i7-3820, G—BLASTN achieves an
+overall speedup of 7.15X. As compared with the 8-core platform,
+G-BLASTN achieves an overall speedup of 13.76X. There are
+several reasons why BLASTN runs much faster on i7-3820 than
+on Xeon E5620. First, i7-3820 has a much higher working fre-
+quency than E5620. Secondly, the memory bandwidth of i7-3820
+is twice of E5620. Thirdly, the memory module of our i7-3820
+platform is faster than that of E5620 platform. Based on the
+results of E5620, we can notice that the speedups achieved
+using 8 cores are only slightly better than using 4 cores.
+
+We also notice that the speedups on the human database are
+less than those on the mouse database. This is mainly because
+the human build 36 database consists of 367 sequences, >200 of
+which are short sequences (<1 million bp). In contrast, the mouse
+build 36 database consists of 21 very long sequences. We will
+discuss more on this issue in Section 5.
+
+We evaluate the performance of ‘blastn’ mode using Qbac
+query set against human, mouse and the partial NCBI nt data-
+bases. We show the average speedups of each database and the
+overall speedups in Table 3. G-BLASTN achieves an overall
+speedup of 1.56 and 2.95 as compared with 4-core i7-3820 and
+8-core E5620, respectively. As compared with ‘megablast’ mode,
+‘blastn’ mode has a much smaller value of stride size, which
+results in more scanning workload and more seed hits.
+Therefore the ungapped extension step under ‘blastn’ mode
+
+Table 4. Speedup of pipelined G-BLASTN (GTX780 versus Intel
+i7-3820)
+
+ 
+
+ 
+
+Mode Database Query 1-core 4—core
+megablast Human Qsmall 10.83 5 .28
+Qmedium 12.67 5.05
+Qlarge 12.19 4.68
+Mouse Qsmall 20.49 10.37
+Qmedium 20.12 8.51
+Qlarge 12.09 5.47
+blastn Human Qbac 5 .49 1.87
+Mouse Qbac 6.49 2.36
+NCBI nt Qbac 4.73 1.86
+
+ 
+
+takes much longer time than under ‘megablast’ mode, as
+shown in Supplementary Figure S7. Since the ungapped exten-
+sion is sequentially executed on CPU, the speedups achieves
+under ‘blastn’ mode are much less than ‘megablast’.
+
+4.2.2 Performance under pipeline mode To evaluate the per-
+formance of pipelined G—BLASTN, we use all queries in each
+dataset as a single input to G—BLASTN. The speedups against
+the NCBI BLAST on Intel i7-3820 are shown in Table 4. If we
+compare Table 4 with Tables 2 and 3, we can observe a signiﬁ-
+cant improvement on the speedups for many datasets. For small
+and medium queries under ‘megablast’, the trace-back and
+output steps account for a very small portion of the total time
+and hence the pipeline design does not offer much of an advan-
+tage. For large queries using ‘megablast’ in which the trace-back
+and output steps take a much longer time, the pipeline design
+hides a signiﬁcant portion of time. Under ‘blastn’ mode, the
+pipeline design can further improve the speedups of the Qbac
+query set by 19—44%.
+
+5 DISCUSSIONS AND CONCLUSIONS
+
+In this article, we describe our design and implementation of
+G—BLASTN, an open source software tool for nucleotide align-
+ment based on the widely used NCBI-BLAST. G—BLASTN
+exploits the power of GPUs to accelerate nucleotide alignments.
+Compared with a contemporary quad-core Intel CPU running
+at 3.6 GHz, G-BLASTN on a single $650 GPU card can achieve
+overall speedups of 14.8X and 4.32X under ‘megablast’
+mode and ‘blastn’ mode, respectively. When compared with
+multithreaded NCBI-BLAST that uses four CPU cores,
+G-BLASTN can still achieve overall speedups of 7.15X (‘mega—
+blast’) and 1.56X (‘blastn’). G-BLASTN also supports a pipeline
+mode that further improves the overall performance by up to
+44% when handling multiple queries.
+
+G-BLASTN can be improved in the following directions. At
+present, G-BLASTN invokes a kernel function for each database
+sequence, which is not efﬁcient when the length of the database
+sequence is shorter than one million bps. There are several pos-
+sible solutions to this problem. One possibility is to aggregate
+short database sequences into longer ones. Another solution is to
+process multiple database sequences in each kernel function call.
+G-BLASTN is also limited by the GPU memory size. We ﬁrst
+
+ 
+
+1 390
+
+112 /810's112umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(1111] 1110131 pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+
+G-BLASTN
+
+ 
+
+plan to extend G-BLASTN to support multiple GPU cards.
+Doing so can not only support larger databases, but also achieve
+better speedups. A long-term solution is to divide the huge data-
+base into smaller volumes, and then scan each volume in GPU
+one by one. To minimize the overhead of copying database into
+GPU memory, multiple queries should be processed at a time.
+A more challenging task is to accelerate other steps such as
+ungapped extension, gapped extension and trace-back, which
+will improve the performance of ‘blastn’ mode signiﬁcantly.
+Finally, we also plan to support ‘discontiguous megablast
+mode’ in our future work.
+
+Funding: Hong Kong Baptist University (grant FRG2/11-12/158).
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Altschul,S.F. et al. (1990) Basic local alignment search tool. J. Mol Biol, 215,
+403—410.
+
+Altschul,S.F. et al. (1997) Gapped BLAST and PSI-BLAST:Anew generation of
+protein database search programs. Nucleic Acids Res, 25, 3389—3402.
+
+Camacho,C. et al. (2009) BLAST+: architecture and applications. BM C Bioinform.,
+10, 421.
+
+Dematte,L. and Prandi,D. (2010) GPU computing for systems biology. Brief
+Bioinform., 11, 323—333.
+
+Fei,X. et al. (2008) FPGA-based accelerators for BLAST families with multi-seeds
+detection and parallel extension. In: Proceedings of the 2nd International
+Conference in Bioinformatics and Biomedical Engineering. IEEE, Shanghai,
+China, pp. 58—62.
+
+J acob,A. et al. (2007) FPGA-accelerated seed generation in Mercury BLASTP. In:
+Proceedings of 15th Annual IEEE Symposium on Field-Programmable Custom
+Computing Machines. IEEE, California, USA, pp. 95—106.
+
+Lin,H. et al. (2008) Massively parallel genomic sequence search on the Blue Gene/P
+architecture. In: Proceedings of the 2008 ACM/IEEE Conference on
+Supercomputing. ACM/IEEE, Austin, USA, pp. l—ll.
+
+Ling,C. and Benkrid,K. (2010) Design and implementation of a CUDA-compatible
+GPU-based core for gapped BLAST algorithm. Proc. Comput. Sci. USA, 1,
+495—504.
+
+Liu,C.M. et al. (2012a) SOAP3: ultra-fast GPU-based parallel alignment tool for
+short reads. Bioinformatics, 28, 878—879.
+
+Liu,Y. et al. (2012b) CUSHAW: a CUDA compatible short read aligner to large
+genomes based on the Burrows—Wheeler transform. Bioinformatics, 28,
+1830—1837.
+
+Lu,M. et al. (2013) GPU-accelerated bidirected De Bruijn graph construction for
+genome assembly. Web Tech. Appl. Lect. Notes Comput. Sci., 7808, 51—62.
+Lu,M. et al. (2012) High-performance short sequence alignment with GPU acceler-
+
+ation. Distrib. Parallel Dat., 30, 385—399.
+
+Manavski,S. and Valle,G. (2008) CUDA compatible GPU cards as efﬁcient hard-
+ware accelerators for Smith-Waterman sequence alignment. BM C Bioinform., 9
+(Suppl. 2), $10.
+
+Morgulis,A. et al. (2006a) WindowMasker: window-based masker for sequenced
+genomes. Bioinformatics, 22, 134—141.
+
+Morgulis,A. et al. (2006b) A fast and symmetric DUST implementation to mask
+lowcomplexity DNA sequences. J. Comp. Biol, 13, 1028—1040.
+
+Morgulis,A. et al. (2008) Database indexing for production MegaBLAST searches.
+Bioinformatics, 24(16), 1757—1764.
+
+Nguyen,V.H. and Lavenier,D. (2009) PLAST: parallel local alignment search tool
+for database comparison. BM C Bioinform., 10, 329.
+
+Nickolls,J. (2007) Nvidia GPU parallel computing architecture. In: Proceedings of
+the IEEE Hot Chips 19. IEEE, Stanford, CA, USA.
+
+Owens,J.D. et al. (2008) GPU Computing. IEEE Proc., 96, 879—899.
+
+Sotiriades,E. and Dollas,A. (2007) A general reconﬁgurable architecture for the
+BLAST algorithm. J. VLSI Signal Process, 48, 189—200.
+
+Vouzis,P.D. and Sahinidis,N.V. (2011) GPU-BLAST: using graphics processors to
+accelerate protein sequence alignment. Bioinformatics, 27, 182—188.
+
+Zhang,Z. et al. (2000) A greedy algorithm for aligning DNA sequences. J. Comput.
+Biol, 7, 203—214.
+
+ 
+
+1391
+
+112 /810's112umo [progxo'sor1eu1101urorq//:d11q urorj pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+

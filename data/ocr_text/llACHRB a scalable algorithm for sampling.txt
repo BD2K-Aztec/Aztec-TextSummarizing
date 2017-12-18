@@ -1,0 +1,1309 @@
+Bioinformatics, 32(15), 2016, 2330—2337
+
+doi: 10.1093/bioinformatics/btw132
+
+Advance Access Publication Date: 11 March 2016
+Original Paper
+
+ 
+
+Systems biology
+
+ll-ACHRB: a scalable algorithm for sampling the
+feasible solution space of metabolic networks
+
+Pedro A. Saa and Lars K. Nielsen*
+
+Australian Institute for Bioengineering and Nanotechnology (AIBN), The University of Queensland, St Lucia, OLD,
+Australia
+
+*To whom correspondence should be addressed.
+Associate Editor: Alfonso Valencia
+
+Received on October 30, 2015; revised on February 7, 2016; accepted on March 3, 2016
+
+Abstract
+
+Motivation: Random sampling of the solution space has emerged as a popular tool to explore and
+infer properties of large metabolic networks. However, conventional sampling approaches com-
+monly used do not eliminate thermodynamically unfeasible loops.
+
+Results: In order to overcome this limitation, we developed an efficient sampling algorithm called
+loopless Artificially Centered Hit-and-Run on a Box (II-ACHRB). This algorithm is inspired by the
+Hit-and-Run on a Box algorithm for uniform sampling from general regions, but employs the direc-
+tions of choice approach of Artificially Centered Hit-and-Run. A novel strategy for generating feas-
+ible warmup points improved both sampling efficiency and mixing. II-ACHRB shows overall better
+performance than current strategies to generate feasible flux samples across several models.
+Furthermore, we demonstrate that a failure to eliminate unfeasible loops greatly affects sample
+statistics, in particular the correlation structure. Finally, we discuss recommendations for the inter-
+pretation of sampling results and possible algorithmic improvements.
+
+Availability and implementation: Source code for MATLAB and OCTAVE including examples are
+freely available for download at http://www.aibn.uq.edu.au/cssb-resources under Software.
+Optimization runs can use Gurobi Optimizer (by default if available) or GLPK (included with the
+algorithm).
+
+Contact: lars.nielsen@uq.edu.au
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+1 Introduction
+
+ 
+
+A diverSity of computational methods referred to as constrained-
+based methods haS been developed to study the characteristics and
+capabilities of Genome-scale Models (GEMS). Uniform random
+sampling of the ﬂux solution space is a popular choice for interro-
+gation of GEMS without introducing optimality criteria. From
+evaluation of the impact of physiological constraints on the
+sampled flux distributions (Bordbar et al., 2010; Lewis et al.,
+2010; Mo et al., 2009; Price et al., 2004; Shoaie et al., 2013;
+Thomas et al., 2014; Wiback et al., 2004) to identification of tran-
+scriptional regulation (Bordbar et al., 2014; Bordel et al., 2010),
+definition of a flux backbone (Almaas et al., 2004) and correlated
+reaction sets (Dal’Molin et al., 2015; Price et al., 2004, 2006; Reed
+
+and Palsson, 2004), uniform sampling haS been applied to explore
+achievable states and emergent properties of networks. More im-
+portantly, uniform sampling haS emerged as an unbiased tool to aS-
+seSS the capabilities of metabolic reconstructions (Lewis et al.,
+2012)
+
+For this type of analysis to be valid, a key—and often over-
+looked—assumption is that the flux samples are thermodynamically
+feasible. GEMS are mathematically described by the Stoichiometry
+matrix Smxn, which encodeS the maSS balances for m metabolites
+reacting in n biochemical reactions. The capacities of these reactions
+are phenomenologically limited by thermodynamic and kinetic con-
+StraintS in the form of lower lb and upper ub bounds. Assuming
+Steady-State for metabolites accumulation, the vector of reaction
+
+©The Author 2016. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 2330
+
+9mg ‘09 isnﬁnV uo seleﬁuV SO’I ‘erulomeg JO AirSJSAru [1 112 ﬂJO'Sleumo[pJOJXO'Sopeuuogurorq/ﬁdnq wort pepeolumoq
+
+II-ACHRB
+
+2331
+
+ 
+
+ﬂuxes v conSiStent with maSS conservation iS defined by the follow-
+ing set of conStraintS (EqS. 1 and 2),
+
+S-v=0 (1)
+
+lbgvgub (2)
+
+The resulting flux Space 9 defineS a convex polytope describing
+the achievable StateS of the network. Sampling from thiS multi-di-
+menSional body can be efficiently achieved uSing Markov Chain
+Monte Carlo (MCMC) methodS such aS the ‘Hit-and-Run’ (HR)
+(Smith, 1984) and the ‘Artificially Centered Hit-and-Run’ (ACHR)
+(Kaufman and Smith, 1998) algorithms. The latter method haS been
+particularly preferred for sampling the irregularly Shaped solution
+Space of metabolic networkS, aS it exploreS elongated directions of
+Q enabling in principle faSter mixing. There are, however, add-
+itional conStraintS on v that ensure itS thermodynamic feasibility.
+Let uS denote Nint the matrix Storing the null Space vectorS of the in-
+ternal reactions described by Sim, and A11th the vector of chemical
+potentials for these reactionS. According to the firSt and second law
+of thermodynamics, v iS thermodynamically feasible if for vim g v
+(Beard et al., 2002),
+
+NT A»... = 0 (3)
+
+int
+diag(Apint) -vint S 0 (4)
+
+Equations (3) and (4) guarantee respectively that the global po-
+tential energy of the network iS balanced (firSt law), and that reac-
+tionS proceed in the opposite direction of chemical potential change
+(second law). These two equations can be satisfied Simultaneously
+only if the net flux around all closed loopS iS equal to zero, and
+hence it iS commonly referred aS the ‘loopleSS condition’. Imposition
+of thiS condition generally causeS the solution Space Qloopless to be
+non-convex, which iS much harder to sample and so far no algo-
+rithm haS been developed to do so. InStead, ad—hoc methodS uSing
+conventional samplerS have been used to sample from S2 and then ei-
+ther remove sampleS with ‘loopy’ patternS (Price et al., 2006), or
+find the neareSt feasible flux distribution (Schellenberger et al.,
+201 1). Both approaches have disadvantages. The firSt approach may
+yield few feasible samples making it inefficient in high-dimensional
+modelS, whereaS the second approach iS impractical in large modelS
+aS it requireS the solution of a non-polynomial time MILP problem
+for each flux distribution.
+
+Here we present a scalable, direct sampling algorithm called
+loopleSS Artificially Centered Hit-and-Run on a Box (ll-ACHRB).
+ThiS algorithm iS motivated by a recent variation of the Hit-and-
+Run algorithm for uniform sampling from general regions (convex
+and non-convex) termed ‘Hit-and-Run on a Box’ (HRB)
+(Kiatsupaibul et al., 2011), and employS directionS of choice aS in
+ACHR. The algorithm Shows overall better performance than cur-
+rent StrategieS to generate thermodynamically feaSible flux samples
+in several metabolic modelS ranging from small-Size modelS to
+GEMS. Finally, we report Significant discrepancies in feasible and
+unfeasible sample Statistics, highlighting the consequences of em-
+ploying thermodynamically unfeasible sampleS for StatiStical
+inference.
+
+2 Algorithm
+
+Our aim iS to sample from the thermodynamically feasible solution
+Space defined by EqS. (1—4). To thiS end, we have developed a gen-
+eral Hit-and-Run algorithm capable of sampling from thiS
+
+commonly non-convex Space by enclosing Qloopless in a hyper-rect-
+angle from which Step SizeS can be readily chosen following HRB.
+Execution of subsequent moveS iS achieved by randomly choosing
+directionS uSing warmup pointS aS in ACHR. AS opposed to conven-
+tional warmup methodS, our Strategy pullS warmup pointS from the
+interior of Qloopless, improving both mixing and acceptance rateS
+(see Results). Importantly, the proposed algorithm enables sampling
+of exactly N feasible flux sampleS aS opposed to the StrategieS re-
+ported to date.
+
+Application of the three-Step sampling workﬂow iS illuStrated
+with a toy model initially comprised of 6 internal reactionS, three ex-
+change reactionS and five metabolites (Fig. 1). Initially, the pre-pro-
+ceSSing Step takeS place uSing loopleSS-Flux Variability Analysis (11-
+FVA) (Schellenberger et al., 2011) to remove blocked reactionS from
+the model (126), aS well aS fix reaction directionalitieS imposed by the
+loopleSS condition (121, v3 and 124) (Fig. 1A). The resulting model has
+1': 8 reactionS, whereof two are reversible (122 and v5). Execution of
+ll-FVA also defineS the minimum enclosing box on Qloopless required
+for Step Size selection (see below). After pre-proceSSing, a warmup
+phase iS used to generate feasible pointS Spanning Qloopless (Fig. 1B).
+AS noted in Megchelenbrink et al. (2014), it iS important that these
+pointS lie in the interior of the target Space, otherwise the allowed
+Step SizeS can become very small hereby hampering convergence. In
+order to generate these pointS, we cap the lower and upper boundS
+of each reaction one-at-a-time to a fraction a < 1 (e.g. or: 0.95) of
+the maximum flux range, and next the ﬂux through the reaction
+with modified boundS iS minimized and maximized subject to
+thermodynamic feasibility. In thiS way, thiS Step yields 21' feaSible in-
+terior solutionS Spanning the deSired Space.
+
+Once warmup pointS have been generated, the sampling phase iS
+initiated following the HRB sampling scheme (Fig. 1C). Let uS de-
+note vk an arbitrary ﬂux vector in Qloopless E R”, vcenter a ﬂux vector
+describing the ‘centroid’ of Qloopless, uk a direction on the surface of
+the n-dimenSional unit hypersphere 8D 2 {u E R”|||u|| = 1} and
+@(vcenter, vwarmup) the direction probability distribution on 8D aS
+defined in ACHR for accelerated convergence (Kaufman and Smith,
+1998). Without loss of generality, let uS also assume that Qloopless iS
+contained in a known n-dimenSional box B and that a set of feaSible
+pointS Vwarmup are known. The ll-ACHRB proceedS aS follows.
+Starting from vk, a random direction uk iS drawn from (9 and the
+line Ek = {2 E R|vk + liuk E B} iS constructed. Next, the maximum
+StepS SizeS in the negative (E‘an and positive Mina”) directionS
+are found by intersecting Zk with Qloopless (i.e. longeSt cord in B),
+and a random Step Size 2k iS generated by uniformly sampling from
+that interval. The new sample candidate iS defined aS
+Vk+1 = Vk -)- Akuk. If Vk+1 g3 Qloopless, the enclosing bOX B is
+‘Shrinked’ by redefining (Klaxﬂlﬁnaﬁ) according to the Sign of 2k
+(Neal, 2003), and another 2k iS uniformly sampled until
+vk+1 E Qloopless. Once a feaSible sample iS found, the centroid iS
+updated according to the ACHR update scheme and the entire pro-
+ceSS iS reiterated until N uniform sampleS have been collected. The
+detailS of the algorithm are summarized in Algorithm 1.
+
+The HRB algorithm repeatedly sampleS Step SizeS from the inter-
+section of Zk and Qloopless until a feaSible flux distribution iS found.
+ThiS rejection Step iS the main modification to the traditional HR
+scheme, where a uniform feaSible sample on Q can be readily ob-
+tained (Smith, 1984). Importantly, aS Shown by Kiatsupaibul et al.
+(2011) the resulting chain {vk|k 2 0} from HRB iS also uniform on
+the target Space.
+
+The computational efficiency of the algorithm dependS on the
+recurring two main querieS: (i) find the length of the longeSt cord in
+B in the direction of Zk (line 14) and (ii) check the feasibility of
+
+9mg ‘09 isnﬁnV uo seleﬁuV SO’I ‘erulomeg JO AirSJSAru [1 112 ﬂJO'Sleumo[pJOJXO'Sopeuuogurorq/ﬁdnq wort pepeolumoq
+
+2332
+
+P.A.Saa and L.K.Nielsen
+
+ 
+
+A Pre-prccessing
+
+exchanges it:2
+
+.p—.—.— ———.—._h
+
+"' x
+
+- Remove aerc
+reactions
+
+I
+V/MV‘ :b
+. . I 3. |}Setfbr.=E’.
+
+1I.
+I v, . Ir2 I ||-Flux Variability l‘
+b.i I / :b3 Analysis b1 I
+—1+o e—l—r —p —:+ 1,5 l i l
+I II ____ I
+: ﬁv/S : rib]. 1b,: Ibﬁ+[1—e}-Rr. Uh].
+
+B Warmup phase
+
+ 
+
+{Flux range y]: R: = ubl— Ibr. \
+
+Fc-r each u“. dc:
+
+ 
+
+ 
+
+ 
+
+., I imam-IE“ ﬁns ’1' - Fix directinnalities a y" Minimize y}. subject tn
+”‘ ‘— 7 T — — — — — — "' M h — — — — — — — — "' thenncdynamic feasibility
+Initial tcy mcdel Pre-prccessed toy medal _
+ll) Set ubr. = ubr.
+0 Sampling phase : g :
+if}! {big-RF: ubr. Lib].
+
+Hit-And-Run en a Box
+
+  
+ 
+
+ 
+
+Maximize y; subject tc
+\thenncdynamicfeasibility j
+
+ 
+
+ 
+
+ 
+
+ 
+
+1F
+
+Erwarmup points for
+the subsequent sampling
+{16 in the case efthe
+pre—prccessed toy model)
+
+ 
+
+ 
+
+ 
+
+Fig. 1. Application of the sampling workflow in a toy model. (A) Pre-processing phase. The toy model consist of 6 internal reactions (v,-, i=1,...,6), 3 exchange re-
+actions (bj, j= 1,2,3) (9 reactions in total) and 5 metabolites. Using II-FVA for pre-processing, reaction v6 (dashed arrow) is found to be blocked and is removed
+from the network. Additionally, 3 of the 5 internal reactions are found to be irreversible and thus their directions are fixed. The pre-processed model has r=8 re-
+actions, whereof two are reversible (v2 and v5). (B) Warmup phase. 2r points in the interior of the feasible solution space are generated by minimizing and maxi-
+mizing each reaction subject to thermodynamic feasibility and modified bounds. (C) Sampling phase. The Hit-and-Run on a Box (HRB) sampling scheme is used
+to uniformly sample from the feasible nonconvex space (Qloopless) by ’shrinking’ the sampling space until a feasible flux distribution is accepted
+
+candidate sample vk (line 16). The former taSk iS readily performed
+uSing Eq. (5), taking into account the convexity of S2 and that
+Qloopless g 9. Even if initially the longeSt cord in Q iS not fully sup-
+ported in Qloopless, the Shrinking Step (lineS 19—26) decreases the Size
+of the initial box eventually matching the length of B on Qloopless.
+The second query, i.e. evaluation of the thermodynamic feasibility
+of the candidate sample, iS more challenging and for thiS we de-
+veloped a faSter method (see next section).
+
+ 
+
+z—k’z’ “k”. > 0
+"12,2"
+2Ei=< , Vi E reactionS
+ub- — v -
+z kﬂ) uk,i < 0
+\ uk,i
+f  _ v .
+z—k’z’  > 0
++ "12,2"
+. _ v .
+z—k’z’ Mk”. < 0
+\ uk,i
+22m“ = max 21:
+22’qu = min 21‘:
+
+3 Methods
+
+3.1 Verification of thermodynamic feasibility
+Thermodynamic feasibility iS ensured by EqS. (3 and 4). For a given
+ﬂux distribution v with vim denoting itS internal reactionS, reso-
+lution of the following LP problem with deciSion variables A11th
+(chemical potential variables) and blank objective function provideS
+a teSt for thermodynamic feasibility (Schellenberger et al., 201 1),
+
+min 0
+
+St.
+
+Nilflt ' Allin: = 0
+
+‘K ' (1 + Sgn(Vint)) — Sgn(Vint) S Allin: S K ' (1 — Sgn(Vint)) — Sgn(Vint)
+
+(6)
+
+where K denoteS a large conStant (e.g. 103). If the above problem
+haS a solution for Apint, then v iS thermodynamically feasible.
+However, thiS approach iS very time-consuming for large modelS.
+To overcome thiS limitation, we have developed a more efficient
+method to detect unfeasible loopS making use of the loop law top-
+ology encoded in N; and the ﬂux SignS of the candidate sample.
+Nint StoreS a null Space baSiS of internal reaction vectorS describing
+loop laws where energy iS conserved. For v to be unfeasible, at leaSt
+one of the loop laws encoded in the rows of Nit (nay) haS to be
+Agith < 0. Notably, if a reac-
+tion iS zero then the associated chemical potential variable iS free
+
+unfeasible, i.e. nT Apint > 0 V nT
+
+int,i int,i
+
+9mg ‘09 1sn8nV uo sejeﬁuV SO’I ‘121u10111123 10 A11S19Aruf1 112 /810'S112umo[pJOJXO'SopeIIJJOJHrorq/ﬁd11q 111011 pep1201umoq
+
+II-ACHRB
+
+2333
+
+ 
+
+Algorithm 1: loopless Artificially-Centered Hit-and-Run on a Box.
+
+ 
+
+Inputs: Stoichiometric matrix S, lower and upper
+bounds (lb,ub), number of samples N
+
+Outputs: N feasible ﬂux samples vk
+
+(lbfeasible,Ubfeasib1e) <— PreProceSSModel(S,lb,ub)
+
+“3 <— lbfeasible: 111) <— “bfeasible
+
+(S,lb,ub) <— RemoveZeroReactionS(S,lb,ub)
+
+r <— GetReactionS(S)
+
+//Pre-proceSSing
+
+//Warmup phase
+fori<— 1 to2rdo
+vwarmupy <— GenerateRandomInteriorPoint(S,lb,ub)
+end for
+vcenter <— FindFeaSibleCentroid(S,lb,ub,vwarmup)
+
+\OOOVmM-BUJNH
+
+V0 <— vcenter //Sampling phase
+
+fork<—0toNdo
+
+uk <— SampleDirectionFrom®(vcentemvwarmup)
+
+HH
+HO
+
+H
+N
+
+i <—1, condition <— true
+
+H
+DJ
+
+while condition
+Orin”: Aim“) <— FindLengthLongeStCord(vk,uk,lb,ub)
+Vk,i <— Vk+4k,iuk
+if ISFeaSible(vk,,-) then
+vk+1 <— vk,,-, k <— k—l—l, condition <— false
+vcenter ‘— Updatecenteﬂvcenterak)
+else //Shrinking Step
+i <— i—I—l
+if 216,,- > 0 then
+Ainax+
+Else
+Ainax—
+end if
+end if
+27 end while
+28 end for
+
+NNNHHHHHH
+NHO\OOO\IO\UI-h
+
+<— 4k,i
+
+MN
+#0.)
+
+<— 4k,i
+
+NN
+O\Ln
+
+ 
+
+and the loop laws containing thiS reaction alwayS hold, i.e. zero re-
+actionS are loop breakers. Hence, the problem of determining the
+feasibility of a ﬂux distribution can be formulated aS a search for
+T
+
+mg,- - Ailth are all pos1t1ve or negative
+
+any laws in which the termS of n
+(Nigam and Liang, 2007). ThiS search only requireS the SignS, not
+the actual valueS, of Apth and the former are readily derived from
+
+vim uSing Eq. (4). Importantly, given the directionalitieS of the net-
+T
+
+work many loop laws alwayS hold, i.e. nim- Attth can be zero, and
+the search can be narrowed to only those potentially unfeasible.
+Compared to solving Eq. (6), thiS Strategy yielded substantial Speed
+
+increases up to two orderS of magnitude (Supplementary Fig. 51).
+
+3.2 Initial centroid estimation
+
+Estimation of the centroid vcenter in ACHR iS typically achieved by
+taking the mean of vwarmup. However, given the non-convexity of
+Qloopless, vcenter might not be contained in the feasible Space. In order
+to ensure the feasibility of the initial vcenter, we compute the neareSt
+
+feasible flux centroid v* uSing the following MIQP formulation,
+
+center
+
+Iglin ||5||2
+V
+
+center
+S . t.
+
+* _
+S ' Vcenter _ 0
+NT
+
+1nt ' A“iknt : 0 
+
+V _ Vcenter = 6
+
+center
+1_8iknt'(K+1) S Aufnt S K_8iknt'(K+1)
+—K-(1—s* ) S v* < Ks?"
+
+int int — 1nt
+
+lbgv* Sub
+
+center
+8* 6 {0,1}, 6 6 IR“, K large (e.g., 103)
+
+int
+
+where 8?" represents a binary vector associated with the internal re-
+
+mt
+
+actionS of v*
+
+center and 6 denoteS the distance vector from vcenter to
+
+The closeSt feasible flux distribution to v* iS found by
+
+V center
+
+*
+center'
+minimizing the norm of 6.
+
+3.3 Effective sample size and mixing
+
+Given a Stationary discrete Markov Chain {vk| k 2 0}, we would like
+to eStimate the time after which the pointS can be considered uncor-
+related. The autocorrelation time describes the mixing of the chain
+and can be employed for thiS purpose (GivenS and Hoeting, 2012),
+
+r = 1 +2Zm6) <8)
+k=1
+
+where 701(0) denoteS the autocorrelation of lag k for parameter (9
+and r iS the (integrated) autocorrelation time. A closely related
+measure of mixing iS the Effective Sample Size (ESS) (KaSS et al.,
+1998).
+
+E55 =¥ (9)
+
+where N iS the total sample Size. Low effective sample Size, i.e. high
+autocorrelation time, iS indicative of poor mixing of the chain. A
+common procedure to compute the sum in Eq. (8) and determine
+ESS iS to find a cut-off point beyond which the autocorrelation iS
+very close to zero, and then sum pk up to that point. Common
+choiceS for the cut-off point k are such that pk < 0.01 or pk < 25k,
+where sk iS the estimated Standard deviation of I up to k (GivenS and
+Hoeting, 2012). We have used the former criterion to eStimate pk.
+
+3.4 Computational implementation
+
+The algorithm waS implemented in MATLAB 2013a (The
+MathWorkS, Natick, MA) uSing the Gurobi Optimizer 5.6 (Gurobi
+Optimization, Inc., Houston, Texas). Simulations were run on a 16-
+CPU 64-GB ram Virtual Machine running CentOS Linux 6.5. The
+VM iS hosted on the QRIScloud PolariS cell. Accelerated sampling
+convergence waS achieved by exploiting the parallelizable Structure
+of the algorithm and executing it in multiple coreS employing the
+Parallel Computing Toolbox of MATLAB.
+
+4 Results
+
+4.1 ll-ACHRB performs and scales better than
+alternative approaches
+
+The computational performance of the proposed algorithm waS
+evaluated in different modelS covering a wide Spectrum of metabolic
+capabilities. The considered modelS include the toy model Shown in
+Figure 1A, an E.coli core model (Orth et al., 2011), the Red Blood
+Cell GEM iRBC283 (Bordbar et al., 2011), the H.pylori GEM
+iIT341 (Thiele et al., 2005), the Tmaritima GEM iLJ478 (Zhang
+et al., 2009), the G.metallireducens GEM iAF987 (FeiSt et al.,
+2014), and the lateSt E.coli GEM iJOl366 (Orth et al., 2011). The
+featureS of each model after pre-proceSSing are Shown in Table 1.
+We have assumed growth in minimal media and no particular biolo-
+gical objective for the models. In the case of iIT341, iLJ478, iAF987
+and iJOl366, we Stripped the biomaSS equation of trace elements
+and in the case of iJOl366, we further compacted the model by
+lumping linear pathways into Single reactions (see Supplementary
+Tables 51—54 for omitted elements). The resulting modelS preserved
+
+9mg ‘09 1sn8nV uo sejeﬁuV SO’I ‘121u10111123 10 A11S19Aruf1 112 /810'S112umo[pJOJXO'SopeIIJJOJHrorq/ﬁd11q 111011 pep1201umoq
+
+2334
+
+P.A.Saa and L.K.Nielsen
+
+ 
+
+the same fundamental metabolic capabilities of the original with the
+difference that they are now numerically tractable for MILP
+optimization.
+
+In order to asseSS the behaviour of ll-ACHRB, itS sampling per-
+formance waS compared againSt ACHR—the most used sampler in
+the literature. The teSting procedure waS aS follows. For each model
+and algorithm, three independent Hit-and-Run dynamics were run
+until 105 samples were collected. Only one point every 100 StepS
+(thinning) waS collected to reduce serial correlation and the firSt 104
+samples were discarded to reduce biaS (burn-in). Also, in order to
+ensure a fair comparison, each algorithm waS Started from an initial
+feasible point and centroid.
+
+Table 2 Shows the performance of each sampler in each case.
+Inspection of the effective sampling time Shows that ll-ACHRB iS
+both more effective and efficient than ACHR, displaying a robuSt
+and efficient performance across all modelS. In contraSt, the effi-
+ciency of ACHR for generating feasible samples depends Strongly on
+the model characteristics. In fact, the resultS suggest that the overall
+sampling performance depends leSS on the Size of the network than
+on itS topological complexity, i.e. number of potentially unfeasible
+loop laws (Table 1). The smallest model had a Single potentially un-
+feasible loop and thiS reduced the feasible sample fraction uSing
+ACHR to around 0.5. The RBC GEM waS much larger than the toy
+model but had no potential unfeasible loopS, and hence generated
+only feasible samples with both samplers. In contraSt, no feasible
+samples were found employing ACHR in the E.coli core, iIT341,
+iLJ478, iAF987 and J01366 models. Unlike ACHR, ll-ACHRB waS
+capable of generating feasible samples for all modelS in reasonable
+
+Table 1. Characteristics of the benchmark models used in this
+study
+
+ 
+
+ 
+
+Model MetS Ran Reversible Internal Potentially
+
+reactions reversible unfeasible
+
+reactions loop lawsa
+toy model 4 8 2 2 1(2)
+E.coli core 68 87 15 13 1(13)
+iRBC283 207 283 49 29 0(69)
+iIT341 321 370 24 22 2(33)
+iLJ478 318 370 37 35 6(48)
+iAF987 547 656 43 43 4(125)
+iJOl366b 497 1007 78 73 7(497)
+
+ 
+
+aNumber in parenthesis denotes the total number of loop laws present in
+the model.
+bThis model was further compacted as indicated in the text.
+
+Table 2. Performance indicators of tested samplers in different modelsa
+
+time (see effective sampling time, Table 2). These results highlight
+that application of ex post screening of feasible samples may not
+only be inefficient, but could be impossible for more complex mod-
+elS, i.e. fail to generate any feasible samples.
+
+We also evaluated the performance of our warmup Strategy. To
+thiS taSk, the ll-ACHRB sampling scheme waS employed but now
+uSing warm-up pointS generated uSing the conventional approach of
+minimizing and maximizing each reaction ﬂux (Schellenberger
+et al., 2011). Although the conventional approach waS much faSter
+in generating the required warmup points—particularly in the larger
+models—the sampling algorithm waS incapable of effectively gener-
+ating feasible samples from iAF987 and iJOl366 uSing these pointS
+(rejection rateS ~1.0, Supplementary Table S5). Furthermore, the 11-
+ACHRB algorithm uSing the proposed warmup Strategy displayed
+lower rejection rateS and typically reduced effective sampling timeS
+compared to the case when the conventional warmup Strategy waS
+employed. The above resultS support the suitability of ll-ACHRB for
+the generation of feasible flux samples. Next, we considered the
+quality of the samples, i.e. the mixing behaviour of ll-ACHRB.
+
+4.2 II-ACHRB displays good mixing behaviour
+
+Efficient mixing iS particularly difficult to achieve in large metabolic
+modelS encompassing highly heterogeneous scaleS (De Martino
+et al., 2015). In order to asseSS the mixing properties of ll-ACHRB,
+we compared the E55 distribution of each sampler in every model
+(Fig. 2). E55 represents the effective number of independent samples
+generated from the Markov Chain, and thuS iS of great importance
+for Statistical inference. The mixing behaviour waS identical for the
+E.coli core and iRBC283 modelS. ll-ACHRB mixed substantially
+Slower for iLJ478 and iJOl366, displaying an ESS median reduction
+of 8.5-fold and 2-fold respectively compared to ACHR (P = 10 T 49
+and P: 10 T22 respectively, Wilcoxon rank sum teSt). In contraSt,
+ll-ACHRB Showed Slightly better mixing performance in the toy
+model (0.2% ESS median increase, P = 210 T 3 Wilcoxon rank sum
+teSt), and important mixing improvements in both iIT341 and
+iAF987 (14.6% and 48.8% ESS median increase respectively,
+P = 510 T 3 and P = 6 -10 T 5 Wilcoxon rank sum teSt). Altogether,
+ll-ACHRB displays Similar mixing properties aS ACHR, but with the
+guarantee of thermodynamic feasibility of the samples. Ultimately,
+the featureS of each model will determine the ll-ACHRB mixing
+quality.
+
+Particular subspaces may be difficult to reach in a complicated
+Space. For example, a reaction with a non-zero ﬂux range may never
+appear with non-zero ﬂux in the sample, and thuS we may lose eS-
+Sential qualitative information (ReimerS, 2015). We evaluated the
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Model Warmup time (min) Mean rejection rate Fraction of feasible samples Effective sampling timeb (min)
+ACHR ll-ACHRB ACHR ll-ACHRB ACHR ll-ACHRB ACHR ll-ACHRB
+toy model 3.47 X 10T4 3.47 X 10T4 0.0 0.160 0.499 1.0 4.43 2.68
+E.coli core 4.86 x 10—3 7.45 x 10—3 0.0 0.486 0 1.0 n.d. 4.27
+iRBC283 2.03 X 10T2 7.74 X 10T2 0.0 0.0 1.0 1.0 2.71 2.75
+iIT341 3.51 X 10T2 2.45 X 10T1 0.0 0.149 0 1.0 n.d. 34.03
+iLJ478 3.41 X 10T2 1.22 0.0 0.361 0 1.0 n.d. 54.89
+iAF987 9.96 X 10T2 8.81 0.0 0.106 0 1.0 n.d. 112.20
+iJOl366 4.70 X 10T1 2.61 X 102 0.0 0.143 0 1.0 n.d. 151.38
+
+ 
+
+aQuantities in this table are the average of three independent Hit-And-Run dynamics run in parallel in 15 cores.
+
+bThe effective sampling time was calculated as total sampling time/feasible sample fraction.
+
+9mg ‘09 1sn8nV uo sejeﬁuV SO’I ‘121u10111123 10 A11S19Aruf1 112 /810'S112umo[pJOJXO'SopeIIJJOJHrorq/ﬁd11q 111011 pep1201umoq
+
+II-ACHRB
+
+2335
+
+ 
+
+individual sample setS from ll-ACHRB for the presence of such re-
+actionS. All reactionS with a non-zero flux range were sampled with
+non-zero ﬂux in the toy example, iRBC283, iLJ478 and iAF987
+models. The E. coli core model and iJOl366 each had one blocked
+reaction, whereaS iIT341 had two. These reactionS and the implica-
+tionS for these modelS will be discussed later.
+
+4.3 Imposition of loopless condition significantly affects
+sample statistics
+
+Conventional samplers do not eliminate samples containing thermo-
+dynamically unfeaSible loopS. Inclusion of unfeasible samples iS ex-
+pected to affect sample Statistics. ThiS iS dramatically illustrated for
+the toy example in Figure 3. Inclusion of unfeasible ﬂux samples
+(generated with ACHR) not only causeS a change in marginal diStri-
+butions, but also major differences in flux patterns, e.g. 122 and :25
+phase plane. ThiS suggeStS that greater discrepancies may be ex-
+pected in Statistics more suggestive of the underlying joint
+
+probability distribution (e.g. correlation coefficients), rather than in
+marginal Statistics (e.g. mean). In the following we explore the ex-
+tent of these differences.
+
+Figure 4 compares the estimated sample Statistics for the
+iRBC283 and iJOl366 models ignoring (ACHR) and enforcing (ll-
+ACHRB) the loopleSS condition. AS expected given the absence of
+potentially active unfeasible loopS (Table 2), there iS no Significant
+differences between the normalized meanS and correlation coeffi-
+cientS in iRBC283 uSing either method (P: 0.30 and P: 0.42 re-
+spectively, paired t—teSt). In contraSt, there are Significant differences
+in the sample Statistics from the iJOl366 model (Fig. 3B). Both nor-
+malized meanS and correlation coefficients Show very poor consen-
+suS between the two algorithms (P: 3 X 10 T2 and P: 8 X 10 T 99,
+paired t—teSt). These resultS highlight the effect of the loopleSS condi-
+tion on the sample Statistics. Imposition of thiS condition limitS the
+metabolic network to operate only in particular directional modeS
+free of closed loopS. These modeS exert non-trivial conStraintS on
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+105;— + + _I,_ _:_ _ E 
+
+5 E E 4 .3.— é  J... E : E
+
+_ I : I ',  ’ :  ' - -
+
+m E : l—I—l I - I! i ' i i E g
+g : i i  - T ' I
+g 10%— i g i m E ' _E
+m : : I ) . _ ) :
+‘1’ 3 = 5 i + a a :
+.33 - _i_ _i_ _'_ j E E _
+U 1 2:— I i i i - —:
+g 0 E 4 + —= a i E
+LU I 4  _
+1U, '_ I:I Conventional ACHR i _'
+ t:| IIaACHRB i 
+
+toy model E. {2fo core iRBCZBS iIT341 iL-J4T8 iAFQBT iJO13EiB
+
+Fig. 2. Mixing properties of the tested samplers in different stoichiometric models. Box plots represent the Effective Sample Size (ESS) distribution estimated
+from 3 x 105 samples derived from each sampler for different metabolic models. Significant differences between the E88 medians for each case were determined
+using the nonparametric Wilcoxon rank sum test and are indicated by ** (P—value <10 T 3) and *** (P—value <10 T 4)
+
+A Flux distributions from toy model ignoring loopless condition
+
+ 
+
+ 
+
+F"
+c:
+on
+
+CLUB
+
+53'
+D
+.n.
+
+0.04
+
+Probability
+Probability
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+B Flux distributions from toy model enforcing loopless condition
+
+ 
+
+ 
+
+ 
+
+ 
+
+0.15 [1.15
+3' .3"
+E [1.1  0.1
+m m
+'3 '3
+E 0.05 E DDS
+U U
+—5
+5.
+lllllr5 D [’1
+
+ 
+
+ 
+
+-5
+
+   
+
+Fig. 3. Comparison of 2 X 104 samples from the toy model with ub1 =10 ignoring (ACHR) and enforcing (II-ACHRB) the loopless condition. Inclusion of unfeasible
+flux samples by ACHR not only causes a reshape of marginal distributions, but also major differences in the observed flux patterns, e.g. v2 and v5 phase plane
+
+9mg ‘09 1sn8nV uo sejeﬁuV SO’I ‘121u10111123 10 A11S19Aruf1 112 /810'S112umo[pJOJXO'SopeIIJJOJHrorq/ﬁd11q 111011 pep1201umoq
+
+2336
+
+P.A.Saa and L.K.Nielsen
+
+ 
+
+each reaction, conditionally narrowing the directional Space to
+fewer feasible combinations (hence the MILP formulation for opti-
+mizing) and yielding a non-convex feasible Space. Consequently,
+greater differences in the estimated correlation Structure are
+observed in the more complex iJOl366 model.
+
+Finally, we assessed the impact of the loopleSS condition on co-
+setS of iJOl366. Co-setS are defined aS groupS of enzymatic reac-
+tionS that are perfectly correlated (|p| = 1) and represent functional
+modules of the network (Xi et al., 2011). We computed 10 and 21
+co-setS for iJOl366 from 5 X 105 samples ignoring and enforcing
+the loopleSS condition, respectively (Supplementary Table S6). All
+co-setS (10) found while enforcing the loopleSS condition are also
+found when ignoring it. Interestingly, of the additional 11 unique
+co-setS found when ignoring the loopleSS condition, only one (1) can
+be directly linked to an unfeasible loop law. The remaining unique
+co-setS (10) are not only unrelated, but they involve very different
+pathways. ThiS Simple example illuStrateS some of the non-obvious
+and unexpected effectS of the loopleSS condition on sample Statistics.
+
+5 Discussion
+
+Exact calculation of the volume of a large polytope iS an #P-hard
+problem (Dyer and Frieze, 1988), which leadS to polynomial-time
+approximate algorithms for convex bodies (SimonovitS, 2003).
+These algorithms typically rely on Monte Carlo sampling methods,
+and have proven to be particularly useful in the analySiS of meta-
+bolic networkS (Schellenberger and Palsson, 2009). However, rigor-
+ouS enforcement of thermodynamic feasibility of flux samples haS so
+far been overlooked, aS it greatly complicates sampling due to the
+
+A iRBCE-B‘s statistics comparison
+1 | I
+
+ 
+
+ya. ACHR
+D
+U1
+
+D
+I
+
+Estimated 11.
+fl:
+UT
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+-1 - . .
+-1 -EI.5 D 0.5 1
+Estimated pifRi ll-ACHRB
+3 1.101366 statistics comparison
+1 . .
+E
+I.) D 5 _
+"t :-
+ml- 1
+“‘1-
+ii (3 _ _
+“D
+o
+E #- l-II'
+E 41.5
+m
+LIJ
+-1 u . .
+-1 “13.5 D {1.5 1
+
+Estimated nifRi Il-ACHRB
+
+imposition of non-convex conStraintS (NP-hard problem). The Sig-
+nificant differences in sample Statistics when excluding unfeasible
+samples (FigS 3 and 4) highlights that thermodynamic feasibility
+cannot be ignored without introducing Significant errorS.
+
+Here, we developed a scalable algorithm inspired by mature
+Monte Carlo samplers to incorporate thiS condition and generate
+only feasible samples. ll-ACHRB outperforms the conventional
+ACHR where unfeasible loop laws are present, and even for modelS
+without potential unfeasible loop laws, ll-ACHRB waS aS faSt aS
+ACHR (Table 2).
+
+Mixing iS a concern when sampling in complicated SpaceS.
+ReimerS (2015) reported a high frequency of reactionS with only
+zero-ﬂux samples despite a non-zero ﬂux range uSing ACHR to sam-
+ple iJO1366. USing ll-ACHRB, we only found one blocked reaction
+in the iJOl366 model involved in an unfeasible loop. Apart from
+collecting a bigger sample, the main difference in our approach iS
+the pre-proceSSing of iJOl366, which firSt (a) compacted linear
+pathways and (b) removed trace elements from the biomaSS equa-
+tion. The former reduceS the dimension of the problem, while the
+latter Should make the problem better conditioned.
+
+The inaccessible reaction in the core E.coli model (fumarate re-
+ductase) highlights that caution Still iS required when analysing sam-
+pling resultS. The loopleSS condition dictates that fumarate
+reductase can only be active under anaerobic conditions and thiS iS
+indeed conSiStent with experimental data (Unden and BongaertS,
+1997). In thiS instance, fumarate reductase activity under anaerobic
+conditions can only be accurately captured, if the model iS deliber-
+ately constrained for anaerobic growth, i.e. zero oxygen uptake
+(Supplementary Fig. S2 Panel A). Another illustrative example of the
+caution needed when analysing sampling results from ll-ACHRB are
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1 .
+I I I
+I 0,5 - . f l . _
+U I III. .-
+‘1: I: .r,
+at: _
+a U ' ' - n" -
+a - .aII ,.
+.E _:- '_. -
+a 11.5 . _
+LIJ
+
+-1 ' I I
+
+-1 -ﬂ.5 D {1.5 1
+Estimated pi] ll-ACHRB
+1 r , l, . ..
+I I 3 :I- In H "I. I 'I'Il
+II: II. I - in i... I. I ' I. {I I‘ll
+I ' " {xv-IT: ‘ II:
+I {L5 : 1 I- . i. a I 1* i I  1;:Fll. :
+E a .H. "2"“ :Li. ‘
+:r ‘I I" "I". 1‘1!-
+EI. . .I I. . I
+1:: U -  I‘ll-“1:. " _
+E  :53"? ..
+E '2': . - 5'31." .*
+E 'U 5 .. III- a'r'lf I] I... ": "'
+Lu I... to}: ‘ a- ..
+I. .4 In: I' 9%
+-. any. " _ F‘- l' '-
+_1 ' T ' I ' 1 I
+*1 ~ﬂ.5 D [1.5 1
+
+Estimated pi] ll-ACHRB
+
+Fig. 4. Comparison of sample statistics for the iRBC283 (A) and iJO1366r (B) models estimated respectively from 5 X 105 flux samples generated ignoring (ACHR)
+and enforcing (II-ACHRB) the loopless condition. Left-hand side panels compare the normalized flux means for reaction i, i.e. mean divided by flux range range
+(,ui/Ri), whereas the right-hand side panels compare non-redundant pairwise correlation coefficients between reactions iand j (pij)
+
+9mg ‘09 1sn8nV uo sejeﬁuV SO’I ‘121u10111123 10 A11S19Aruf1 112 /810'S112umo[pJOJXO'SopeIIJJOJHrorq/ﬁd11q 111011 pep1201umoq
+
+II-ACHRB
+
+2337
+
+ 
+
+the two blocked reactions from iIT341 (reversible O-Succinylhomo-
+serine lyase—SHSL4r—and L-threonine deaminase—THRD_L)
+(Supplementary Fig. S2 Panel B). Samples from ll-ACHRB Show
+these two perfectly coupled reactionS to be blocked. By constraining
+these two reactionS to zero, the unfeasible loop iS avoided. Notably,
+Price et al. (2006) have also Studied thiS loop and have proposed to
+manually fix the directionalitieS of another two perfectly coupled re-
+actionS involved in it, namely, phosphotransacetylase (PTAr) and
+acetate kinese (ACKr). ThiS measure unblockS THRD_L and
+SHSL4r and allows all reactions to carry ﬂux avoiding the loop,
+however it maSSively conStrainS the flux range of PTAr and ACKr
+from 65.926 to 0.0169 mmol/gdcw/h. In thiS particular case, more
+experimental evidence iS needed to decide between the alternatives.
+More importantly, these caseS underscore the need for careful ana-
+lySiS of sampling results from ll-ACHRB.
+
+We finiSh by mentioning possible improvements to the algo-
+rithm. De Martino et al. (2015 ) have recently reported efficient pro-
+cedureS for improving the performance of HR by finding an
+ellipsoid that closely matches the sampling Space. By extracting dir-
+ectionS from the surface of the matching ellipsoid, the performance
+of the traditional HR can be greatly improved. ThiS Strategy iS con-
+venient aS HR guarantees convergence to the uniform distribution
+on the target Space (Lovasz, 1999) aS opposed to the non-
+Markovian ACHR directions choice. A combination of thiS Strategy
+with the present algorithm would confer thiS deSired guarantee;
+however, it iS unclear how well it would scale in the case of a non-
+convex Space. ThiS will be subject for future research.
+
+Acknowledgements
+
+This research was undertaken with the assistance of resources from the
+Queensland Cyber Infrastructure Foundation (http://www.qcif.edu.au).
+
+Funding
+
+P.S. was supported by Becas-Chile, UQ Centennial and IPRS Scholarship
+Programs.
+
+Conﬂict of Interest: none declared.
+
+References
+
+Almaas,E. et al. (2004) Global organization of metabolic ﬂuxes in the bacter-
+ium Escherichia coli. Nature, 427, 839—843.
+
+Beard,D. et al. (2002) Energy balance for analysis of complex metabolic net-
+works. Biophys. ]., 83, 79—86.
+
+Bordbar,A. et al. (2010) Insight into human alveolar macrophage and M. tu-
+berculosis interactions via metabolic reconstructions. Molecular systems
+biology, 6, 422.
+
+Bordbar,A. et al. (2011) iAB-RBC-283: a proteomically derived knowledge-
+base of erythrocyte metabolism that can be used to simulate its physiological
+and patho-physiological states. BMC Syst. Biol., 5, 110.
+
+Bordbar,A. et al. (2014) Minimal metabolic pathway structure is consistent
+with associated biomolecular interactions. Mol. Syst. Biol., 10, 737.
+
+Bordel,S. et al. (2010) Sampling the solution space in genome-scale metabolic
+networks reveals transcriptional regulation in key enzymes. PLOS Comput.
+Biol., 6., e1000859
+
+Dal’Molin,C.G.D. et al. (2015 ) A multi-tissue genome-scale metabolic
+modeling framework for the analysis of whole plant systems. Front. Plant
+Sci., 6, 4.
+
+De Martino,D. et al. (2015) Uniform sampling of steady states in metabolic
+networks: heterogeneous scales and rounding. Plos One, 10, e0122670.
+
+Dyer,M. and Frieze,A. (1988) On the complexity of computing the volume of
+a polyhedron. SIAM]. Comput., 17, 967—974.
+
+Feist,A.M. et al. (2014) Constraint-based modeling of carbon ﬁxation and the
+energetics of electron transfer in geobacter metallireducens. PLOS Comput.
+Biol., 10, e1003575.
+
+Givens,G. and Hoeting,]. (2012) Computational Statistics. 2nd edition. John
+Wiley SC Sons Inc, Hoboken, NJ.
+
+Kass,R. et al. (1998) Markov Chain Monte Carlo in Practice: a roundtable dis-
+cussion. Am. Stat., 52, 93—100.
+
+Kaufman,D.E. and Smith,R.L. (1998) Direction choice for accelerated conver-
+gence in hit-and-run sampling. Oper. Res., 46, 84—95.
+
+Kiatsupaibul,S. et al. (2011) An analysis of a variation of hit-and-run for
+uniform sampling from general regions. ACM Trans. Model. Comput.
+Simul., 21, 3.
+
+Lewis,N.E. et al. (2012) Constraining the metabolic genotype-phenotype rela-
+tionship using a phylogeny of in silico methods. Nat. Rev. Microbiol, 10,
+291—305.
+
+Lewis,N.E. et al. (2010) Large-scale in silico modeling of metabolic inter-
+actions between cell types in the human brain. Nat. Biotechnol., 28, 1279.
+U1291.
+
+Lovasz,L. (1999) Hit-and-run mixes fast. Math. Prog., 86, 443—46 1.
+
+Megchelenbrink,W. et al. (2014) optGpSampler: an improved tool for uni-
+formly sampling the solution-space of genome-scale metabolic networks.
+Plos One, 9, e86587.
+
+Mo,M.L. et al. (2009) Connecting extracellular metabolomic measurements
+to intracellular ﬂux states in yeast. BMC Syst. Biol., 3, 37.
+
+Neal,R.M. (2003) Slice sampling. Ann. Stat., 31, 705—741.
+
+Nigam,R. and Liang,S. (2007) Algorithm for perturbing thermodynamically
+infeasible metabolic networks. Comput. Biol. Med., 37, 126—133.
+
+Orth,J.D. et al. (2011) A comprehensive genome-scale reconstruction of
+Escherichia coli metabolism—2011. Mol. Syst. Biol., 7, 535.
+
+Price,N.D. et al. (2004) Uniform sampling of steady-state ﬂux spaces: means
+to design experiments and to interpret enzymopathies. Biophys. ]., 87,
+21 72—21 86.
+
+Price,N.D. et al. (2006 ) Candidate states of Helicobacter pylori’s genome-scale
+metabolic network upon application of “loop law” thermodynamic con-
+straints. Biophys. ]., 90, 3919—3928.
+
+Reed,J.L. and Palsson,B.O. (2004) Genome-scale in silico models of E.coli
+have multiple equivalent phenotypic states: assessment of correlated reac-
+tion subsets that comprise network states. Genome Res., 14, 1797—1 805.
+
+Reimers,A. (2015 ) Obstructions to sampling qualitative properties. Plos One, 10,
+e0135636.
+
+SchellenbergerJ. et al. (2011) Elimination of thermodynamically infeasible
+loops in steady-state metabolic models. Biophys. ]., 100, 544—5 5 3.
+
+SchellenbergerJ. and Palsson,B.O. (2009) Use of randomized sampling for
+analysis of metabolic networks. ]. Biol. Chem., 284, 5457—5461.
+
+SchellenbergerJ. et al. (2011) Quantitative prediction of cellular metabolism
+with constraint-based models: the COBRA Toolbox v2.0. Nat. Protoc., 6,
+1290—1307.
+
+Shoaie,S. et al. (2013) Understanding the interactions between bacteria in the
+human gut through metabolic modeling. Sci. Rep. UK, 3, 2532.
+
+Simonovits,M. (2003) How to compute the volume in high dimension? Math.
+Prog., 97, 337—374.
+
+Smith,R.L. (1984) Efﬁcient Monte-Carlo procedures for generating points uni-
+formly distributed over bounded regions. Oper. Res., 32, 1296—1308.
+
+Thiele,I. et al. (2005) Expanded metabolic reconstruction of Helicobacter
+pylori (iIT341 GSM/GPR): an in silico genome-scale characterization of sin-
+gle- and double-deletion mutants. ]. Bacteriol., 187, 5818—5830.
+
+Thomas,A. et al. (2014) Network reconstruction of platelet metabolism identi-
+ﬁes metabolic signature for aspirin resistance. Sci. Rep., 4, 3925.
+
+Unden,G. and Bongaerts,]. (1997) Alternative respiratory pathways of
+Escherichia coli: energetics and transcriptional regulation in response to
+electron acceptors. Biochim. Biophys. Acta Bioenerg., 1320, 217—234.
+
+Wiback,S.J. et al. (2004) Monte Carlo sampling can be used to determine the
+size and shape of the steady-state ﬂux space. ]. Theor. Biol., 228, 437—447.
+
+Xi,Y.P. et al. (2011) Comparative study of computational methods to detect
+the correlated reaction sets in biochemical networks. Brief. Bioinf., 12,
+132—150.
+
+Zhang,Y. et al. (2009) Three-dimensional structural view of the central meta-
+bolic network of Thermotoga maritima. Science, 325, 1544—1549.
+
+9mg ‘09 1sn8nV uo sejeﬁuV SO’I ‘121u10111123 10 A11S19Aruf1 112 ﬂJO'Sjeumo[pJOJXO'SopeIIJJOJHrorq/ﬁd11q 111011 pepeolumoq
+

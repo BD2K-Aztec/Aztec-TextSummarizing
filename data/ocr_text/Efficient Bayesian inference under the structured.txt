@@ -1,0 +1,1216 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 16 2014, pages 2272—2279
+doi:10. 1093/bioinformatics/btu201
+
+ 
+
+Phylogenetics
+
+Advance Access publication April 20, 2014
+
+Efficient Bayesian inference under the structured coalescent
+Timothy C. Vaughan”, Denise KUhnert1’2’3, Alex Popinga1 ’3, David Welchl’3 and
+
+Alexei J. Drummond1 ’3
+
+1Allan Wilson Centre for Molecular Ecology and Evolution, Massey University, Palmerston North 4442, New Zealand,
+2Institute of Integrative Biology, Swiss Federal Institute of Technology (ETH), Zurich 8092, Switzerland and 3Department
+of Computer Science, University of Auckland, Auckland 1142, New Zealand
+
+Associate Editor: David Posada
+
+ 
+
+ABSTRACT
+
+Motivation: Population structure significantly affects evolutionary
+dynamics. Such structure may be due to spatial segregation, but
+may also reflect any other gene-flow-Iimiting aspect of a model. In
+combination with the structured coalescent, this fact can be used to
+inform phylogenetic tree reconstruction, as well as to infer parameters
+such as migration rates and subpopulation sizes from annotated se-
+quence data. However, conducting Bayesian inference under the
+structured coalescent is impeded by the difficulty of constructing
+Markov Chain Monte Carlo (MCMC) sampling algorithms (samplers)
+capable of efficiently exploring the state space.
+
+Results: In this article, we present a new MCMC sampler capable of
+sampling from posterior distributions over structured trees: timed
+phylogenetic trees in which lineages are associated with the distinct
+subpopulation in which they lie. The sampler includes a set of MCMC
+proposal functions that offer significant mixing improvements over a
+previously published method. Furthermore, its implementation as a
+BEAST 2 package ensures maximum flexibility with respect to
+model and prior specification. We demonstrate the usefulness of this
+new sampler by using it to infer migration rates and effective popula-
+tion sizes of H3N2 influenza between New Zealand, New York and
+Hong Kong from publicly available hemagglutinin (HA) gene se-
+quences under the structured coalescent.
+
+Availability and implementation: The sampler has been implemented
+as a publicly available BEAST 2 package that is distributed under
+version 3 of the GNU General Public License at http://compevol.
+github.io/MultiTypeTree.
+
+Contact: tgvaughan@gmail.com
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on October 2, 2013; revised on April 8, 2014; accepted on
+April 11, 2014
+
+1 INTRODUCTION
+
+Model-based phylogenetic inference has become one of the prin-
+cipal methods of using genetic sequence data to test scientiﬁc
+hypotheses pertaining to evolving populations. Its wide-spread
+adoption has been driven not only by improvements in compu-
+tational and sequencing hardware but also by advances in meth-
+ods of statistical inference. An important initial step in this
+
+ 
+
+*To whom correspondence should be addressed.
+
+development was the derivation of the n—coalescent process
+(Kingman, 1982), which probabilistically ties the shape of a
+rooted phylogenetic tree of 11 randomly chosen individuals to
+the parameters of an underlying Wright—Fisher population gen-
+etics model. In conjunction with F elsenstein’s ‘pruning algo-
+rithm’ (Felsenstein, 1981), this allowed for the computational
+inference of the sample genealogy itself alongside population
+genetic parameters, such as the effective population size.
+
+Since these beginnings, an array of sophisticated models and
+inference methods has been developed, allowing molecular mu-
+tation rates, population size histories and other population gen-
+etic parameters of interest to be inferred alongside increasingly
+sophisticated phylogenetic tree reconstructions, which, for ex-
+ample, do away with the assumption of a strict molecular
+clock (Drummond et al., 2006; Sanderson, 2002; Thorne et al.,
+1998). Rapidly evolving populations such as viruses and bacteria
+are of particular interest, as such populations may undergo sig-
+niﬁcant demographic variation over timescales comparable with
+the age of the genealogy of sampled data. Such data form the
+basis of the emerging ﬁeld of phylodynamics (Grenfell et al.,
+2004; Kuhnert et al., 2011; Lemey et al., 2009; Volz et al.,
+2013), which exploits these overlapping timescales by using the
+genetic data to select and infer parameters of sophisticated
+epidemiological models.
+
+Many of the models that are of interest to population geneti-
+cists and epidemiologists are structured in some way. This struc-
+ture may represent the spatial subdivision of a population into
+several distinct ‘demes’, or it may represent some other logical
+categorization of individuals such as the temporal subdivision
+used in compartmental epidemiological models. Such struc-
+ture can strongly affect the shape of inferred genealogies
+(Pannell, 2003), and can provide a source of statistical bias
+when ignored.
+
+A time-tested means of including this structure in phylogenetic
+analyses is through the use of the structured coalescent (Hudson,
+1990; Notohara, 1990), an extension of Kingman’s coalescent in
+which the unstructured Wright—Fisher model is replaced by a
+structured equivalent encompassing a number of discrete
+subpopulations. Phylogenetic analyses based on this model are
+capable of both (i) reducing model misspeciﬁcation bias in the
+inference of the genealogy and (ii) estimating parameters speciﬁc
+to structured models such as migration rates and effective
+subpopulation sizes. While similar, this model is distinct from
+the character-based treatment of lineage locations used by
+Lemey et al. (2009), in that the structured coalescent allows
+
+ 
+
+© The Author 2014. Published by Oxford University Press.
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution License (http://creativecommons.org/Iicenses/by/3.0/), which
+permits unrestricted reuse, distribution, and reproduction in any medium, provided the original work is properly cited.
+
+112 ﬂJO'slcumo[pJOJXO'sopchOJutotq/ﬁdnq IIIOJJ popcolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+Efﬁcient Bayesian inference under the structured coalescent
+
+ 
+
+location to explicitly affect coalescent rate. (This is discussed in
+Section 1 of the Supplementary Material.)
+
+At least two distinct Markov Chain Monte Carlo (MCMC)
+schemes for conducting inference under the structured coalescent
+exist in the literature. Both of these schemes use an MCMC
+algorithm to explicitly sample both the demographic and evolu-
+tionary model parameters and the structured genealogy: a phylo-
+genetic tree annotated with individual migration events. The ﬁrst
+of these schemes is the method of Beerli and F elsenstein (Beerli,
+2006; Beerli and Felsenstein, 1999, 2001), which is implemented
+in the software package Migrate-n. At its core, this method in-
+volves a single proposal function, which updates the structured
+tree by ‘dissolving’ a randomly selected edge and drawing a new
+edge by simulating from the structured coalescent conditional on
+the remaining edges.
+
+The other scheme is the work of Ewing et al. (2004), who have
+published a set of simple and fast proposal functions that act
+solely on the migration events on the structured genealogy. In
+combination with those for traversing the space of unstructured
+trees (Drummond et al., 2002), Ewing et al. showed that an
+MCMC algorithm based on these moves is capable not only of
+jointly inferring the structured tree and migration model param-
+eters, but also of exploiting the additional information contained
+in serially sampled data to infer absolute migration rates. While
+certainly functional and useful, this scheme suffers from perform-
+ance issues, which arise in the form of slow ‘mixing’, meaning
+that MCMC calculations must be run for a long time to obtain
+useful information about the posterior probability distribution.
+An additional issue is that no implementation of the sampler has
+been made widely available.
+
+In this article, we introduce a new set of MCMC proposal
+functions (or ‘operators’) that provide an efﬁcient means of
+using serially sampled sequence data to infer the full structured
+tree and related model parameters (including mutation rates)
+under the structured coalescent. These operators, together with
+the data structure representing the structured tree itself and the
+probability density calculation algorithm for the structured co-
+alescent, are implemented and distributed as a package extension
+to BEAST 2 (Bouckaert et al., 2014; http://www.beast2.org).
+When applied to equivalent data, and assuming equivalent
+evolutionary models and parameter priors, this new package
+yields posterior distributions, which are exactly equivalent to
+those obtained using Migrate-n. However, the use of the
+BEAST 2 platform for our implementation gives our sampler
+access to a large array of molecular evolution models and
+parameter priors not yet available in Migrate-n. Additionally,
+we have implemented the operators described by Ewing et al.,
+allowing direct comparison between the two sampling
+methods. This comparison shows that the new operators achieve
+signiﬁcantly faster mixing when applied to simulated data,
+with an order of magnitude improvement in some cases. We
+go on to demonstrate the practicality of the new sampler by
+using it to infer mutation rates, effective population sizes and
+the structured tree from geographically annotated HA gene se-
+quences derived from the Inﬂuenza A subtype H3N2 strain. We
+interpret these results in light of recent work by Bedford et al.
+(2010).
+
+Q‘—
+I
+I
+H~
+b
+
+V)
+
+5‘
+| .. t»
+
+FF
+
+N
+
+ 
+
+ 
+
+2L: __,,
+
+(P(m') (t) 75
+I "15y
+
+3/
+
+ 
+
+m --t,, = 0
+
+Fig. 1. A structured tree T = (V, E, t, III) with V = [U Y where
+I: {x, y, 2}, Y: {i,j}, E = {(x, i), (y, i), (i,j), (z,j)} and the coalescence
+times t and type mappings M are as shown. Here we have selected the
+type set D 2 {blue, red, green, orange}, although this can be composed of
+the values of any discrete trait
+
+2 MATHEMATICAL BACKGROUND
+
+2.1 Structured tree deﬁnition
+
+Before discussing the inference procedure, we need to deﬁne pre-
+cisely what we mean by a ‘structured tree’.
+
+In this article, we deﬁne a structured tree T of 11 leaves as a
+fully resolved, rooted and timed phylogenetic tree in which every
+internal node represents a coalescent event and where every point
+on each edge of the tree is associated with exactly one type d
+drawn from a ﬁxed set D of such types. Mathematically, we write
+T = (V, E, t, M). The ﬁrst three elements are the usual phylo-
+genetic tree components: a set V of 211 — 1 nodes, a set E con-
+taining directed edges of the form (1,1) between nodes i, j e V
+and a set of node ages t = {tili e V} where t,- is the age of node i.
+The direction of each edge (1,1) is such that ti<tJ-. The set of
+nodes is partitioned into two smaller sets Y and I, representing
+the n — 1 internal and 11 external nodes, respectively.
+
+The ﬁnal element in T is the one that is unique to structured
+trees and is deﬁned by M = {gov-j) | (i, j) e E}, where each function
+gov-J) : [ti, tj]—>D is piecewise constant and deﬁned such that gov-J)
+(t) is the type associated with the time t on edge (1,1) 6 E. Such a
+tree is illustrated in Figure 1.
+
+We caution that the term ‘structured tree’ is not a standard
+name. For instance, elsewhere these objects are referred to as
+‘migration-coalescent trees’ (Ewing et al., 2004) or simply as
+‘genealogies’ (Beerli and Felsenstein, 1999; Hudson, 1990). Our
+choice is based on the desire to at once distinguish these trees
+from regular phylogenetic trees and to extend their applicability
+beyond the special case of spatial structuring.
+
+2.2 Bayesian inference framework
+
+The goal of the inference scheme discussed here is to characterize
+the joint posterior probability density P(E, ty, M, u, m, 0|S, t1, L),
+where tY= {tili e Y} and t1: {tili e I} are the times of the
+internal and external nodes, it represents the set of substitution
+model parameters, m and 0 are the immigration rate matrix
+and population size vectors deﬁned later and S = {sili e I} and
+L 2 {Mi 6 I} are the sequences and types associated with each of
+the leaf nodes. The values of S, t, and L represent the data.
+
+ 
+
+2273
+
+112 /810's112umo[pJOJXO'sottchOJutotw/zdnq IIIOJJ popcolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+T.G. Vaughan et al.
+
+ 
+
+The inference framework centres around the following
+expansion:
+
+P(E, ty, M, u, m, 9|S, t1, L)
+
+(1)
+(X  ta  tYa MItla La m9  ma 
+
+The ﬁrst term PF(S|E, t, u) is the probability of the sequence
+alignment and can be efﬁciently evaluated using Felsenstein’s
+pruning algorithm (Felsenstein, 1981). The second term
+captures the joint probability of the genealogy and the type
+mapping, conditional on the number of samples, their types
+and the times at which they were recorded, and the demographic
+model parameters. This is given by the structured coalescent, as
+discussed below. The ﬁnal term is the joint prior for all model
+parameters and can be factorized into P(u)P(m)P(0).
+
+Our goal here is to use MCMC to draw samples from
+Equation (1), thus allowing us to uncover what the data have
+to say about the structured tree and the demographic and evo-
+lutionary model parameters.
+
+2.3 The structured coalescent probability density
+
+The structured coalescent, allowing for serially sampled se-
+quences as detailed by Ewing et al. (2004), assumes the following
+demographic model. A discrete set of connected subpopulations
+D with sizes Nd for d e D are evolving under a Wright—Fisher
+model in which each generation of length g is divided into two
+stages. In the ﬁrst stage, each haploid individual in the model
+migrates from its current location/type d to a new location a”
+with probability qdd/ g, or remains in the same subpopulation
+with probability 1 — Z d, E D\ d qdd/ g. In the second stage, Nd indi-
+viduals are sampled with replacement from the occupants of each
+subpopulation following stage 1, with the sampled individuals
+forming the next generation.
+
+To express the probability density of a structured tree under
+this model, we require the following additional deﬁnitions. First,
+we divide the period spanned by the tree into B adjacent intervals
+of lengths t1, t2, . . ., t3 such that 2le to, = t, where t, is the age
+of the root. Each interval is bracketed by a pair of consecutive
+‘events’, each of which may be a ‘coalescent’, ‘migration’ or
+‘sampling’ event. Coalescent events correspond to internal
+nodes i e Y, migrations correspond to discontinuities in the
+type functions (00-, 13(t) and sampling events correspond to leaf
+nodes x e I. The total number of migration events from the a”
+type to the d type in M is given by v’é’dn while the total number of
+coalescent events (i.e. internal tree nodes) occurring in type d is
+vfi. Finally, the number of tree edges (1', j) for which (00-, 13(t) = d
+for t in interval or is given by kw). All of this information is
+readily available from T as deﬁned previously.
+
+The probability density of the components of the structured
+tree before conditioning on the sequence data is then given by
+
+P(E, ty,Mlt1, L, m, 9) =
+koc,d
+
+B
+exp —ZTuZ 2 eid+kmd Z mdd’ (2)
+
+oc=1 deD d’eD\d
+
+V... 1 V3
+X (mdd’) “‘1 
+
+where 0,; = ng are population sizes scaled by the generation
+length and maid, E (Gd/0d,)qd/d are the immigration rates into d
+from a” (per individual in a"). (This is essentially Equation (3)
+from Beerli and Felsenstein (2001) but allowing for heterochro-
+nous leaves.)
+
+The structured coalescent, as well as other models including
+the reversible Markov model used by Lemey et al. (2009), im-
+poses the following additional constraint on the structured
+tree beyond those laid out in section 2.1: that the type functions
+for all edges meeting at node i possess the same value at t,.
+Formally,
+
+(0(i,i,)(ti) = (0(i,,,i)(ti) = (0(i,,,z)(ti) (3)
+
+where ip, id and ic, are the parent, left child and right child of 1',
+respectively.
+
+3 MCMC SAMPLING ALGORITHM
+
+As outlined above, our goal here is to use MCMC to efﬁciently
+draw samples from the joint posterior Equation (1) over the state
+space spanned by x = (E, ty, M, u, m, 0). To perform efﬁciently,
+MCMC sampling algorithms need to be able to (i) rapidly cal-
+culate the value of a target distribution for a particular state x
+and (ii) propose new states x’ that are far enough from the cur-
+rent state for state space to be explored relatively quickly but not
+so far that the proposal acceptance rate becomes low.
+
+Much of this problem is solved by existing methods. For re-
+versible substitution processes, the probability of the sequence
+alignment given the tree can be efﬁciently evaluated using the
+pruning algorithm (Felsenstein, 1981). For inference under the
+structured coalescent, the density of the structured genealogy can
+be evaluated very simply by directly applying Equation (2),
+which scales according to the number of ‘events’ (coalescent,
+migration and sampling) making up the tree. The prior densities
+for the parameters (u,m,0) are usually chosen to be standard
+functions for which numerical evaluation is straightforward. In
+terms of state proposal, standard proposal distributions for sam-
+pling distributions over real numbers can be used to propose new
+parameter combinations.
+
+The remaining component is a set of proposal operators that
+allow exploration of those regions of T space that have ﬁnite
+support under the structured coalescent. As noted above, this has
+been addressed in two distinct ways by Beerli and Felsenstein
+(1999) and Ewing et al. (2004). Here we introduce a novel set of
+operators that directly builds on an existing set of unstructured
+phylogenetic tree operators (Drummond et al., 2002) that form
+the basis for the phylogenetics package BEAST (Bouckaert et al.,
+2014; Drummond and Rambaut, 2007; Drummond et al., 2012)
+and as such have been shown capable of efﬁciently traversing the
+space of (E, ty).
+
+3.1 Structured tree operator design strategy
+Our general operator construction strategy involves the
+following:
+
+(1) the application of an existing unstructured tree operator,
+mapping (E, ty)—>(E’, t’Y), followed by
+
+ 
+
+2274
+
+112 /810's112umo[pJOJXO'sottchOJutotw/2dnq IIIOJJ popcolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Efﬁcient Bayesian inference under the structured coalescent
+
+ 
+
+(2) the application of an edge type function proposal, which
+produces type functions gov-J) e M ’ for a subset of the
+edges (1', j) e E’ to ensure Equation (3) is satisﬁed at all
+nodes.
+
+New type functions are proposed by using a backward-in—time
+continuous-time Markov chain (CTMC) to describe the type-
+change process along an edge, with the type transition rate
+matrix ﬁxed to the jointly estimated structured coalescent immi-
+gration rate matrix m. We deﬁne the CTMC in terms of the
+probability of the edge taking a particular type given the type
+at the most recent node, p(d, t) E P(g0(,-,J-)(t) = d|g0(,-,J-)(t,-) 2 (1,), by
+way of the following master equation:
+
+d
+E1901, t) = “Z: mdd’p(d/a t) (4)
+’eD
+where we deﬁne mdd = —Zd,eD\d mddx.
+
+Drawing type-space paths from Equation (4) is straightfor-
+ward (Gillespie, 1976, 1977). However, to ensure Equation (3)
+is satisﬁed, we need to be able to draw paths from the CTMC
+conditioned on the type d,- and  at ‘both’ ends of an edge (1,1).
+To do this, we use the uniformization-based scheme of
+Fearnhead and Sherlock (2006). (A useful summary is provided
+by Rodrigue et al. (2008).)
+
+This method involves deﬁning a ‘uniformized’ version of the
+process that has a uniform intensity A = max d[—mdd] over the
+length of an edge. This is accomplished by allowing for ‘do noth-
+ing’ transitions that are not associated with a type change. This
+means that the number of transition events and the time at which
+the events occur do not depend on exactly which transitions occur.
+We can therefore sample these aspects of the type function ﬁrst.
+
+The number of ‘virtual’ events 11,, which includes the ‘do noth-
+ing’ transitions, is distributed according to
+
+P(nv)Ian]d,-,dj
+
+(5)
+where A = t,- — ti, P(nv) is a Poissonian with rate parameter AA,
+R is the stochastic matrix m/A + I and emA is a matrix exponen-
+tial. We sample from this distribution using the technique
+described in Section 2 of the Supplementary Material, then
+sample the event times by uniformly selecting n, times from the
+interval [t,-,tj] and sorting the result.
+
+The remaining problem of sampling the transition types them-
+selves is equivalent to sampling paths of a discrete time Markov
+chain conditional on the end states, and is addressed using the
+standard forward—backward algorithm (Baum et al., 1970).
+
+One difﬁculty with this approach is its reliance on the matrix
+exponential emA. Identifying general numerical approaches to
+matrix exponentiation is known to be problematic (Moler and
+Van Loan, 2003). We use the scaled Padé approximation method
+as implemented in the Java library jblas (http://mikiobraun.
+github.io/jblas), which generally performs well. However, in our
+experience it can become unreliable when very large and
+very small (yet non-zero) migration rates exist in the same
+matrix. For some data and prior combinations, it may therefore
+be necessary to temporarily switch to an alternative proposal
+mechanism when the MCMC chain strays into problematic
+regions.
+
+3.2 Proposal acceptance probabilities
+
+Non-unitary proposal acceptance probabilities are integral to the
+Metropolis—Hastings MCMC algorithm. For a given proposal
+operator op, a proposed state x’ is accepted with the probability
+
+moped x) = unn(1,%pop(x’ix)) (6)
+
+where f(x) is the target density and pop (x’ lx) is what we refer to
+as the Hastings—Green factor (HGF)—a generalization of the
+usual Hastings ratio to reversible jump MCMC operators
+(Green, 1995).
+
+To calculate the HGF for each of our new operators, we need
+to be able to determine the probability density with which a
+particular type-change path is proposed. This density is given by
+
+P((oaj) Idi)
+
+PM '04» d» = 
+
+(7)
+
+Here P(gou-j) |d,-) is the probability of the CTMC path conditional
+only on the most recent type, which can be derived directly from
+Equation (4) and is a simple product of exponential waiting time
+factors and transition rates. The denominator P(dJ-ldi) is the total
+transition probability over the length of the edge and may be
+computed using the same matrix exponential emA used in the
+previous section.
+
+3.3 Structured tree operators
+
+As described above, the tree-speciﬁc operators present in our
+sampler are straightforward extensions of the unstructured tree
+operators described by Drummond et al. (2002). They include
+the following:
+
+o The ‘Wilson—Balding’ move WVilson and Balding, 1998),
+which disconnects a subtree and reattaches it at a randomly
+chosen location on the rest of the tree. Our extension re-
+quires generating a type function for the new connecting
+edge.
+
+0 The ‘subtree exchange’ move, which chooses two subtrees
+and switches the points at which they connect to the rest of
+tree. Again, our extension requires generating a type func-
+tion for each of the two new edges.
+
+0 A ‘node height shifting’ move, which repositions a randomly
+selected internal node by drawing from a uniform distribu-
+tion between its oldest child and its parent. Our implemen-
+tation randomly selects a new type for the selected node and
+then generates three new type functions—one for each of the
+connecting edges.
+
+0 A ‘tree height scaling’ move, which does not alter the top-
+ology but instead scales the age of each node by a randomly
+chosen factor. Our extension does not generate new type
+functions but merely scales the times of the type changes
+in the same way. This move is also used by Ewing et al.
+(2004).
+
+In addition, we include a ‘node retype’ operator, which selects
+a new type for an internal node and generates new type functions
+
+ 
+
+2275
+
+112 /810's112umo[pJOJXO'sottchOJutotw/2dnq IIIOJJ popcolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+T.G. Vaughan et al.
+
+ 
+
+h G .§ 0.
+(a) ‘ ‘ (b)
+9’ ’9
+: : a ‘. s a s a
+
+(c): 3
+A A
+
+Fig. 2. Schematics illustrating actions of the tree-speciﬁc operators used
+in our structured tree MCMC algorithm, including structured tree imple-
+mentations of the (a) Wilson—Balding, 0)) subtree exchange, (c) node
+height shift and ((1) tree scaling operators. The solid edge shadings rep-
+resent the deme to which each lineage belongs at each time. Double white
+lines represent edges for which new type functions will be proposed
+as part of the move, crosses represent edges to be removed and dashes
+represent edges that may continue beyond the schematic boundary
+
+ 
+
+for the connecting edges. (This is a special case of the node height
+shift move.)
+
+The actions of these operators are illustrated in Figure 2.
+For complete operator descriptions including HGFs, refer to
+Section 3 of the Supplementary Material.
+
+4 IMPLEMENTATION
+
+We have implemented the structured tree data structure, the
+structured coalescent tree density and the structured tree pro-
+posal operators as a BEAST 2 package. In this section we
+test the correctness and efﬁciency of the algorithm and its
+implementation.
+
+4.1 Validation
+
+In principle, a correctly implemented MCMC algorithm is cap-
+able of drawing samples from any target density or distribution
+deﬁned over the state space traversed by its proposal operators.
+Thus, a good way to test correctness of an operator implemen-
+tation is to use the implementation to produce a large number of
+samples from a target distribution that is either known exactly or
+can be sampled in some other independent way. Any disagree-
+ment between the MCMC-generated samples and the true distri-
+bution, or the externally generated samples from that
+distribution, is then indicative of an implementation error.
+
+In our case, the structured coalescent density itself
+[Equation (2)] provides a sensible reference distribution, as its
+backwards-in—time Markovian structure allows structured trees
+to be easily sampled via stochastic simulation (Gillespie, 1976).
+The mean and variance of the root height are also known exactly
+for two taxon trees (see, for example, Hein et al., 2005), allowing
+additional testing. Finally, this choice allows us to test the im-
+plementation of the structured coalescent density.
+
+Comparisons between the tree height and migration event
+counts obtained using our sampler (2 x 107 steps minus 2 x 106
+burn-in) and those obtained through 105 direct simulations
+
+ 
+
+ 
+
+   
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+(a) :31 (b)
+
+o' —MCMC
+
+g-
+
+E o E” o'
+'0 ° '0 8-
+2 m g- o
+D.
+2 8.— s v
+a) 0 co 2‘
+
+o
+
+s— 8.—
+
+o' I I I I I O I I I I I I
+
+0 50 100 150 200 0 20 40 60 80 100
+
+Tree height Total migrations
+
+Fig. 3. Agreement of (a) tree height and 0)) migration count distributions
+sampled from the structured coalescent distribution using our implemen-
+tation of the described MCMC algorithm (black lines) with those gener-
+ated via direct simulation (grey lines). See text for more detail
+
+generated using MASTER Waughan and Drummond, 2013)
+for trees with ﬁve leaves having times 0, 5, 10, 15, 20 and loca-
+tions 0, 1, 2, 3, 0 in a 4 deme model with 0,127 and mdd/ 20.05
+for all d,d’ are shown in Figure 3. Additional comparisons for
+smaller sets of operators and against analytical results for the tree
+height expectations and variances are presented in Section 4 of
+the Supplementary Material. Together, these results are convin-
+cing evidence that the operators and structured coalescent dens-
+ity evaluation have been implemented correctly.
+
+Note that using this package to perform inference from genetic
+data exploits additional machinery already present in the core
+BEAST 2 platform. In particular, modules for calculating the
+likelihood of a tree conditional on available sequence data are
+used. These modules have been implemented independently and
+have undergone their own extensive testing, so we do not expli-
+citly test them here. (Indeed, this is one of the beneﬁts of imple-
+menting a method using an existing inference platform.)
+However, many of those components are implicitly tested in
+the Migrate-n comparison reported below.
+
+4.2 Inference from simulated data
+
+We have applied the implemented sampler to the inference of
+evolutionary and demographic parameters from simulated sam-
+pling data to ensure that the inference scheme is capable of
+recovering the truth in situations where this is known a priori.
+
+The data simulation procedure involved the following
+steps. (The relevant BEAST 2 XML ﬁles are provided as
+Supplementary Material.)
+
+(1) A structured coalescent model was chosen with a particu-
+lar set of types, D, immigration rate matrix m and popu-
+lation size vector 0.
+
+(2) A 128 taxon structured coalescent tree was simulated
+under this model using MASTER, with times of the leaf
+nodes spread evenly among i=0, 1, 2, 3 and the types of
+each set of 32 contemporaneous leaves chosen as evenly as
+possible from D.
+
+(3) A randomly selected 2 kb nucelotide sequence was evolved
+down this tree according to the HKY model (Hasegawa
+et al., 198 5) with transition/transversion rate ratio of 3 and
+base substitution rate no 2 0.005 subst./site/unit time using
+
+ 
+
+2276
+
+112 /810's112umofpinXO'soitchOJuioiw/2dnq IIIOJJ popcolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Efﬁcient Bayesian inference under the structured coalescent
+
+ 
+
+Table 1. 95% HPD coverage fractions for demographic (population sizes
+0, immigration rates m) and evolutionary parameters (clock rate uo, tran-
+sition/transversion ratio K) inferred from simulated sequence data under
+structured population models with different numbers |D| of
+subpopulations
+
+ 
+
+ 
+
+Model |D| 0 coverage m coverage uo coverage 1c coverage
+(%) (%) (%) (%)
+95.5 96 97 98
+92.3 93.7 92 97
+93.5 86 96 96
+
+ 
+
+ 
+
+the BEAST 2 alignment simulator, resulting in a simulated
+alignment of 128 sequences.
+
+(4) The MCMC procedure outlined in the previous section
+was used to infer the parameters IC, 110, m and 0, with
+log-normal prior distributions ln N(0, 4) on each element
+of these parameters. A total of 108 MCMC steps were
+generated, with the ﬁrst 10% being discarded to account
+for burn-in, resulting in an average effective sample size
+(ESS) of 1164 (5 and 95% sample quantiles 277 and 2425)
+for the slowest mixing parameter.
+
+The diagrams in the ﬁrst column of Table 1 illustrate three
+different structured coalescent models, with the nodes represent-
+ing types D, the numeric labels on the nodes representing values
+of 0, the edges representing allowed transitions between these
+types and the numeric labels on the edges representing the
+values of m. The simulation and inference procedure was carried
+out 100 times for each of these models. The four right-most col-
+umns of the table present the fractions of inference runs that
+included the truth of the parameter at the head of the column
+within the 95% highest posterior density (HPD). In the case of 0
+and m, the average over each of the elements is displayed. Note
+that in the 4 deme mode, only the non-zero elements of m were
+used to calculate the coverage fraction although all elements were
+independently estimated.
+
+Section 5 of the Supplementary Material describes these results
+in more detail. An important message to convey here is that
+increasing the number of demes without increasing the available
+data can have strong negative effects on the amount of signal
+that can be recovered. For this reason, while the sampler itself
+is capable of sampling from structured tree distributions with
+higher numbers of demes (as shown in Section 5.2 of the
+Supplementary Material), doing so requires additional con-
+straints on the model. In our experience, 3—4 demes seems to
+be an upper limit for inference from a 128 taxon dataset if all mi-
+gration rates are to be reliably estimated (given non-informative
+priors).
+
+ 9  m
+g 8 g ‘r I New op. set
+E N E III ENR
+o. 0.8
+E o EN
+is ‘i I:
+a:
+5., g”, o I:
+2 3 4types 2 3 4types
+g No go tr
+0 8 g m
+s F m N
+2 2
+o. o.
+E £8
+38 I: ELF L
+n: a:
+cut} 0 it”) o
+2 3 4types 2 3 4types
+
+Fig. 4. ESRs per hour of MCMC calculation recorded from the simu-
+lated data analyses using both the new proposal operators and our im-
+plementation of those developed by Ewing et al. (2004) (ENR), where 0 is
+the vector of population sizes, 112 is the immigration rate matrix, uo is the
+clock rate and t, is the age of the root. Values for the vector/matrix
+parameters 0 and m were averaged across all elements
+
+4.3 Comparison with Ewing et al., 2004
+
+To compare the new structured tree operators with those of
+Ewing et al. (2004), we have implemented the operators described
+in that paper in our BEAST 2 package and used them to analyse
+the same simulated data sets described above. As each set of
+operators is capable of traversing the structured tree state
+space, there should be no difference in the inference results ob-
+tained by each set given sufﬁcient MCMC steps. However, as
+discussed in Section 3, the speciﬁc proposal distributions used
+can have a signiﬁcant impact on the rate at which the Markov
+chain produces effectively independent samples from the target
+distribution. This rate can be quantiﬁed using the inverse of the
+integrated auto-correlation time (IACT): the number of effect-
+ively independent samples (i.e. the ESS) generated per iteration
+of the MCMC algorithm. While IACT is usually expressed in
+terms of MCMC iterations, we use the total computation times
+used by each inference run to express it in terms of real time. This
+‘effective sample rate’ (ESR) allows us to directly compare the
+computational efﬁciency of our proposal operators with those
+of Ewing et al. (2004), despite the fact that their operators are
+individually less computationally demanding. Such rates will
+depend on the speciﬁc hardware used to perform the computa-
+tions, of course, but useful comparisons can still be made pro-
+vided the same hardware is used across all analyses.
+
+Figure 4 shows how the ESRs for demographic (0 and m),
+evolutionary (110) and genealogy-related (time of most recent
+common ancestor, tr) parameters depend on the number of
+types, |D|, and the operator set used. Two features are immedi-
+ately obvious. Firstly, there is a clear decline in ESR as the
+number of types increases, which is to be expected due to the
+corresponding increase in the size of the state space. Secondly,
+the ESR estimates obtained from the new proposal operators are
+greater than those obtained using our implementation of the
+operators proposed by Ewing et al. (2004). This improvement
+
+ 
+
+2277
+
+112 /810's112umo[p101x0'sot112u1101u101qﬂ2d11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV no 22
+
+T.G. Vaughan et al.
+
+ 
+
+is particularly striking in the case of the t, parameter, for which
+our method produced at least an order of magnitude as many
+effective samples per unit time as our implementation of the
+previously published method.
+
+We therefore ﬁnd that the new operators presented here gen-
+erally outperform our implementation of the Ewing et al. (2004)
+operators, in spite of the additional computational complexity of
+our proposals.
+
+4.4 Comparison with Migrate-n
+
+Migrate-n (Beerli and Felsenstein, 1999, 2001; Beerli, 2006) has
+long been a popular tool for performing both Bayesian and max-
+imum-likelihood analysis under the structured coalescent. There
+are numerous differences between the MCMC sampler presented
+here and Migrate-n: we focus on providing the capability to per-
+form joint estimation of heterochronous structured trees, demo-
+graphic model parameters and substitution model parameters,
+while Migrate-n excels at demographic model parameter infer-
+ence for trees with ﬁxed clock rates or times expressed relative to
+an unknown substitution rate.
+
+Despite this, it is possible to analyse some datasets under
+exactly equivalent assumptions in both packages. In Section 6
+of the Supplementary Material, we directly compare sampled
+posteriors obtained for model parameters from heterochronous
+sequence datasets simulated under 2 and 3 deme models, assum-
+ing a known clock rate 110, and ﬁnd perfect agreement. Given
+the complete independence of these implementations, this is ex-
+tremely strong evidence that both samplers are implemented
+correctly.
+
+4.5 Application to global inﬂuenza epidemics
+
+To assess the usefulness of our sampling strategy and its imple-
+mentation in the context of real genetic data, we address the
+problem of inferring global dynamics of inﬂuenza epidemics
+from genetic data. To do this, we assembled 980 H3N2 1.6kb
+HA sequences from NCBI GenBank, which were isolated from
+humans in Hong Kong (11 = 220), New York (11 = 320) and New
+Zealand (n=440) between the years 2000 and 2006. (Accession
+numbers, sampling times and locations are tabulated in the
+Supplementary Material.) These locations were chosen to be rep-
+resentative of northern, southern and equatorial regions having
+human population sizes of comparable order of magnitude, while
+the sampling time boundaries were chosen to ensure a roughly
+even temporal and spatial distribution of samples. Additionally,
+these locations and times allow comparison with the study of
+global H3N2 dynamics conducted by Bedford et al. (2010).
+
+The data were analysed under a 3 deme structured coalescent
+model with a GTR+F nucleotide substitution model and a strict
+molecular clock. As for the simulated data, the heterochronous
+sampling times and rapid evolution of inﬂuenza allowed for joint
+estimation of the clock rate, 110. Broad log-normal priors log N
+(0, 4) were used for all population size and rate parameters. Due
+to the large size of the data set, the MCMC algorithm was run
+for 3.7 x 108 iterations to ensure adequate mixing, giving a ‘min-
+imum’ ESS across the sampled parameters of ~150. Two add-
+itional chains of 3.3 x108 iterations each were run to assess
+convergence. (See Section 7 of the Supplementary Material for
+details, the full set of results and ESS estimates.)
+
+(a) Location
+I Hong Kong
+I New Zealand
+I New York
+(b)
+g I —"'-'-'-
+E -
+E —
+Root location probability
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+’3 ’3 -
+5 _ 0::
+o _ o —
+I I 2 I I 0.005
+0 No
+I ' I ' I ' I ' I ' I ' I ' I ' I
+1998 1999 2000 2001 2002 2003 2004 2005 2006
+
+Year
+
+Fig. 5. Summary of results from spatial H3N2 inﬂuenza analysis, includ-
+ing (a) the 980 taxon maximum sampled posterior structured tree, the
+sampled posterior probability distributions for 0)) the root location,
+(c) the subpopulation sizes and (d) the base substitution rate (substitu-
+tions/site/year). The grey lines in (c) and (d) show the visible portions of
+the log N(0, 4) prior used for all of these parameters, scaled vertically for
+clarity
+
+Figure 5 summarizes some of the results of this analysis,
+including the maximum sampled posterior tree, and posterior
+distributions for the root location, the subpopulation sizes 0
+and the molecular clock rate 110. Assuming a constant generation
+time, the differences between elements of 0 reﬂect differences in
+effective population sizes of the virus populations. It is therefore
+interesting that the order of these sizes corresponds to the order-
+ing of the human population sizes: New Zealand (smallest),
+Hong Kong, New York (largest). Furthermore, the estimated
+base mutation rate 110 2 5 x 10‘3 substitutions/site/year [95%
+HPD interval (4.5 x 10‘3, 5.5 x 10‘3)] is in line with previous
+estimates for the HA gene (Rambaut et al., 2008). The placement
+of the root of the maximum sampled posterior tree in New York
+is in agreement with the posterior probability distribution of the
+root location (Fig. 5b). This may seem contrary to conventional
+wisdom that Asia provides the source for seasonal inﬂuenza epi-
+demics (Russell et al., 2008). However, the location of the root is
+very much a function of the particular dataset used.
+Furthermore, our result is in line with the results of Bedford
+et al. (2010) who applied a hierarchical approach to a much
+larger dataset and found that the ‘trunk’ location of their
+sampled H3N2 transmission tree was likely also within the
+USA at the time of the root of our tree (mid 1998).
+
+5 DISCUSSION
+
+Taken together, the results above are strong evidence that our
+new algorithm and its implementation are correct, computation-
+ally efﬁcient and capable of analysing large datasets. However,
+the algorithm presented here does not address problems that are
+fundamental to the structured coalescent. As discussed in detail
+by Ewing et al. (2004), the structured coalescent tree density
+
+ 
+
+2278
+
+112 /810's112umo[p101x0's01112u1101u101qﬂ2d11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV no 22
+
+Efﬁcient Bayesian inference under the structured coalescent
+
+ 
+
+[Equation (2)] can yield improper posterior densities for elements
+of the migration rate and population size parameters when un-
+informative priors are used. In our experience, this can still lead
+to slow mixing with proper but broad priors. In such cases, we
+suggest following the advice of Ewing et al. (2004) by imposing
+sensible upper and lower bounds on the demographic parameters
+whenever known.
+
+There are many possible extensions to this work. Firstly, as we
+discuss in Section 1 of the Supplementary Material, other models
+involving structured trees exist beyond the structured coalescent.
+Some of these are likely to be particularly important in the ﬁeld
+of viral phylodynamics, where the overlapping epidemiological
+and evolutionary time scales mean that birth—death sampling
+models (Stadler, 2008) or generalized coalescent processes
+Wolz, 2012) are needed to explain the sequence data.
+Developing, implementing and testing the performance of our
+proposal operators on spatial extensions to these models will
+therefore be an important area of future research.
+
+Secondly, the problem of summarizing large numbers of struc-
+tured trees sampled from posterior distributions requires special
+attention. While existing techniques for summarizing phylogen-
+etic tree distributions [F elsenstein (2003) provides a good review]
+allow for the un-typed component of the trees in the sampled set
+to be summarized, this discards useful information. In our inﬂu-
+enza analysis we chose to use the sampled structured tree with
+the HPD. While retaining type information, this approach is also
+suboptimal because it gives no indication of the uncertainty asso-
+ciated with the type-change paths depicted.
+
+The BEAST 2 package implementing the algorithms discussed
+in this article and used in the analyses may be found at http://
+compevol.github.io/MultiTypeTree, together with an example
+analysis and a tutorial. The software source code is available
+under the GNU General Public License and is highly extensible,
+making third-party implementation of further structured tree
+models practical.
+
+ACKNOWLEDGEMENTS
+
+The authors also wish to acknowledge the contribution of the
+NeSI high-performance computing facilities and the staff at the
+Centre for eResearch at the University of Auckland. The authors
+thank Peter Beerli for helpful comments and suggestions.
+
+Funding: The work was supported by the Allan Wilson Centre
+for Molecular Ecology and Evolution (to T.G.V. and AP);
+Royal Society of New Zealand Marsden grant [UOA0809 to
+D.K. and A.J.D.]; Rutherford Discovery Fellowship from the
+Royal Society of New Zealand (to A.J.D.).
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Baum,L.E. et al. (1970) A maximization technique occurring in the statistical ana-
+lysis of probabilistic functions of Markov chains. Ann. Math. Stat., 41, 164.
+Bedford,T. et al. (2010) Global migration dynamics underlie evolution and persist-
+
+ence of human inﬂuenza A (H3N2). PLoS Pathog., 6, e1000918.
+Beerli,P. (2006) Comparison of Bayesian and maximum-likelihood inference of
+population genetic parameters. Bioinformatics, 22, 341—345.
+
+Beerli,P. and Felsenstein,J. (1999) Maximum-likelihood estimation of migration
+rates and effective population numbers in two populations using a coalescent
+approach. Genetics, 152, 763—773.
+
+Beerli,P. and Felsenstein,J. (2001) Maximum likelihood estimation of a migration
+matrix and effective population sizes in n subpopulations by using a coalescent
+approach. Proc. Natl Acad. Sci. USA, 98, 4563—4568.
+
+Bouckaert,R. et al. (2014) BEAST 2: a software platform for Bayesian evolutionary
+analysis. PLoS Comp. Biol., 10, e1003537.
+
+Drummond,A.J. and Rambaut,A. (2007) BEAST: Bayesian evolutionary analysis
+by sampling trees. BMC Evol. Biol., 7, 214.
+
+Drummond,A.J. et al. (2006) Relaxed phylogenetics and dating with conﬁdence.
+PLoS Biol., 4, e88.
+
+Drummond,A.J. et al. (2002) Estimating mutation parameters, population history
+and genealogy simultaneously from temporally spaced sequence data. Genetics,
+161, 1307.
+
+Drummond,A.J. et al. (2012) Bayesian phylogenetics with BEAUti and the BEAST
+1.7. Mol. Biol. Evol., 29, 1969—1973.
+
+Ewing,G. et al. (2004) Using temporally spaced sequences to simultaneously esti-
+mate migration rates, mutation rate and population sizes in measurably evolving
+populations. Genetics, 168, 2407—2420.
+
+Fearnhead,P. and Sherlock,C. (2006) An exact Gibbs sampler for the Markov-
+modulated Poisson process. J. R. Stat. Soc. Ser. B, 68, 767.
+
+Felsenstein,J. (1981) Evolutionary trees from DNA sequences: a maximum likeli-
+hood approach. J. Mol. Evol., 17, 368—376.
+
+Felsenstein,J. (2003) Inferring Phylogenies. Sinauer Associates, Massachusetts.
+
+Gillespie,D.T. (1976) A general method for numerically simulating the stochastic
+time evolution of coupled chemical reactions. J. Comp. Phys., 22, 403.
+
+Gillespie,D.T. (1977) Stochastic simulation of coupled chemical reactions. J. Phys.
+Chem, 81, 2340.
+
+Green,P. (1995) Reversible jump Markov chain Monte Carlo computation and
+Bayesian model determination. Biometrika, 82, 711—732.
+
+Grenfell,B.T. et al. (2004) Unifying the epidemiological and evolutionary dynamics
+of pathogens. Science, 303, 327—332.
+
+Hasegawa,M. et al. (1985) Dating of the human-ape splitting by a molecular clock
+of mitochondrial DNA. J. Mol. Evol., 22, 160—174.
+
+Hein,J. et al. (2005) Gene Genealogies, Variation and Evolution: a Primer in
+Coalescent Theory. Oxford University Press, New York.
+
+Hudson,R.R. (1990) Gene genealogies and the coalescent process. Oxf. Surv. Evol.
+Biol., 7, l.
+
+Kingman,J.F.C. (1982) On the genealogy of large populations. J. Appl. Probab., 19,
+27.
+
+Kiihnert,D. et al. (2011) Phylogenetic and epidemic modeling of rapidly evolving
+infectious diseases. Infect. Genet. Evol., 11, 1825—1841.
+
+Lemey,P. et al. (2009) Bayesian phylogeography ﬁnds its roots. PLoS Comput. Biol.,
+5, e1000520.
+
+Moler,C. and Van Loan,C. (2003) Nineteen dubious ways to compute the exponen-
+tial of a matrix, twenty-ﬁve years later. SIAM Rev., 45, 3—49.
+
+Notohara,M. (1990) The coalescent and the genealogical process in geographically
+structured population. J. Math. Biol., 29, 59—75.
+
+Pannell,J.R. (2003) Coalescence in a metapopulation with recurrent local extinction
+and recolonization. Evolution, 57, 949—961.
+
+Rambaut,A. et al. (2008) The genomic and epidemiological dynamics of human
+inﬂuenza A virus. Nature, 453, 615—619.
+
+Rodrigue,N. et al. (2008) Uniformization for sampling realizations of Markov pro-
+cesses: applications to Bayesian implementations of codon substitution models.
+Bioinformatics, 24, 56—62.
+
+Russell,C.A. et al. (2008) The global circulation of seasonal inﬂuenza a (H3N2)
+viruses. Science, 320, 340—346.
+
+Sanderson,M.J. (2002) Estimating absolute rates of molecular evolution and diver-
+gence times: a penalized likelihood approach. Mol. Biol. Evol., 19, 101—109.
+Stadler,T. (2008) Lineages-through-time plots of neutral models for speciation.
+
+Math. Biosci., 216, 163—171.
+
+Thorne,J.L. et al. (1998) Estimating the rate of evolution of the rate of molecular
+evolution. Mol. Biol. Evol., 15, 1647—1657.
+
+Vaughan,T.G. and Drummond,A.J. (2013) A stochastic simulator of birth-death
+master equations with application to phylodynamics. Mol. Biol. Evol., 30,
+1480—1493.
+
+Volz,E.M. (2012) Complex population dynamics and the coalescent under neutral-
+ity. Genetics, 190, 187—201.
+
+Volz,E.M. et al. (2013) Viral phylodynamics. PLoS Comput. Biol., 9, e1002947.
+
+Wilson,I.J. and Balding,D.J. (1998) Genealogical inference from microsatellite data.
+Genetics, 150, 499—510.
+
+ 
+
+2279
+
+112 /810's112umo[p101x0's01112u1101u101qﬂ2d11q 111011 pep1201umoq
+
+910K ‘09 isnﬁnV no 22
+

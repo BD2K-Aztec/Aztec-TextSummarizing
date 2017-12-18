@@ -1,0 +1,1174 @@
+ORIGINAL PAPER
+
+Vol. 29 no. 8 2013, pages 1044—1051
+doi: 1 0. 1093/bioinformatics/btt083
+
+ 
+
+Systems biology
+
+Advance Access publication February 19, 2013
+
+Systematic parameter estimation in data-rich environments
+
+for cell signalling dynamics
+
+Tri Hieu Niml, Le Luo2, Marie-Véronique Clement2, Jacob k. White"3 and
+
+1,4,5!*
+
+Lisa Tucker-Kellogg
+
+1Computational Systems Biology Programme, Singapore—MIT Alliance, Singapore 1 17576, 2Department of Biochemistry,
+Yong Loo Lin School of Medicine and the National University of Singapore Graduate School of Integrative Sciences and
+Engineering, National University of Singapore, Singapore 119260, 8Department of Electrical Engineering and Computer
+Science, MIT, Cambridge, MA 02139, USA, 4Mechanobiology Institute, National University of Singapore, Singapore
+117411 and 5Department of Dermatology, State University of New York, Stony Brook, NY 11794, USA
+
+Associate Editor: Janet Kelso
+
+ 
+
+ABSTRACT
+
+Motivation: Computational models of biological signalling networks,
+based on ordinary differential equations (ODEs), have generated many
+insights into cellular dynamics, but the model-building process typic-
+ally requires estimating rate parameters based on experimentally
+observed concentrations. New proteomic methods can measure con-
+centrations for all molecular species in a pathway; this creates a new
+opportunity to decompose the optimization of rate parameters.
+Results: In contrast with conventional parameter estimation methods
+that minimize the disagreement between simulated and observed con-
+centrations, the SPEDRE method fits spline curves through observed
+concentration points, estimates derivatives and then matches the de-
+rivatives to the production and consumption of each species. This
+reformulation of the problem permits an extreme decomposition of
+the high-dimensional optimization into a product of low-dimensional
+factors, each factor enforcing the equality of one ODE at one time
+slice. Coarsely discretized solutions to the factors can be computed
+systematically. Then the discrete solutions are combined using loopy
+belief propagation, and refined using local optimization. SPEDRE has
+unique asymptotic behaviour with runtime polynomial in the number of
+molecules and timepoints, but exponential in the degree of the bio-
+chemical network. SPEDRE performance is comparatively evaluated
+on a novel model of Akt activation dynamics including redox—mediated
+inactivation of PTEN (phosphatase and tensin homologue).
+Availability and implementation: Web service, software and supple-
+mentary information are available at www.LtkLab.org/SPEDRE
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Contact: LisaTK@nus.edu.sg
+
+Received on May 10, 2012; revised on November 29, 2012; accepted
+on February 13, 2013
+
+1 INTRODUCTION
+
+Dynamic behaviours of biochemical networks can be captured
+by ordinary differential equation (ODE) models that compute
+
+ 
+
+*To whom correspondence should be addressed
+
+the change of molecular concentrations with respect to
+time (Fall et al., 2002; Palsson, 2006). For most biochemical
+pathways with known topology, most reaction rate constants
+(i.e. the coefﬁcients of the differential equations) are not
+available from direct experiments. Rate parameters are typically
+estimated by regression, in other words by ﬁtting the global
+behaviour of the simulated model to the experimentally observed
+concentrations. This is a difﬁcult high-dimensional non-linear
+problem, and search strategies often experience poor conver-
+gence and local optima (Kleinstein et al., 2006). The rate param-
+eter estimation problem can naturally be formulated as
+minimizing a sum of squared errors (SSE), where each error is
+a difference between simulated concentration and observed con-
+centration, and the summation is over time points and/ or experi-
+mental treatments. Optimizing this type of SSE objective
+function can be attacked using a variety of ‘traditional’ global
+and local search methods: LM (Levenberg—Marquardt, local),
+SD (steepest descent, local), SRES (stochastic ranking evolu-
+tion strategy, global), PSO (particle swarm optimization,
+global) and GA (genetic algorithm, global) (Fogel et al., 1991;
+Kennedy and Eberhart, 1942; Levenberg, 1944; Marquardt,
+1963; Michalewicz, 1994; Runarsson and Yao, 2000). Local
+and global search methods both have drawbacks, and global—
+local hybrid searches have also become popular (Ashyraliyev
+et al., 2008; Fomekong—Nanfack et al., 2007; Rodriguez-
+Fernandez et al., 2006).
+
+Traditional search methods generate a full vector of rate par-
+ameters, simulate the model with this full set of parameters and
+then accept, reject or adjust the parameters based on how well
+the simulation agrees with experimental measurements. For net-
+works with few unknown parameters, these ‘simulate—and—match’
+methods have been successful at finding good values, or multiple
+good candidates. The search space for parameter vectors is ex-
+ponential, and the inevitable trend with any type of exponential
+growth is that there will eventually be a large enough number of
+unknown parameters, such that reasonable sampling will not
+explore very many of the “basins of convergence’, and the results
+will deteriorate. Indeed many high-impact models of biological
+pathways continue to be built without automating the parameter
+estimation process (Albeck et al., 2008; Basak et al., 2007; Purvis
+et al., 2008).
+
+ 
+
+© The Author 2013. Published by Oxford University Press.
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution License (http://creativecommons.org/Iicenses/by/3.0/), which
+permits unrestricted reuse, distribution, and reproduction in any medium, provided the original work is properly cited.
+
+112 /310's113umo [p.IOJXO'SOllBIIHOJUTOTQ/ﬁdllq 11101; pepeoIII/noq
+
+910Z ‘091sn3nv uo ::
+
+Data-rich estimation of reaction rate parameters
+
+ 
+
+In contrast to standard ‘simulate—and-match’ methods of par-
+ameter estimation, spline-based collocation methods have re-
+cently been developed that use experimental observations of a
+protein over time to interpolate the time derivative of the con-
+centration, rather than computing the derivatives based on simu-
+lating the ODEs. Traditional methods minimize the violation of
+experimental observations, subject to obeying the ODE trajec-
+tories, while the spline-based collocation methods can be seen as
+optimizing a dual-like objective function because they minimize
+the violation of the ODE trajectories, subject to obeying the ex-
+perimental observations. Note that the spline-based collocation
+methods require an extensive input dataset with observations for
+many or all of the proteins. In the past, few large networks had
+such comprehensive measurements available, but recent trends in
+proteomic technology (Zhang and Neubert, 2009) suggest that
+data-rich cases may be increasingly common in the future.
+
+Several spline-based collocation methods have been published
+recently for the context of biological networks. A spline-based
+collocation scheme for parameter ﬁtting problems using a mod-
+iﬁed data-smoothing method and a generalization of proﬁled
+estimation was proposed by Ramsay et al. (2007). A similar
+method for problems with high noise and short time-course
+was introduced by Brewer et al. (2008). Zhan and Yeung
+(2011) used non-linear programming (NLP) to optimize the
+dual objective. Several ‘decoupling’ strategies (Jia et al., 2011;
+Vilela et al., 2009; Voit and Almeida, 2004) also use some
+forms of ‘slope approximation’ from time-series data to avoid
+doing multiple simulations. Estimating ODE parameters has
+been studied in the mathematical literature for decades, and an
+important class of data-rich methods called ‘multiple shooting’
+(Bock, 1983; Bock and Schloder, 1986a, b) has recently been
+applied to biological networks (Peifer and Timmer, 2007).
+
+To the best of our knowledge, no data-rich parameter estima-
+tion methods have implementations publicly available for prac-
+tical problems with biological networks. The asymptotic runtime
+of data-rich methods has also been neglected. Many data-rich
+methods have been published with claims of good accuracy, but
+to the best of our knowledge, efﬁciency and runtime have not yet
+been compared with state-of—the—art, ‘simulate—and-match’ par-
+ameter estimation methods.
+
+Scalability with network size is a major remaining challenge in
+the parameter estimation ﬁeld, regardless of the objective func-
+tion or optimization approach. A common strategy for large
+systems is to decompose the problem. However, the objective
+functions of parameter estimation are not generally decompos-
+able. Some decomposition approaches exploit speciﬁc situations,
+such as having derivatives available at all timepoints (Chou et al.,
+2006), or having small sub-networks connected by species with
+observed concentrations (Koh et al., 2006). The dual-like object-
+ive functions of spline-based collocation methods are not readily
+decomposable, but they do exhibit the important property of
+sparse interdependence (‘locality’) between the variables. This
+locality can be a basis for conditional decomposition.
+
+Belief propagation [see (Meltzer et al., 2009) review and (Pearl,
+1988) textbook] is an inference method for probabilistic graph-
+ical networks with sparse interdependence or locality. It can
+compute the maximum a posteriori (MAP) values for variable
+parameters in a factor graph, given joint probability distributions
+that describe the dependencies between adjacent variables. For
+
+acyclic graphs, belief propagation guarantees exact optima, and
+for general graphs, a variant called ‘loopy belief propagation’
+(LBP) has had empirical success at approximating the MAP
+(McEliece et al., 1998; Murphy et al., 1999).
+
+Our method of Systematic Parameter Estimation in Data-Rich
+Environments (SPEDRE) optimizes the dual objective approxi-
+mately, via LBP. The innovation is conditional decomposition of
+the problem into local terms, with pre-computed look-up tables
+for the discretized solutions to the local terms of the dual object-
+ive function. SPEDRE provides dramatic improvement in em-
+pirical efﬁciency, and in effect brings the spline-based collocation
+(dual objective) methods to the same level of efﬁciency as the
+state-of—the—art (primal objective) methods. Asymptotic runtime
+is polynomial with respect to the number of species, parameters
+and timepoints in the biological networks, while it is exponential
+only in the degree of the network.
+
+Finally, we compare the scalability and robustness of
+SPEDRE against state-of—the-art standalone and hybrid param-
+eter estimation methods, using both a spectrum of artiﬁcial cases,
+and also a novel model of Akt activation based on our previous
+experimental studies of Akt (Lim and Clement, 2007). Aberrant
+hyper-activation of the Akt pathway has been detected in up to
+50% of all human tumours, and the Akt pathway is an attractive
+target for anti-cancer drug discovery (Mitsiades et al., 2004). Our
+model of Akt includes oxidative inactivation of the lipid phos-
+phatase and tensin homologue on chromosome 10 (PTEN), as
+well as the phosphatidylinositol 3-kinases (PI3K) activation, as
+competing regulators of Akt in serum-stimulated ﬁbroblasts
+(Kwon et al., 2004; Testa and Bellacosa, 2001). A more detailed
+understanding of PTEN dynamics is important because many
+cancers activate Akt through disruptions of PTEN.
+
+2 PRELIMINARIES
+
+2.1 Ordinary differential equations
+
+The production and consumption of each species in a biochem-
+ical system can thus be described using ODEs. For example,
+consider a two-species artiﬁcial pathway AZB. Using k1 (and
+kg) to denote the forward (and reverse) reaction rates, we can
+model the system as follows:
+
+VAC, 1;) = —k1A(t,];) + (€230: 1;) (1)
+
+For the simplicity of later ﬁgures, our example uses mass
+action, but more general equations are also permitted. Solving
+these equations (1) provides the time evolution of the species,
+dependent on rate parameter vector k. The inverse problem,
+estimating the rate parameters from observed levels of the spe-
+cies, is a deceptively difﬁcult non-linear optimization problem
+(Kleinstein et al., 2006). We deﬁne the degree of each ODE to
+be the number of terms in its right hand side, analogous to the
+node degree in a biochemical network diagram.
+
+2.2 Rate constant estimation objective
+
+To estimate the rate constants, the most standard (‘primal’) ap-
+proach is to use a non-linear least squares technique to minimize
+
+ 
+
+1045
+
+112 /810's113umo [p.IOJXO'SSUBUHOJUTOTQ/ﬁdllq 11101; popeoIII/noq
+
+910Z ‘091sn3nv uo ::
+
+T.H.Nim et aI.
+
+ 
+
+the weighted SSE objective function
+
+minZZ N:
+
+2
+k . . - data
+eEExperzments zeSpec1es  . (x651. (5'))
+jeT1mepomts
+
+X Z (Xia,‘a(lj)—x:f‘?(lja£)>2
+
+j ETimepoints
+
+ 
+
+(2)
+
+where N, is the number of observed timepoints per experiment,
+fo’faaj) is the observed concentration of species 1' in experiment e
+and xjf’ﬂtj, k) is the simulated level of species 1' in experiment e as
+a function of time and rate constants k. SSE is the most widely
+used objective for evaluating the success of parameter estimation,
+but SSE grows with the size of the network. Therefore, we also
+use the species maximum relative error (MRE), and parameter
+percentage error (PPE), discussed in Supplementary Text S1 and
+deﬁned as follows:
+
+. _, 2
+ (We — xf’m(tj»k)) ' 100%
+X1- m
+
+m
+
+Species MRE = max
+1’]
+
+(3)
+
+estimated nominal
+k. — k. I
+
+Median PPE = median(| ‘
+
+ 
+
+x 100%) (4)
+
+nominal
+ki
+
+z z
+knominal
+z
+
+ 
+
+Maximum PPE = max
+
+I kestimated _ knominall
+( x 100%) (5)
+
+Note that the PPE metric requires the knowledge of the nom-
+inal parameter values, which is only feasible in simulated tests.
+
+3 ALTERNATIVE OBJECTIVE FUNCTION
+
+3.1 Error terms of dual objective function
+
+The error terms of our dual objective function, 86,], minimize the
+disagreement between the right hand sides of the ODEs [which
+we denote ﬂDE, see Equation (1)] and the species derivatives
+(computed using the species derivatives interpolated from the
+
+observed data):
+_, a]; spline —»
+8651.)]. : j/iODE(k) —  Xi’a‘ta t:t-  (6)
+
+indexed over experiments e, species 1' and timepoints t]. xff’f" are
+the time-series observations of species 1' in experiment e. The
+interpolated derivative d/dt with splines is explained in
+Supplementary Text S2. The 86,]- terms are similar to the terms
+of other spline-based collocation methods, but we remark that
+each 86,]- is deﬁned in terms of a small subset of the parameters k,
+while each term of a ‘primal’ SSE objective uses all parameters
+
+via simulation.
+
+ 
+
+3.2 Product of functions
+
+Among different schemes for combining error functions into an
+objective (e.g. sum of squares), we chose multiplication.
+
+min POF = min n n n seam (7)
+k k eEExperiments iESpecies jeTimepoints
+
+The product of functions (POF) objective will need to be eval-
+uated in practical tests because it has numerical vulnerabilities,
+such as going to zero if any single term goes to zero. The beneﬁt
+of using the POF objective is that it is a decomposable expression
+to facilitate belief propagation for probabilistic inference on a
+factor graph (Section 4.1). By inspection, the POF is minimized
+when individual error terms 86,]- are minimized. Assuming the
+network is low-degree, each 86,3]- is a low-dimensional term invol-
+ving a small subset of the rate parameters k. The 86,]- error terms
+cannot beaoptimized as independent problems because the sub-
+sets of k are not mutually exclusive. However, the low
+dimensionality of 86L,- means we can pre-compute solutions for
+each 86,3]- sub-problem systematically. We pre—compute a com-
+plete look-up table T6,,”- that gives the value of gey- for each
+possible (discretized) combination of the relevant k parameters.
+To combine many low-dimensional systematic 86,]- solutions into
+an optimal high-dimensional parameter vector is a problem that
+resembles belief propagation, except with a sparsely connected,
+cyclic graph instead of an acyclic graph. We next describe in
+Section 4 how to compute a global estimate of k as a graphical
+inference problem using LBP.
+
+4 LOOPY BELIEF PROPAGATION
+
+We now express the POF optimization as an inference problem
+on a factor graph, in preparation for using LBP to compute the
+MAP values of the variable parameters, corresponding to the
+values that minimize the POF objective (Pearl, 1988; Yedidia
+et al., 2003).
+
+4.1 Factor graph
+
+A factor graph is a bipartite graph with factor nodes 86,]- (for
+each experiment e, ODE i and timepoint I) and variable param-
+eter nodes k,- (for the members of k). We connect a factor node
+86,]- to a parameter node k,- if and only if k,- appears in the equa-
+tion for 86,].
+
+For each factor node, a factor graph has a joint table (or joint
+probability distribution) to describe the probability of each com-
+bination of values for the adjacent variable nodes. We compute a
+constant look-up table T 6,,- J, based on the error term sew, for the
+joint probability of each combination of the adjacent variable
+parameters. (Section 4.2 describes how errors are converted into
+probabilities.) Note that 86,]- represents the discrepancy between
+the right-hand side of the i-th ODE (computed using the variable
+parameters) and the left-hand side of the ODE (computed from
+spline-based interpolation of the data for experiment e, species 1'
+and timepoint tj). Each factor node thus serves to enforce the
+equality of one ODE at one timeslice and one experiment. An
+example factor graph corresponding to the two-species AZB
+system is shown in Figure 1, with variable nodes (rate param-
+eters) represented by circles, and factor nodes (86),!) by
+rectangles.
+
+4.2 Discretization and joint probability tables
+
+Each variable node k,- is associated with a one-dimensional dis-
+crete probability distribution, which represents the current belief
+about the likeliness of that value being in the optimal parameter
+vector. In theory, variable parameters are real numbers, but to
+
+ 
+
+112 /810's112umofp101xo'sot112u1101utotq/ﬁd11q 111011 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+Data-rich estimation of reaction rate parameters
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+dA spline
+_ ODE _’ data a
+8e,1,j = fl (k)—Exe,l  @
+t=tj
+£2 spline
+ODE " d t "
+8e2]_f2 (k)_Exea2a  @
+t=tj
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 1. A partial factor graph of the example two-species system, shown
+for one timepoint tJ- and one experiment e. The complete factor graph
+would include factor nodes for every timepoint and every experimental
+treatment, each connected to the k1 and k2 variable nodes
+
+permit us to evaluate combinations ‘systematically’, we discretize
+the domain of each parameter into a ﬁnite number of
+sub-intervals, or bins, and we represent each bin by its midpoint.
+Coarser intervals (larger bins) will yield faster runtime at the
+expense of accuracy. At the start of the algorithm, the one-di-
+mensional discrete probability distribution for each variable par-
+ameter is uniform, representing lack of prior knowledge about
+the value of that parameter. During the process of belief propa-
+gation (Section 4.3), the discrete probability distributions will be
+updated by a message passing algorithm, until convergence or
+until an iteration limit.
+
+If factor node 86,3]- has degree d, then the joint table Tea- is a
+d—dimensional table, and each dimension is discretized with the
+same binning as the variable parameters of the d adjacent vari-
+able nodes (Fig. 2). To convert the error terms 86),]- into prob-
+abilities, we use a Boltzmann-like exponential weighting:
+p(f) = C X exp(—se,,-,j). This empirical choice makes large viola-
+tions exponentially unlikely, and C is a normalization constant to
+make p(f) a valid probability distribution, i.e. all entries in the
+discrete joint table sum up to 1. (Alternative methods of repre-
+senting a systematic solution of 86),]- would also have been
+possible.)
+
+Note that minimizing the error means maximizing the prob-
+ability. These probability distributions do not change during the
+course of belief propagation and can be pre-computed. The error
+term sew- must be computed for every possible discrete combin-
+ation of the relevant parameters, using the midpoint of each
+parameter bin, and the errors can then be converted to probabil-
+ities to ﬁll in the joint probability table T 6,,- J. The optimal com-
+bination of parameters for each sew- sub-problem can be found
+trivially by scanning the T 6,,- J- table.
+
+Owing to the discretization required by this method, the esti-
+mated value of each parameter is a range rather than a single
+value. Although discretization sacriﬁces some accuracy (analo-
+gous to round-off error), we choose the variable parameters to be
+discretized, sometimes quite coarsely, because the output of such
+a method might be ideal input for a local search method, such as
+Levenberg—Marquardt or Steepest Descent, to reﬁne afterwards,
+using a more precise simulation-based objective function.
+
+4.3 Loopy belief propagation
+
+Belief propagation can be described informally as two types
+of message passing: variable nodes K pass messages (one-
+dimensional probability distributions, ,uK_,f) to adjacent factor
+nodes f to communicate what the variable node believes to be
+the value of its variable. Factor nodes f in turn pass a message
+
+p  )Ik1 =2,k2=3,k3 =1
+
+   
+ 
+
+k3
+
+ 
+ 
+ 
+     
+
+3 2
+
+     
+     
+
+1 k1
+
+Fig. 2. Illustration of a joint probability table of three dimensions, cor-
+responding to rate constants k1, k2 and k3. Each dimension of the look-up
+table corresponds to one associated variable parameter (variable node in
+the factor graph), binned into three possible values. The joint probability
+computed for each cell of the table (e.g. p(/)lk1=2,k2:3,k3:1c for the cell
+with k1 2 2nd bin, k2 2 3rd bin, k3 2 1st bin) is obtained by converting the
+eel-J- error term into a probability, via exponential weighting and
+normalization
+
+1 2 3
+
+(one-dimensional probability distribution, ,uf_,K) to adjacent
+variable nodes K communicating what they believe the variable
+values to be. Each message from a factor causes the variable
+nodes to update their probability distributions, and that update
+also alters the later messages sent out by the variable nodes. In
+acyclic graphs, the message passing algorithm yields a provably
+exact, optimal MAP solution for the variables, efﬁciently.
+Murphy et al. (1999) describe the LBP algorithm, extending
+the message passing framework to achieve good heuristic ap-
+proximations for cyclic graphs. We use a variant of the LBP
+message-passing algorithm detailed in Koh et al. (2007), sum-
+marized in Boxl as ‘SPEDRE-base’.
+
+In a discrete joint distribution g with dimensions K1,K2,..,Km,
+we deﬁne the maximization over a dimension K,- as follows:
+
+ (k1: k2:  9 
+
+= max{--{ max { max ~-{maxg(k1,k2,...,km)}}}}
+k1€K1 ki_1EK'_1 ki+1EKi+1 kmEKm
+(8)
+
+where ~K, denotes the set of all dimensions in g except K,.
+
+Convergence in step B occurs when no normalized message in
+the current iteration differs by more than a tolerance value from
+the corresponding message in the previous iteration. As the LBP
+algorithm is not guaranteed to converge, and in some cases might
+oscillate (Murphy et al., 1999), we impose an additional criterion
+to limit the total number of iterations.
+
+From Box 1, the asymptotic runtime of the modiﬁed LBP
+algorithm, including pre—computation of all the look-up joint
+tables, can be expressed as:
+
+O [#iterations X #experiments X #species X #timepoints
+X (#mtes X #bins —I— degree X #binsdeg’ee)]
+
+See Supplementary Text S3 for a derivation of the asymptotic
+runtime. The time complexity scales exponentially with the factor
+graph degree, which is deﬁned as the maximum number of vari-
+able nodes adjacent to any factor node, or the maximum number
+of unknown rate parameters appearing in any ODE. For a factor
+graph with bounded degree, the method scales polynomially with
+respect to the number of species, timepoints and discrete bins.
+This means the method scales well on biological pathways with a
+
+ 
+
+1047
+
+112 /810's112umofp101xo'sot112u1101utotq/ﬁd11q 111011 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+T.H.Nim et aI.
+
+ 
+
+Box. 1. SPEDRE-base algorithm for computing the MAP estimates on a
+factor graph. N(n0de) is the set of neighbours adjacent to node. Steps
+B112 and B21 include a logarithm operation as a heuristic to avoid
+rounding off small numbers to zero. Because normalizing the messages or
+probability distributions does not affect the ﬁnal MAP results (Yedidia
+et al., 2003), we also perform normalization after the computation of step
+B112 and B21 so that the messages and beliefs are always valid prob-
+ability distributions at every iteration. The messages history serves as a
+buffer for incoming messages, and the algorithm makes implicit use of the
+message history during steps B112 and B21.
+
+ 
+
+A. Initialization:
+A.l. Compute look-up joint tables, p(f), for each factor node
+A.2. Set all variable nodes to uniform distribution
+B. Propagation: repeat until convergence
+B.1. For each factor node f
+B.1.1. For each variable node K e NU)
+B.1.1.1. Collect uKiaf: the message from variable node K,- e N(f)\
+{K} to f, which is p(K,-), the current probability distribution of K,-
+
+B.1.1.2. Compute ufaK = ma<X{p(f) - Zlog(uK,_,f)}
+
+B.1.1.3. Send ufaK to the message history of K
+B.2. For each variable node K
+B.2.1. Update the distribution of K to p(K) - Z log(ufiaK), where
+uKﬂf are stored in the message history of K i
+C. Output: compute the MAP probability of each variable node
+
+MAP(K) = arg maX{p(K)}
+
+ 
+
+small bounded number of reactions per species. Our asymptotic
+runtime compares favourably with conventional (‘primal’) meth-
+ods, because primal methods search for full-length parameter
+vectors in a space that grows exponentially with the number of
+parameters. Although primal methods with heuristic sampling
+do not have to cover the entire parameter space, they must main-
+tain some coverage of the major ‘valleys’ of the objective func-
+tion. If the number of valleys and inﬂection points grows with
+the size of the parameter space, then primal methods will per-
+form poorly (accuracy versus runtime) on large networks.
+
+5 RESULTS
+
+Before testing the overall performance of the method on full
+problems, we ﬁrst performed simplistic tests with partial prob-
+lems, to isolate speciﬁc variables of interest such as #species and
+#timepoints. We monitored performance as a function of net-
+work size and timepoint spacing, to probe two sources of poten-
+tial error in the SPEDRE-base method: spline accuracy and the
+POF objective function. The simplistic tests used ring-shaped
+networks (Fig. 3A), with nominal parameters randomly chosen
+to be at exact mid-points of the parameter discretization bins.
+Simulated data were generated with random initial concentra-
+tions, using the nominal rate parameters. For each run of
+SPEDRE-base, we monitored the objective
+
+log(POF)
+
+Normalized log(POF) = m,
+
+(9)
+normalized with respect to the number of factors in the product
+of Equation (9). The objective declined when the number of
+timepoints increased (Fig. 3B), indicating as expected that
+
+    
+ 
+
+A B C
+0 0
+I "o'- -2000 {Lg-1000 ‘\A\,
+X 2" \A—A E'— A\
+12 2,”—4000 -A-Nominal ‘ 3-2000 —10 species A
+. . . _ —SPEDRE-base -A-50 species \A,A
+l -6000 -3000
+
+34567891011
+
+X 10 30 50 70 90
+Numberoftimepoints
+
+Number ofspecies
+Fig. 3. (A) Ring network diagram; (B) normalized log(POF) with respect
+to the number of timepoints on different network sizes; (C) normalized
+log(POF) of LBP-predicted rate constants, versus the normalized
+log(POF) of nominal (‘correct’) rate constants on circular networks of
+10 to 100 species with 11 timepoints. (Total simulation duration was 4 s,
+with 0.4 s for each time step). Each rate constant was discretized into 10
+equidistant bins from 0.05 to 1.05, with the nominal rate constants se-
+lected from among the bin midpoints. Dataset appears in Supplementary
+Source Files
+
+SPEDRE gives better estimates of the parameters when time-
+points are densely sampled.
+
+Next we compared the normalized log(POF) value between the
+results of SPEDRE-base, and the nominal (‘correct’) rate con-
+stants, using 10 time steps (i.e. 11 timepoints) for each test.
+Figure 3C shows that the POF scores of the exact nominal par-
+ameters were higher than the POF scores of the parameters
+found by SPEDRE-base, for all networks of signiﬁcant size.
+Because SPEDRE-base found parameters with better scores
+than the ‘correct’ parameters, we infer that the POF objective
+is an imperfect score of parameter accuracy.
+
+5.1 Scalability with artiﬁcial networks
+
+The complete SPEDRE method consists of SPEDRE-base
+(Sections 341) followed by LM to reﬁne the discretized results
+from SPEDRE-base. The major task of SPEDRE-base is to ﬁnd
+good starting values for local optimization, and post-ﬁtting is a
+necessary part of the procedure. We compared the performance
+of the complete SPEDRE method against a selection of popular
+local, global and hybrid methods, on parameter estimation prob-
+lems from low-degree networks. All tests were full problems with
+parameters set randomly, without regard to bins or bin mid-
+points. Random networks of increasing size (from 30 to 150
+species) were constructed with low degree (two-thirds of the re-
+actions involving three species, and one-third involving two spe-
+cies), to generate parameter estimation problems with increasing
+scale. We tested 14 parameter estimation methods including
+SPEDRE-base, LM (local), SD (local), SRES (global), PSO
+(global) and GA (global), plus hybrid global—local combinations
+of these methods (e.g. SRES_LM denotes the global method
+SRES plus the local method LM). Runtime and multiple error
+scores were measured as a large-scale screen (see Supplementary
+Text S5, Supplementary Figs S6 and S8 and Supplementary
+Tables S7 and S9). The best-performing methods (asterisks in
+Supplementary Fig. S6) are consistently SPEDRE and a subset
+of hybrid stochastic-local methods. Highly similar scores can
+occur when multiple methods converge to the same local opti-
+mum. Accuracy tests showed the following trends: (i) for small
+networks, local methods performed well; (ii) hybrid methods
+(including SPEDRE) showed superior accuracy to standalone
+
+ 
+
+1048
+
+112 /810's112umofp101xo'sot112u1101utotq/ﬁd11q 111011 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+Data-rich estimation of reaction rate parameters
+
+ 
+
+local or global methods; (iii) SPEDRE accuracy was comparable
+with the accuracy of other hybrid methods; (iv) the quality scores
+of SPEDRE-base were signiﬁcantly worse than SPEDRE, con-
+ﬁrming that the LM post-processor is indeed important for reﬁn-
+ing discretized results. Supplementary Text S5 also clariﬁes the
+trade-off between accuracy and speed. We conclude that
+SPEDRE was ‘tied’ with other state-of—the—art methods, for the
+spectrum of low-degree data-rich problems we constructed.
+
+5.2 Performance on a novel model of Akt pathway
+activation
+
+To test SPEDRE on a realistic biological pathway, we built a
+novel model of Akt activation (‘Akt model’), using our experi-
+mental data from recent studies (Lim and Clement, 2007). Akt is
+a kinase, frequently over-activated in cancers, that signals for
+survival and proliferation. The signalling events in our model
+of Akt activation are illustrated in Figure 4 and described
+below. Akt is activated after stimulation by serum (growth fac-
+tors), not only via the canonical activation of PI3Kinase (PI3K)
+by serum, but also via reactive oxygen species (ROS) and
+ROS-induced inactivation of the phosphatase PTEN. ROS are
+produced by NADPH oxidase (NOX), and degraded by
+anti-oxidants. The phosphorylation and activation of Akt is a
+multi-step process, involving the translocation of Akt from the
+cytosol to the cell membrane and its phosphorylation by the
+kinase PDKl at Thr308. The translocation of Akt and PDKl
+to the membrane is controlled by the level of phosphatidylinosi-
+tol 3,4,5-trisphosphate (PIP3), which is determined by the bal-
+ance between PIP3 production (by serum-activated PI3Kinase)
+and PIP3 degradation (by the phosphatase PTEN).
+Phosphorylated Akt returns to the cytosol and is subject to
+dephosphorylation by PP2A.
+
+The model was built manually based on dynamic measure-
+ments of the Akt pathway, observed in serum-starved mouse
+embryonic ﬁbroblasts stimulated by the addition of 10%
+serum to the culture medium (Lim and Clement, 2007). Supple-
+mentary Table S11 deﬁnes the full model.
+
+Using simulation, we generated complete datasets with artiﬁ-
+cial noise at levels of 0, 1 and 20%. Parameter estimation per-
+formance was compared between SPEDRE and some popular
+methods (Fig. 5, with complete results in Supplementary Table
+S12).
+
+According to Figure 5A—C, the prediction quality of SPEDRE
+(leftmost bar, shaded black) is better than the other methods for
+noise-free and 1%-noise datasets. With noise levels of 20%, all
+methods perform unacceptably, providing worse than 100% spe-
+cies MRE, as shown in Figure 5A. Similarly, on the 20%-noise
+data set, all methods have unacceptably high median PPE and
+weighted SSE, as shown in Figure 5B—C. In this parameter op-
+timization test with Akt dynamics, SPEDRE out-performed
+other methods, indicating that the parameter neighbourhoods
+it gave to LM were better than the neighbourhoods from other
+global methods, even though SPEDRE-base had equivalent per-
+formance in non-biological tests.
+
+Figure 5D also displays a counterintuitive phenomenon, in
+which the local search method LM takes longer to run than
+any hybrid method including LM as a post-processor. LM per-
+forms many iterations if it starts with a random guess, but it
+
+GF R
+ GF_R 
+inactNOXé NOX P3135; inactP|3K
+”  Akt-cyto
+PIP2 PIP3.A
+Environment ROS  PDKl'CYtO  Akt-mem <-----PP2A
+Antioxidant    —————— -->
+capacity PTENoxf; pTEN PDK1-mem Akt-pm”3
+
+Fig. 4. Network diagram of the Akt model, including redox regulation of
+PTEN. The preﬁx ‘inact’ denotes inactive species; the sufﬁx ‘cyto’ (or
+‘mem’) indicates cytosolic (or plasma membrane) localization. The
+sufﬁx ‘p308’ indicates phosphorylation at residue Thr308
+
+     
+   
+
+ 
+     
+
+  
+      
+
+  
+
+I.|.IE ' g
+
+ﬂ E g: EZEI B I E: EmIE
+\° 4 32mm a“: ‘o‘ 2 :“mb 8”“
+:7 102 3 Egg WA 3\'102 S E i E556? 35";
+m 0 5» V‘s.  E E I 3’ ‘ :3‘3
+210 x a a  m = 2
+m I
+a) -2 EN EN “5 —2 I 5’"
+-- 10 .1!“qu la -- 10 . x"
+U
+
+ﬁx ﬁx. '° : /
+g. 10.4 £11 QR § 10‘4 . l 
+
+u. 2 i
+c m 2 5 :1 E. D .
+Q 2 g 2% e E (‘9 E 103 i
+3' 4 .7, E E <'§ : A I 2
+I.” LI.I U) W I U! I L” _l
+a 10 3‘. a g 37102 : gﬁ
+-u 102 % f E I 3&5
+3 ¢ E '5 101 m
+35,0100 g g g
+g 10-2   n: 100 L
+0 1% 20% 0 1% 20%
+Noise level
+
+Fig. 5. Comparison of parameter estimation algorithms applied to the
+Akt network, with noise levels 0, 1 and 20%, evaluated by (A) species
+MRE, (B) median PPE, (C) weighted SSE and (D) runtime
+
+converges quickly if it starts with the output of a global search
+method. Adding more phases of search would be expected to
+increase rather than decrease the total runtime, but in this case,
+a phase of global search led to faster LM convergence, which
+more than compensated for the time of running the global
+search.
+
+6 DISCUSSION
+
+The key innovations of SPEDRE are the use of a probabilistic
+graphical model to decompose the dual objective function, and
+pre—computation of discrete solutions to each sub-problem. The
+method has a well-deﬁned asymptotic runtime and good scalabil-
+ity, in exchange for approximate heuristic optimization.
+
+The SPEDRE approach aims for asymptotic scalability at the
+expense of accuracy. This philosophy appears in (i) the use of
+splines to approximate the species derivative, (ii) the use of bin-
+ning to discretize the parameter space and (iii) the use of LBP for
+probabilistic inference. Each of these elements can introduce
+error. We believed the dangers of compounded errors would
+make the SPEDRE method less robust to noisy data than simu-
+lation-based methods. The expected sensitivity of SPEDRE to
+input noise has not yet been conﬁrmed in the tests shown (and in
+other tests, such as Supplementary Table S12); rather we found
+that all methods gave unacceptably poor answers with noisy
+
+ 
+
+1049
+
+112 /810's112umofp101xo'sot112u1101utotq/ﬁd11q 111011 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+T.H.Nim et al.
+
+ 
+
+data. Future work must continue to characterize the numerical
+stability, approximation error and noise tolerance of SPEDRE
+and other parameter estimation methods. SPEDRE is in fact a
+general algorithm for ODE parameter ﬁtting, applicable to any
+case in which the right-hand sides of the ODEs have few terms
+(low degree), and where the data-ﬁtting problem provides dense
+observations of all variables.
+
+The accuracy and speed of SPEDRE were compared against
+several methods of parameter estimation, in low-degree,
+data-rich test cases. SPEDRE performance was competitive in
+all tests, and SPEDRE was the best-performing method for the
+Akt network test. We conclude that SPEDRE performs well
+when tested in the speciﬁc niche of problems for which it was
+designed. Naturally the SPEDRE performance would degrade
+(perhaps exponentially) outside of its intended niche. SPEDRE
+exhibits an abrupt trade-off between problem type and perform-
+ance, but performance trade-offs are not new to parameter esti-
+mation research. Major pathway simulation software packages
+already maintain collections of multiple parameter estimation
+methods, rather than expecting a single best method to cover
+all problems.
+
+A current hurdle for broader applicability of SPEDRE is the
+inability to handle high-degree nodes. Many small networks are
+low-degree, but large networks often have at least one hub. In
+order for new spline-based collocation methods to be truly su-
+perior to conventional (‘primal’ objective) parameter estimation
+methods, they would have to handle high-degree networks and
+extensive gaps in experimental observations, robustly. Future
+innovations may be able to develop a new composition of par-
+ameter estimation methods, so that low-degree sub-problems can
+be solved by SPEDRE and high-degree hubs can be treated
+separately.
+
+A side-effect of our work is to provide performance compari-
+sons for several hybrid and standalone parameter estimation
+methods. Our tests reproduced the earlier observation that
+hybrid methods generally perform better than standalone
+global methods (Ashyraliyev et al., 2009; Rodriguez-Fernandez
+et al., 2006). One surprising phenomenon we observed was that
+performing a global search prior to a local search sometimes
+caused the total runtime to be faster than using the local
+search alone (Fig. 5D). Future work may be able to exploit
+this non-additive runtime effect, perhaps through deeper integra-
+tion of global and local search methods, rather than applying
+independent methods sequentially.
+
+A distinguishing feature of SPEDRE is that it requires large
+amounts of concentration measurement data, which would have
+been prohibitive a decade ago. Traditional experimental methods
+required an investment of labour and resources that was roughly
+linear in the number of proteins studied. New proteomic meth-
+ods can measure additional proteins at virtually no additional
+cost, and proteomic datasets are starting to provide data-rich
+environments with measurements of all proteins in a system.
+SILAC technology has recently been used for time-series meas-
+urements of 147 proteins (Tasaki et al., 2010) in NIH3T3-derived
+cells, and again for time-series of 534 proteins in the cytosol and
+626 proteins in the nucleus in glucocorticoid-exposed myogenic
+cells (Reeves et al., 2009). Most proteomic studies have not been
+performed with time-series repeats for studying dynamics, but
+large-scale dynamic data will become increasingly available
+
+with the explosive growth in the number of proteomic experi-
+ments (Zhang et al., 2011). New studies of large networks will
+give rise to huge parameter estimation problems, with rich data-
+sets, but with too many unknown parameters for conventional
+methods to solve.
+
+We believe that proteomic technology both enables and re-
+quires novel approaches to parameter estimation such as
+SPEDRE. As models grow in size owing to technological ad-
+vances, decomposition-based methods will probably dominate
+non—decomposition-based search methods, which suffer from
+the curse of dimensionality. The trade-offs exhibited by our
+method may be increasingly desirable for future trends in par-
+ameter estimation.
+
+Funding: Lee Kuan Yew Postdoctoral Fellowship and grant
+R-252-000-342—112 (to L.T.-K.); Singapore-MIT Alliance grant
+C-382—641-004—091 (to L.T.-K. and J .K.W); grant BMRC 09/ 1/
+21/19/603 (to M.-V.C.)
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Albeck,J.G. et al. (2008) Quantitative analysis of pathways controlling extrinsic
+apoptosis in single cells. Mol. Cell, 30, 11—25.
+
+Ashyraliyev,M. et al. (2008) Parameter estimation and determinability analysis
+applied to Drosophila gap gene circuits. BM C Syst. Biol, 2, 83.
+
+Ashyraliyev,M. et al. (2009) Systems biology: parameter estimation for biochemical
+models. FEBS J., 276, 886—902.
+
+Basak,S. et al. (2007) A fourth IkappaB protein within the NF-kappaB signaling
+module. Cell, 128, 369—381.
+
+Bock,H.G. (1983) Recent advances in parameter identiﬁcation techniques for
+O.D.E. Prog. Sci. Comput., 2, 95—121.
+
+Bock,H.G. and Schléder,J.P. (1986a) Fit, ﬁtter, the ﬁttest: methods for modelling
+and validation of dynamical systems. In: M611er,D. (ed.) Systems Analysis.
+Vieweg, Wiesbaden, Germany.
+
+Bock,H.G. and Schléder,J.P. (1986b) Recent progress in the development of algo-
+rithms and software for large scale parameter estimation problems in chemical
+reaction systems. In: IFAC Conference Automatic Control in Petrol,
+Petrochemical and Desalination Industries. Kuwait.
+
+Brewer,D. et al. (2008) Fitting ordinary differential equations to short time course
+data. Philos. Transact. A Math. Phys. Eng. Sci., 366, 519—544.
+
+Chou,I.C. et al. (2006) Parameter estimation in biochemical systems models with
+alternating regression. T hear. Biol. Med. Model, 3, 25.
+
+Fall,C. et al. (2002) Computational Cell Biology. Springer, New York, USA.
+
+Fogel,D.B. et al. (1991) Meta-evolutionary programming. In: Chen,R.R. (ed.)
+Conference Record of the T wenty-Fifth Asilomar Conference on Signals,
+Systems and Computers. Vol. 1 and 2, IEEE Computer Society, Los Alamitos,
+CA, USA, pp. 540—545, 1274.
+
+Fomekong-Nanfack,Y. et al. (2007) Efﬁcient parameter estimation for
+spatio-temporal models of pattern formation: case study of Drosophila mela-
+nogaster. Bioinformatics, 23, 3356—3363.
+
+J ia,G. et al. (2011) Parameter estimation of kinetic models from metabolic proﬁles:
+two-phase dynamic decoupling method. Bioinformatics, 27, 1964—1970.
+
+Kennedy,J. and Eberhart,R. (1942) Particle swarm optimization. In: Proceedings of
+the Fourth IEEE International Conference on Neural Networks, Perth, Australia,
+1942. Institute of Electrical and Electronics Engineers, New York City,
+New York, USA, pp. 1942—1948.
+
+Kleinstein,S.H. et al. (2006) Nonuniform sampling for global optimization of kinetic
+rate constants in biological pathways. In: Proceedings of the 2006 Winter
+Simulation Conference. Vol. 1—5, Institute of Electrical and Electronics
+Engineers, New York City, New York, USA, pp. 1611—1616, 2307.
+
+Koh,G. et al. (2006) A decompositional approach to parameter estimation in path-
+way modeling: a case study of the Akt and MAPK pathways and their crosstalk.
+Bioinformatics, 22, e271—e280.
+
+ 
+
+1 050
+
+112 /810's112umofp101xo'sor112u1101urorq/ﬁd11q 111011 pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+
+Data-rich estimation of reaction rate parameters
+
+ 
+
+Koh,G. et al. (2007) Composing globally consistent pathway parameter estimates
+through belief propagation. In: Algorithms in Bioinformatics, 7th International
+Workshop. WABI 2007, Philadelphia, PA, USA.
+
+Kwon,J. et al. (2004) Reversible oxidation and inactivation of the tumor suppressor
+PTEN in cells stimulated with peptide growth factors. Proc. Natl Acad. Sci.
+USA, 101, 16419—16424.
+
+Levenberg,K. (1944) A method for the solution of certain nonlinear problems in
+least squares. Quart. Appl. Math., 2, 164—168.
+
+Lim,S. and Clément,M.V. (2007) Phosphorylation of the survival kinase Akt by
+superoxide is dependent on an ascorbate-reversible oxidation of PTEN. Free
+Radic. Biol. Med, 42, 1178—1192.
+
+Marquardt,D. (1963) An algorithm for least-squares estimation of nonlinear par-
+ameters. SIAM J. Appl. Math, 11, 431.
+
+McEliece,R.J. et al. (1998) Turbo decoding as an instance of Pearl’s ‘beliefpropaga-
+tion’ algorithm. IEEE J. Sel. Area Comm., 16, 140—152.
+
+Meltzer,T. et al. (2009) Convergent message passing algorithms-a unifying view. In:
+Conference on Uncertainty in Artiﬁcial Intelligence {UAI ’09). AUAI Press,
+Arlington, Virginia, USA.
+
+Michalewicz,Z. (1994) Genetic Algorithms + Data S tructures= Evolution Programs.
+Springer-Verlag, Berlin.
+
+Mitsiades,C.S. et al. (2004) The Akt pathway: molecular targets for anti-cancer drug
+development. Curr. Cancer Drug Targets, 4, 235—256.
+
+Murphy,K. et al. (1999) Loopy belief propagation for approximate inference: an
+empirical study. In: Proceedings of Uncertainty in AI, p. 467.
+
+Palsson,B.O. (2006) Systems Biology: Properties of Reconstructed Networks.
+Cambridge University Press, Cambridge, UK.
+
+Pearl,J. (1988) Probabilistic Reasoning in Intelligent Systems: Networks of Plausible
+Inference. 2nd edn. Morgan Kaufmann, San Francisco, CA.
+
+Peifer,M. and Timmer,J. (2007) Parameter estimation in ordinary differential equa-
+tions for biochemical processes using the method of multiple shooting. IET Syst.
+Biol., 1, 78—88.
+
+Purvis,J.E. et al. (2008) A molecular signaling model of platelet phosphoinositide
+and calcium regulation during homeostasis and P2Yl activation. Blood, 112,
+4069—4079.
+
+Ramsay,J.O. et al. (2007) Parameter estimation for differential equations a general-
+ized smoothing approach. J. R. Stat. Soc. B Stat. Methodol, 69, 741—796.
+Reeves,E.K. et al. (2009) Proteomic proﬁling of glucocorticoid-exposed myogenic
+cells: time series assessment of protein translocation and transcription of inactive
+
+mRNAs. Proteome Sci, 7, 26.
+
+Rodriguez-Fernandez,M. et al. (2006) A hybrid approach for efﬁcient and robust
+parameter estimation in biochemical pathways. Biosystems, 83, 248—265.
+Runarsson,T. and Yao,X. (2000) Stochastic ranking for constrained evolutionary
+
+optimization. IEEE Trans. Evol. Comput., 4, 284—294.
+
+Tasaki,S. et al. (2010) Phosphoproteomics—based modeling deﬁnes the regulatory
+mechanism underlying aberrant EGFR signaling. PLoS One, 5, e13926.
+
+Testa,J.R. and Bellacosa,A. (2001) AKT plays a central role in tumorigenesis. Proc.
+Natl Acad. Sci. USA, 98, 10983—10985.
+
+Vilela,M. et al. (2009) Identiﬁcation of neutral biochemical network models from
+time series data. BM C Syst. Biol., 3, 47.
+
+Voit,E.O. and Almeida,J. (2004) Decoupling dynamical systems for pathway iden-
+tiﬁcation from metabolic proﬁles. Bioinformatics, 20, 1670—1681.
+
+Yedidia,J. et al. (2003) Understanding belief propagation and its generalizations. In:
+Lakemeyer,G. and Nebel,B. (eds.) Exploring Artificial Intelligence in the New
+Millennium. Morgan Kaufmann Publishers Inc., San Francisco, CA, USA,
+pp. 239—269.
+
+Zhan,C. and Yeung,L.F. (2011) Parameter estimation in systems biology models
+using spline approximation. BM C Syst. Biol., 5, 14.
+
+Zhang,G. and Neubert,T.A. (2009) Use of stable isotope labeling by amino acids in
+cell culture (SILAC) for phosphotyrosine protein identiﬁcation and quantita-
+tion. Methods Mol. Biol., 527, 79—92.
+
+Zhang,G.L. et al. (2011) Database resources for proteomics-based analysis of
+cancer. Methods Mol. Biol., 723, 349—364.
+
+ 
+
+1051
+
+112 /810's112umo [progxo'sor1eu1101urorq//:d11q 111011 pop1201umoq
+
+9IOZ ‘091sn8nv uo ::
+

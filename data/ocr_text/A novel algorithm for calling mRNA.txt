@@ -1,0 +1,1108 @@
+Bioinformatics, 32, 2016, i378—i385
+doi: 10.1093/bioinformatics/btw281
+ISMB 2016
+
+ 
+
+A novel algorithm for calling mRNA m6A peaks
+by modeling biological variances in
+MeRlP-seq data
+
+Xiaodong Cui1, Jia Mengz, Shaowu Zhang3, Yidong Chen4'5 and
+Yufei Huang1'5'*
+
+1Department of Electrical and Computer Engineering, University of Texas at San Antonio, TX 78249, USA,
+2Department of Biological Science, Xi'an Jiaotong-Liverpool University, Suzhou 215123, China, 3College of
+Automation, Northwestern Polytechnical University, Xi'an 710072, China, 4Greehey Children's Cancer Research
+Institute and 5Department of Epidemiology and Biostatistics, University of Texas Health Science Center at San
+Antonio, TX 78229, USA
+
+*To whom correspondence should be addressed.
+
+Abstract
+
+Motivation: N6—methyI—adenosine (m6A) is the most prevalent mRNA methylation but precise pre—
+diction of its mRNA location is important for understanding its function. A recent sequencing tech—
+nology, known as Methylated RNA Immunoprecipitation Sequencing technology (MeRIP—seq), has
+been developed for transcriptome—wide profiling of m6A. We previously developed a peak calling
+algorithm called exomePeak. However, exomePeak over—simplifies data characteristics and ignores
+the reads’ variances among replicates or reads dependency across a site region. To further im—
+prove the performance, new model is needed to address these important issues of MeRIP—seq
+data.
+
+Results: We propose a novel, graphical model—based peak calling method, MeTPeak, for
+transcriptome—wide detection of m6A sites from MeRIP—seq data. MeTPeak explicitly models read
+count of an m6A site and introduces a hierarchical layer of Beta variables to capture the variances
+and a Hidden Markov model to characterize the reads dependency across a site. In addition, we de—
+veloped a constrained Newton’s method and designed a log—barrier function to compute analytic—
+ally intractable, positively constrained Beta parameters. We applied our algorithm to simulated and
+real biological datasets and demonstrated significant improvement in detection performance and
+robustness over exomePeak. Prediction results on publicly available MeRIP—seq datasets are also
+validated and shown to be able to recapitulate the known patterns of meA, further validating the im—
+proved performance of MeTPeak.
+
+Availability and implementation: The package ‘MeTPeak’ is implemented in R and C—I——I—, and add—
+itional details are available at https://github.com/compgenomics/MeTPeak
+
+Contact: yufei.huang@utsa.edu or xdchoi@gmail.com
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+ 
+
+1 Introduction
+
+Compared with DNA methylation, which is a well—established and
+extensively studied epigenetic phenomenon, m6A methylation in
+mRNA is still largely an uncharted territory. Recent surge of interest
+comes mainly as a result of two groundbreaking studies (Dominissini
+et 61]., 2012; Meyer et 61]., 2012) that show high abundancy of m6A in
+>25 % of transcripts in human and mouse cells. A number of
+
+©The Author 2016. Published by Oxford University Press.
+
+subsequent studies have provided significant insights into the mechan-
+ism as well as the functions of mRNA m6A methylation. It is known
+now that the m6A methyltransferase complex, or the m6A writer,
+consists of Wilms’ tumor 1—ass0ciating protein (WTAP),
+methyltransferase—like 3 (METTL3) and methyltransferase-like 14
+(METTL14) (Liu et al., 2014; Nilsen, 2014; Wang et 61]., 2014b).
+Different from DNA methylation, m6A methylation is reversible and
+
+i378
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution Non-Commercial License (http://creativecommons.org/Iicenses/by-nc/4.0/),
+which permits non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact
+
+journals.permissions@oup.com
+
+112 /§JO'S{Bu1no [p.IOJXO'SOTlBIHJOJUTOTQ/ﬁdllq 11101; popeoprmoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+MeTPeak: novel m6A peak calling algorithm
+
+i379
+
+ 
+
+can be removed by m6A demethylase, or m6A erasers, such as the fat
+mass— and obesity—associated protein (FTO) (Fu et 61]., 2014; Meyer
+et 61]., 2012). In addition, the YTH protein domain functions as an
+m6A reader that recruits the binding of the m6A methyltransferase to
+mRNA (Wang et 61]., 2014a). The mRNA m6A methylation has been
+shown to play a role in mRNA stability, processing and translational
+efficiency (Alarcon et 61]., 2015; Niu et 61]., 2013). These recent ad—
+vances notwithstanding, the fact of wide—spread m6A in transcriptome
+suggests that m6A is potential involved in many other unknown biolo-
+gical processes.
+
+These recent breakthroughs of m6A are largely attributed to the
+development of the Methylated RNA Immunoprecipitation
+Sequencing technology, or MeRIP—seq (also known as ‘m6A—seq’),
+which is designed to profile transcriptome—wide m6A sites. MeRIP—
+seq is technically a synthesis of two well—established methods: chro—
+matin immunoprecipitation sequencing (Kidder et 61]., 2011) and
+RNA sequencing (RNA—seq) (Garber et 61]., 2011). In MeRIP—seq,
+mRNAs are first fragmented into approximately 100—nucleotide—
+long fragments. A large portion of the fragments are immunopreci—
+pitated by anti—m6A antibody and subsequently measured by high—
+throughput sequencing to form Immunoprecipitation Sequencing
+(IP) samples. In addition, input samples, which are used to measure
+the background mRNA abundance for the IP experiments, are gen-
+erated by sequencing the un—immunoprecipitated mRNA fragments.
+To predict m6A sites, the IP and input reads are aligned to the tran—
+scriptome and the reads enrichment of IP over the combined reads in
+IP and input are assessed.
+
+To meet the computational needs for MeRIP—seq—based m6A
+peak detection, we previously developed the exomePeak R package
+(Meng et 61]., 2014). Basically, exomePeak calculates the overall
+methylation degree by dividing the IP reads by the sum of IP and
+input reads. Given the hypothesis that all the IP reads at a particu—
+lar location follow the same Binomial distribution, parameterized
+by the overall methylation degree, exomePeak computes a C test
+(Przyborowski and Wilenski, 1940) to determine the methylation
+sites. Although exomePeak could achieve fairly robust m6A detec—
+tion, there are still two major limitations. First, exomePeak does
+not model the reads variance within transcripts and across repli—
+cates. Usually, highly fluctuating read enrichments can be observed
+around an m6A site and in MeRIP—seq replicates. However,
+exomePeak assumes that the site regions share the same reads en—
+richment. Second, exomePeak ignores the dependency of reads en—
+richment along the mRNA transcripts and therefore could miss the
+true peaks with low enrichment or erroneously predict the noisy
+outlier as true peaks. To address these issues, we introduce in this
+article a new algorithm, MeTPeak. MeTPeak deploys a hierarch—
+ical beta—binomial model to model the variance of reads enrich—
+ment and a Hidden Markov Model (HMM) to account for the
+dependency of neighboring enrichment. MeTPeak is an open-
+source R package, where core heavy computation part of the algo—
+rithm is written in C —I——I—.
+
+2 Methods
+2.1 Graphical representation of MeTPeak
+
+MeTPeak detects m6A peaks on each gene separately, where a par—
+ticular gene is first divided into N mutually connected bins whose
+length is equal to the sequencing fragment L, MeTPeak models the
+reads dependency of the continuous bins by an HMM and the reads
+count in each bin by the mixture of Beta—binomial distribution. Now
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 1. Graphical Model of MeTPeak for a gene. N is the total number of bin
+3, M is the number of replicates, X”, is the observed lP reads and TN,”
+is the total number of observed reads in the mt), replicate at the nth bin.
+P is the methylation degree, Z is a latent variable that denotes the meth
+ylation status, indicating whether this is a peak or not. A,n,oz,ﬁare the un-
+known parameters. (See detailed explanation in main text.)
+
+assume that there are M pairs of IP and input replicate samples. For
+bin 11, let an denote the reads count in the mth IP sample and Ymn
+the counts in the mth input samples. We assume that the read counts
+follow the Poisson distribution as
+
+P(an) = POiS(S[p7mA[p7m)
+
+(1)
+ : POiS(Sctrl,m4~ctrl,m)
+
+where 51137171 and Smljm are the total reads (sequencing depth) in the
+mth IP and the mth input samples, respectively, and 21pm and 2mm
+are the respective normalized Poisson rates. Let Z, E [1, 2] denote the
+unknown hidden methylation status, with 1 representing methylated
+and 2 otherwise. As shown in Fig. 1, given (1), the conditional prob—
+ability of observing an given the total counts Tm : an —I— Ymn
+follows the binomial distribution
+
+2 Tm” I(Zn=k)
+P(X"m|p”’zn7 Tm”) : H  >pnxmn(1 — 190nm) (2)
+
+[3:1 an
+
+where 1),, represents methylation degree at the nth bin, which is pro-
+portional to reads count in the IP over the total counts at bin 11, I (-)
+is the indicator function. In addition, to model the read counts
+variances, 1),, is further assumed to follow a priori the Beta
+distribution,
+
+H2 F(o<k)F(ﬂk) _1 [a —1 I(Z 2k)
+P n 2:”, 7 Z — ﬂak 1 _ n la n 3
+(p l a  k:1(1-‘(o€k  p ( p ) ) ( )
+
+where or : [0(1oc2]T, ﬂ : [ﬂ1,ﬂ2]T are the unknown parameters. After
+integrating 1),, from (2) and (3), an follows the Beta—binomial
+distribution
+
+I(ank)
+
+ 
+
+2 (C. 11an +O€k)r(Ymn +ﬂk) FOX/e “30>
+
+P(an|Zn;0€,ﬁ):l£Il 1“(Tmn+o¢k+ﬂk) F(0€k)r(ﬂk)
+
+(4)
+
+where C: F(T,,m —l— 1)/(F(X,,m —l— 1) -F(Ym,, —l— 1)) is the normalization
+constant. It becomes clear from (4) that the parameters or and ﬂ are
+shared for all bins across the replicates and they function to model
+
+112 /§JO'S{Bu1no [p.IOJXO'SSUBUHOJUTOTQ/ﬁdllq 11101; popeoprmoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+i380
+
+X. Cui et al.
+
+ 
+
+the variance of reads in M replicates. As a result, the joint log—
+likelihood function of all replicates can be expressed as
+
+N N
+
+I: log: P(X, zyo) = log: P(Z1[713)HP(Z,,[Z”_1,A)HP(XH[Z,,,d,ﬂ)
+Z Z
+
+2
+
+H71:ka =le) ﬁ ﬁﬁAiiI(zn_1 =i,zn =1)
+
+le:1 n:2z‘:1 1:1
+
+I (zn :le)
+
+ 
+
+.N M 2 .F<an + mum. + 0.) r0). + 0.)
+ (C F(Tmn + 0% + Bk) F(06k)F(ﬁk))
+
+(5)
+
+where
+G = [onliAnIL z =121,ZZ,...,ZNIT, X = 1X1, X2....,XN]T
+anan 2 [x1,,,x2,,, . . .,xM,, F.
+
+2.2 Sites detection and parameter inference
+
+Identifying methylation sites requires inferring the hidden methyla-
+tion status variable Z and the model parameters 6). However,
+given the non-linearity of the likelihood function (5), no closed—
+form solution for the maximum likelihood estimators can be ob—
+tained. Alternatively, we turn to the expectation maximization
+(EM) framework for a numerical solution (Lindstrom and Bates,
+1988). Furthermore, as the parameters for Beta—binomial distribu—
+tion [06, [l] are constrained to be positive, we device a barrier func—
+tion and propose a constrained maximization procedure to achieve
+that goal.
+
+The EM algorithm estimates Z and G) in an iterative fashion,
+where each iteration consists of an E step and an M step. In the E
+step, the posterior distributions of Z given an initial estimate or the
+previously computed parameters 0"” is calculated. To do so, the
+joint marginal P(Z,,, X) is first computed through the forward—back—
+ward recursion algorithm (Supplementary Equation (9—11)), from
+which the conditional posterior distributions P(Z,,|X, 0°”) and
+P<Zn_1, ZnX, 0"”) can be subsequently obtained.
+
+In the M step, a new estimate of 07‘8"” is obtained through maxi-
+mizing Q(®, 0"”), which is a lower bound of l in (5) and has the
+expression
+
+N N
+9(6), W) = ZcxznogmziIn>HP(zn|z,_1,A>HP<anzma,/:>>
+Z 71:2 76:1
+
+(6)
+
+where q(Z) is a shorthand expression of P(Z|X,0°ld). Among G),
+closed—form expressions can be obtained for [A,n] and the detailed
+derivations are provided in Supplementary (S14—S17). However, be—
+cause the derivative of Q(®,®°ld) w.r.t. [06,ﬁ] has no closed form
+and [06,ﬁ]are constrained to be positive, an estimate of [06,ﬁ] cannot
+be computed directly. To address this difficulty, we propose a con—
+strained Newton’s method, whose optimization objective is formu—
+lated as
+
+minimize — s
+
+(7)
+st. FA 3 lo
+
+where s is an equivalent form Q(®, 0"”) containing only the terms
+w.r.t [06, ﬂ], A : [06T, ﬁT]T and F and lo are the coefficients for the in-
+equality constrains. To constrain A > 0 as desired, la is set to zero
+and F is set to a diagonal matrix with —1s as the diagonal elements;
+however, this general inequality constrain formulation allows inclu-
+sion of any linear constrains such as an upper limit on [06, ﬂ]. The
+
+basic idea to solve (7) is to use a logarithmic barrier to make the in-
+
+equality constrain implicit, i.e.
+1 m
+minimize —s —  lOgU?) — [TM (8)
+i=1
+
+where t > 0 is a parameter that sets the accuracy of estimation,
+where the estimation becomes more accurate as the t increases, m is
+the number of inequality constrains, and  , .,  are the rows of F.
+Minimization of (9) can be carried out for each component separ—
+ately and the parameters Ak for the kth component for le E [1,2] is
+
+calculated iteratively as
+Aknew : Akold _ Hk—ljk 
+
+where ]k and Hk are the gradient and Hessian of (9) w.r.t. Ak
+: [0%, ﬂk]T. Specifically, the gradient has the form
+
+ 
+
+ 
+
+ 
+
+ 
+
+_ - M _ '
+N @(ak -I- ﬂk) ' M — Z@(Tmn + We + ﬁle)
+m=1
+7621 M
+4pm,) - M + Zamxm, + 06,)
+Jk : —t. : "1:1 M :
+N @(Oék + ﬂk) ‘ M —  + ale + ﬁle)
+m=1
+7621 M
+4pm,) - M + ZMYW + [36)
+_ _ m=1 — -
+— Flerlea
+
+(10)
+
+where Fk and bk are elements in F and lo that correspond to Ak,
+q(Z,,k) : P(Z,, : le|X), which is the posterior probability of Zn : le,
+and  : logF(-), and dk : FkAk — bk. The Hessian can be ex—
+
+pressed as
+Hk = —t - 5,, + Fdeiag(dk)Fk, (11)
+
+where Sk is the Hessian for s in (10) with respect to Ak, whose de—
+
+tailed form can be found in Supplementary Equation (23—24).
+Taken together, the proposed MeTPeak algorithm can be sum—
+
+marized as follows:
+
+ 
+
+For every gene in the list
+Initialization: choose an initial random 6)
+Repeat: until the increment of likelihood in (5) g 10_5
+E step: use the previous estimate 0m_1 to update the pos—
+terior probability q(Z,,) in (6)
+M step: optimize the parameters 0m through maximizing
+Q(o,0°’d) in (6)
+Compute parameters [A, TE] according to Supplementary
+Equation (14—17)
+Initialize t : 1 in (8)
+Repeat: until t 2 106
+Compute gradient and Hessian according to (10-11)
+Compute A by Newton’s method in (9)
+Increase t
+Report peak according to the threshold FDR (See in
+Supplementary)
+
+ 
+
+112 /§JO'S{Bu1no [p.IOJXO'SSUBUHOJUTOTQ/ﬁdllq 11101; popeoprmoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+MeTPeak: novel m6A peak calling algorithm
+
+i381
+
+ 
+
+3 Results
+
+3.1 Performance evaluation by simulation
+
+We started by first evaluating the performance of the proposed con—
+strained Newton’s method for estimating the parameters [06, ﬂ] by
+examining the goodness—of—fit to the mixture of Beta—binomials dis—
+tribution. The results showed that MeTPeak can accurately fit the
+mixture under a variety of variance conditions (Supplementary Fig.
+S1). Then, we assessed the performance of MeTPeak using the simu—
+lated MeRIP—seq dataset where the true methylation sites were
+known according to the proposed generative model described in
+Section 2.1. The reads for each gene were simulated independently,
+where the count for each bin was generated according to the HMM—
+based Beta—binomial model. To obtain proper parameters for 06 and
+ﬂ that mimic the methylation sites, we examined the genes with
+methylation degree 1),, and fitted the Beta distributions from a real
+MeRIP—seq case—control study as shown in Supplementary Fig. S2.
+The estimated parameters for the site region was [061, ﬂl] : [6,2],
+with the mean of methylation degree pmean : 0.75, the parameters
+for non—peak region were set to [062, ﬂz] : [1,5], and the proportion
+weight for the peak versus non—peak region was set
+to w = [0.3, 0.7]. For each of the following experiments, MeRIP-seq
+reads of 1000 genes with methylation sites were simulated according
+to the above—defined parameters. Detection results of both MeTPeak
+and exomePeak were obtained and to evaluate the performance,
+areas under the receiver operating characteristic curves (AUCs) were
+obtained for both methods. Unless otherwise specified, two repli—
+cates were simulated for each experiment.
+
+3.1.1 MeTPeak is robust against data variance
+
+We first investigated the detection robustness of MeTPeak by con—
+sidering different variances of data because in the real MeRIP—seq
+datasets, the reads variation in peak regions across these replicates
+can vary dramatically. Particularly, a number of beta distributions
+of peak regions with variances designed to range from 0.014 to an
+extreme high level 0.134, corresponding to [06, ﬂ] = [0.3, 0.1], were
+simulated to generate reads, where pmean = 0.75 was held for each
+case. The AUC curves in Fig. 2 show that MeTPeak was highly ro-
+bust against the change of variance and achieved close to >95 %
+AUC even at the highest variance. In contrast, the performance of
+exomePeak clearly degraded with variance and at the highest vari—
+ance level, it dropped >20% in AUC and more than four times than
+MeTPeak. This is because exomePeak assumed that the methylation
+degree from all the sites are the same, which obviously violates the
+real case of MeRIP—seq data.
+
+1.00-
+
+ 
+
+0.95- _ 
+O 0.90- ._ ‘i
+3 . a
+a:
+
+0.35 -
+
+..=s MeTPeak a1 luv.r var
+13.30 ' exomePeak at low var
+, L - MeTPeak .11 high I.rar
+
+exomePeak at high var
+
+U-?5 "' I "' I "' I ' I ' I " I
+0 2 4 E B 10 12
+
+Number of Replicatea
+
+ 
+
+ 
+
+Fig. 2. MeTPeak achieves higher AUCs and is robust against the increase of
+variance
+
+3.1.2 MeTPeak is robust for small replicates
+
+We next evaluated the inﬂuence of MeRIP—seq replicates on the de—
+tection performance. Usually in the MeRIP—seq experiments, it is
+hard to get more than four biological replicates, and robustness
+under the condition for small replicates is useful for the peak-calling
+algorithms. Simulated data with the number of replicates varying
+from 1 to 12 were generated under two variances conditions and re—
+sults are shown in Fig. 3. AUCs of both methods increased with the
+number of replicates. However, MeTPeak was robust and achieved
+about 5% and 10% more AUC than exomePeak even with one repli-
+cate at low and high data variance, respectively. In addition, even
+under the condition of high data variance, with more than four repli-
+cates, MeTPeak could excel the AUC of exomePeak in low data
+variance. In contrast, exomePeak can barely reach that of MeTPeak
+at high variance despite the increase of replicates. This improvement
+of MeTPeak is mainly owing to careful modeling of reads variance
+and replicates.
+
+3.1.3 MeTPeak is robust against data outlier
+
+We next considered a specific case in which MeRIP—seq data contain
+reads outlier, a scenario where counts in some replicates were sig—
+nificantly larger than those in the remaining replicates. In such case,
+because exomePeak is likely to produce erroneous predictions be—
+cause its decision is based on the average counts of all the replicates,
+and the outlier reads could significantly skew the true distribution of
+the reads, leading to erroneous predictions. To evaluate the impact
+of reads outlier on MeTPeak performance, we simulated a case with
+four replicates and three samples were generated with parameter
+[06, ﬂ] = [6,2] for the methylation peaks, whereas in the fourth, out—
+lier sample, peaks were simulated from different locations and reads
+counts in peak regions were made to artificially vary from 1 to 15
+times of the averaged counts of peak regions in the other three repli-
+cates. As shown in Fig. 4, the performance of exomePeak drops sig-
+nificantly with the increase of outlier counts. In contrast, MeTPeak
+performance is highly robust (~95% of AUC) against different lev—
+els of outlier.
+
+3.1.4 MeTPeak is sensitive to lowly enriched peaks
+
+Furthermore, we examined the detection sensitivity, especially for
+lowly enriched peaks. We simulated the data with varying methyla—
+tion degree from a low methylation degree with pmean : 0.33, to a
+
+ 
+
+1.00- ilﬂlliliiliilliﬂm.h
+' n
+0.05 I
+O 0.90 -
+:1
+q I
+0.05 -
+I ! MeTPeak
+ﬁlm _ exomePeak
+
+ 
+
+0.02 0.04 0.06 0.08 0.10 0.12 0.14
+Variance of Simulated Peaks
+
+Fig. 3. MeTPeak achieves good performance under high variance with small
+number of replicates
+
+112 /§JO'S{12u1no [p.IOJXO'SOTlBIHJOJUTOTQ/ﬁ(1111] 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+i382
+
+X. Cui et al.
+
+ 
+
+highly enriched with pmean : 0.89. The result is depicted in Fig. 5
+and it demonstrates that at all tested methylation degrees, MeTPeak
+outperformed exomePeak for detecting lowly enriched peaks. Even
+at an extremely low methylation degree of pmean : 0.33, a scenario
+where the read counts in IP samples are half of that in input samples,
+MeTPeak still can achieve >70% AUC, about 5% higher than
+exomePeak. This improvement by MeTPeak in detecting lowly en—
+riched peaks demonstrates the advantage of modeling the depend—
+ency of reads.
+
+3.2 Performance evaluation using real MeRIP—seq
+datasets
+
+To further validated MeTPeak, we applied it to real publically avail—
+able MeRIP—seq datasets. The first two MeRIP—seq datasets are from
+the study of the function of FTO, where FTO is a demethylase that
+functions to remove m6A methylation. In this study, FTO was
+knocked out from mouse midbrain cells, and the MeRIP—seq data—
+sets before (wildtype or WT—FTO) and after knock—out (KO-FTO)
+were obtained (Meyer et al., 2012). We should expect an increase of
+m6A methylation after FTO knockout. The other four datasets come
+from the experiments that studied the roles of the components in
+human methyltransferase complex, namely METTL3, METTL14
+
+1.0-
+
+0.0 -
+
+0.0 -
+
+ 
+
+0.? -
+
+AUC
+
+0.0 -
+
+' 1* MeTPeak
+0.5 - exameF’eak
+
+ 
+
+ 
+
+Degree 01 outlier samples
+
+Fig. 4. MeTPeak is robust against biased reads
+
+1.00 - "
+0.05 -
+0.00 -
+0.05 -
+
+0.80 -
+
+AUC
+
+0.?5 -
+
+am I 1* MeTPeak
+
+0.65 - exomePeak.
+
+ 
+
+ 
+
+U  - I - I - I - I ' I ' I - I - I
+‘l 2 3 4 5 6 7' B
+
+F010 enrichment fer peak regien
+
+Fig. 5. MeTPeak is sensitive to lowly enriched peaks
+
+and WTAP. The datasets include MeRIP—seq samples from the wild—
+type HeLa cells (WT—HeLa) and HeLa cells after knocking out each
+of the three proteins (KO-METTL3, KO-METTL14 and KO-
+WTAP) (Liu et al., 2014). In this case, we should expect a decrease
+of m6A methylation in knockout cells. The datasets were down—
+loaded from Gene Expression Omnibus under the accession number
+GSE47217 for KO-FTO experiment and GSE46705 for the others.
+The dataset of WT—FTO (KO—FTO) includes three replicates for
+each of WT—FTO IP samples (KO-FTO IP) and WT-FTO input sam-
+ples (KO—FTO input). Each dataset of KO—METTL3, KO—
+METTL14 and KO-WTAP has two IP and input replicates and WT—
+HeLa has four replicates, respectively. For all the samples, reads
+were aligned to the corresponding transcriptome (UCSC mm9 or
+UCSC hg19) by TopHat2 (Kim et al., 2013). After quality control
+(QC > 30), the depth of the samples was normalized to the geomet—
+ric mean.
+
+We assessed the prediction specificity of MeTPeak and
+exomePeak by evaluating their false positives (FPs), i.e. the percent—
+age of falsely detected peaks among all un—methylated peaks. To cal—
+culate false—positive rates, we need to know the true unmethylation
+peaks, which however were not readily available. To circumvent
+this difficulty, we created artificial datasets, where for each dataset,
+we replaced input (or IP) samples by a subset of IP (or input) repli-
+cate samples and treat them as pseudo input (or IP) samples for a
+particular condition WT (or KO). Because the IP and input samples
+in each artificial dataset are replicate samples from the same IP (or
+input), there should not be any reads enrichment and thus any de—
+tected peaks should be FPs. Eight artificial datasets were generated
+as WT—FTO IP versus WT—FTO IP, WT—FTO input versus WT—FTO
+input, KO-FTO IP versus KO-FTO IP, KO—FTO input versus KO—
+FTO input. Each dataset can be manipulated to generate two pseudo
+datasets by the strategy of using IP versus IP and input versus input
+(i.e. WT—FTO IP versus WT—FTO IP, WT—FTO input versus WT—
+FTO input). Therefore, a method has higher specificity if it detects
+less number of m6A sites across all these artificial datasets at the
+same FDR threshold.
+
+To evaluate the specificity at different detection thresholds, a ser—
+ies of FDR thresholds (0.00001—0.1) was evaluated for both
+MeTPeak and exomePeak. At a particular FDR, a ratio of FPs (RFP)
+was computed as number of FPs by MeTPeak divided by that by
+exomePeak. MeTPeak will have higher specificity if RFP < 1. Fig. 6
+shows the RFPs for the artificial datasets from WT— (KO—) FTO and
+WT- (KO-) METTL14 datasets; the results of the rest datasets can
+be found in Supplementary Fig. S3. We can see RFPs are always less
+than one for all FDR thresholds in all 12 tested datasets. On aver—
+age, MeTPeak has three times less FPs than exomePeak at any given
+FDR threshold. For exomePeak, even at FDR threshold of 0.00001,
+it still reported about more than 10 times more FPs than MeTPeak
+did. These results suggest that MeTPeak has a consistently higher
+specificity than exomePeak.
+
+3.3 Prediction results on real MeRIP—seq datasets
+
+After comprehensive evaluation of MeTPeak performance on both
+simulation and real datasets, we analyzed the MeTPeak predictions
+on those six MeRIP—seq datasets to investigate context—specific and
+common characteristics of m6A methylation sites. The results for
+WT(KO)-FTO and WT(KO)-HeLa(METTL14) are shown in Fig. 7
+(see Supplementary Fig. S4 for results for KO-METTL3 and KO-
+WTAP). On average, 13 172 m6A sites were detected by MeTPeak
+(FDR < 0.05), whereas the number of detected peaks by exomePeak
+is 16 691. Although in all datasets, exomePeak reports more peaks
+
+112 /§JO'S{12u1no [p.IOJXO'SOTlBIHJOJUTOTQ/ﬁ(1111] 111011 pop120111m0q
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+   
+
+ 
+
+MeTPeak: novel m6A peak calling algorithm i383
+A 1.0 -
+I - WT—FTGIP
+D a -  input -_'. ;'jij'-' 5 - I
+m ' ‘ - KD-FTD IP .
+g ‘ KD—FTD input I iiiaiiiuiis
+E .15 .. a. q 5.3. ._ | [[eiiorrieFeak
+D F: l MeTPeak
+3 " i E I {Background
+:0 . ' D i _
+E 0'4 " _. 0 0000- i Eva-331%
+D I - I
+E ' i I
++5 0.2 - I
+ID: i] LlClifJ -
+. i
+-=~CIL 0250 0 250 500
+0.0 - .
+. . . . , . , . I Distance
+-5 4 -3 -2 -1
+loglﬂiThreshold DfFEJRI
+E; 1 U - 0:0.5-
+II
+. - WT—HeLalP H mm ads
+0 a _ - WT—HeLa input  ii vemmpeak
+E ' Kill-METTL14 IP E- II {ME-rpm],
+3E ‘ KD-MEITLI 4 input 2  :Backgruund
+E [115 . 3 Datasel
+Q LII 5.1005- — I. 'lf'il'T-HIELEI
+$ . II
+E II
+2: 0.4 - II
+D ii
+E ‘ f 00000 n
+E “'2 ' 00:! "251; 0 0.00 5.00
+. ’ Distance
+0'0 ' Fig. 8. Comparison of distributions of the distance of motif ‘GGAC' to the cen-
+_'5 ' l‘ ' :3 I _'2 I :1 ter of the detected m6A sites between MeTPeak and exomePeak. (A)
+
+lcglﬂlThreshcld 0fFDR}
+
+Fig. 6. Ratios of FPs between MeTPeak and exomePeak (MeTPeak over
+exomePeak) versus log10 FDR threshold. A and B show the results of two dif-
+ferent artificial datasets. As can be seen, MeTPeak commits far less FPs than
+exomePeak
+
+End-STE
+
+30000 131?5
+10000
+0
+ -|- i-::
+
+Fig. 7. Prediction results on real MeRlP-seq datasets by MeTPeak
+
+I exomePeak
+.MeTF-‘eali
+
+10434
+14302
+11??4 1103?
+1mMI E'21:]
+
+“JO-FTC) 'L-"'.' T-- |I?| :-.'i H13- Fv'lllZI | L14
+
+MeRlP—seq datasets
+
+Numer of methylation sites
+
+than MeTPeak, exomePeak commits far more FPS as demonstrated
+in Section 3.2. As a result, MeTPeak is likely to produce more reli-
+able m6A sites. Besides, we carefully examined the methylation sites
+in IGV2.1 (Thorvaldsdottir et al., 2013). We found that some obvi-
+ous methylation sites were missed by exomePeak (see gene Tgfbr3 in
+Fig. 85), while a lot more unlikely methylated loci were reported as
+methylation sites, as the read count was extremely small (see gene
+
+Distribution of distance of the motif to the center on WT-FTO dataset. (B)
+Distribution of distance of the motif to the center on WT-HeLa dataset
+
+Ccdc60 in Fig. S5). It takes MeTPeak about 3N4 hours to predict
+m6A sites for the datasets with three replicates on an ordinary desk-
+top (see detailed runtime analysis in Supplementary).
+
+To further validate the methylation sites identified by MeTPeak,
+we searched the m6A motif in the sequences of detected peaks. It has
+been shown in (Liu et al., 2014) that ‘GGAC’ is the most significant
+consensus sequence. Therefore, we extracted the sequences of the
+top 5000 most enriched peaks ranked according to FDR for each al-
+gorithms using BEDTools (Quinlan and Hall, 2010) and searched
+‘GGAC’ motif in each one of these sequences, where the distance
+from the location of the identified motif to the center of the peak
+was computed. The distributions of the distance for WT-FTO and
+WT-HeLa are plotted in Fig. 8 (See Supplementary S6 for other
+datasets). We can see that the distribution of MeTPeak is peakier,
+indicating that ‘GGAC’ motif is closer to the center in the MeTPeak
+detected peaks, demonstrating again higher accuracy in the detected
+methylation site. Next, we investigated the m6A fold enrichment,
+defined as IP reads count divided by input reads count in the peak
+region. The distributions of fold enrichment of the identified peaks
+are plotted in Fig. 9 and Supplementary Fig. S7. The figures show
+that the distribution of fold enrichment for MeTPeak is significantly
+higher than that for exomePeak (Welch t-test, P < 2.2e-16). The re-
+sults show that MeTPeak is robust to the reads variance and favors
+peaks with higher fold enrichment than exomePeak, demonstrating
+the advantages of modeling variances for the read counts.
+
+We next examined the shared m6A peaks between WT and KO
+conditions in these four MeRIP-seq datasets to evaluate the
+
+112 /BJO'S[BUJHO[p.IOJXO'SOTlBUIJOJUTOTQ/ﬂdllq 11101; papeoIHmoq
+
+9IOZ ‘OE lsnﬁnv uo ::
+
+ 
+
+ 
+
+i384 X. Cui et al.
+A .e -
+0
+D
+I
+3..., -.i . — E
+=- ..
+E Metheds E
+0: 1?”. exomePeak. E m
+D I MeTPeak. .g . KOFTO
+Dataset E h mns'rTLi-i
+WT_FTD 2 ~ . sans-ma
+.E . militate
+“E
+a
+E,
+N
+D}
+E
+
+ 
+
+    
+
+lii'leth eds
+
+ exam 0 P ask
+I“ MeT Peak
+Data set
+
+WT—H ELEI
+
+Density.»r
+
+   
+
+ 
+
+| 'I F.‘ —" 
+
+|0g2iF0ld enrichment f0r methylation sites}
+
+Fig. 9. Comparison of distributions from fold enrichment of identified methy-
+lation sites between MeTPeak and exomePeak. (A) Distribution of fold enrich-
+ment of methylation sites on WT-FTO dataset. (B) Distribution of fold
+enrichment of methylation sites on WT-HeLa dataset
+
+enrichment change of the common methylation sites. There are
+11 534 common m6A peaks reported by MeTPeak in WT-FTO and
+KO-FTO datasets; for KO-METTL14, KO-METTL3 and KO-
+WTAP datasets, we found 6170, 8256 and 6067 m6A peaks, re-
+spectively. Later, we extracted the fold enrichments for the shared
+m6A peaks and differential ratios were computed by using fold en-
+richment in the treated condition divided by that in the WT condi-
+tion. The boxplots of differential ratios for each group of MeRIP-
+seq datasets are shown in Fig. 10. In KO-FTO dataset, both the me-
+dian and mean are above zero, meaning that methylation sites de-
+tected in KO-FTO have higher fold enrichment than that in WT-
+FTO, which is consistent with the fact that knocking out FTO
+would lead to increased methylation because FTO is an m6A deme-
+thylase. In contrast, in the other datasets, KO-METTL14/-
+METTL3/-WTAP leads to less methylation in the treated conditions,
+which is again consistent with the fact that METTL4, METTTL3
+and WTAP form the m6A methyltransferase complex. Interestingly,
+KO-METTL14 and KO-WTAP introduce more significant reduction
+of methylation than KO-METTL3. Indeed, it has been reported that
+both METTL14 and WTAP have a larger impact on m6A level than
+METTL3 (Liu et al., 2014).
+
+We also assessed the sequence motif of the detected m6A peaks.
+For each MeRIP-seq dataset, DREME (Bailey, 2011) was used for
+
+NZ"- |'.'2 iat'II‘tII-I ‘- i-l HT'J'uII-‘I 'l i Ki'.".".":‘-.l‘
+
+MeRlP-seq datasets
+
+Fig. 10. Boxplot of the differential fold enrichment change of the shared m6A
+sites between treated condition and wild-type condition
+
+z—Ib
+s
+o
+KO-FTO
+ﬁ hits H
+1 >0
+:i—Ih
+
+ 
+
+WT— He La
+hits
+'f' 1‘ 1’
+3b-
+5 ID-I
+Ea
+KO-M ETTL1 4
+hits
+D -|- In
+1
+2
+s
+I.
+s
+all]
+r
+
+22 2
+I— rit:
+'— l—
+”J E
+$.01 {501
+O s:
+I T
+Drﬁnqmeh “Fund-munch
+
+Fig. 11. Motifs detected by DREME on the MeRlP-seq datasets
+
+each dataset separately and the results are shown in Fig. 11. The en-
+riched motifs from these datasets all contain ‘GGAC’ motif. Then,
+we examined the distributions of m6A peaks. As shown in Fig. 12, in
+all cases, the distributions in mRNAs are consistent with the previ-
+ously reported general distribution of m6A (Meyer et al., 2012),
+where a clear enrichment can be seen around the stop codon. In add-
+ition, the distributions on lncRNA are also examined in Fig. 12.
+This consistent pattern of m6A distribution in mRNA and lncRNA
+across different cell lines and species suggests that the m6A methyla-
+tion is likely regulated by a similar mechanism. Note that the distri-
+butions of KO-M14 and KO-WTAP are somewhat different from
+
+112 /8.IO'SIBUJHO[p.IOJXO‘SOTlBUIJOJUTOTQ/ﬂdllq 11101; papeoIHmoq
+
+9IOZ ‘OE lsnﬁnv uo ::
+
+MeTPeak: novel m6A peak calling algorithm
+
+i385
+
+ 
+
+Distribution an mRNA Distribution 0n lncRNA
+
+ 
+
+.3."
+{in
+s v
+D IiI
+. II :
+5'UTR EDS ‘. E'UTR lncRNA
+. ’ 'H'li'T-FT'D KD-FTO
+:1 l I :- "
+3:
+m I.
+C _ :.
+1:0 I - 
+D '5
+
+ 
+
+:—
+EIUTE CD5- : ELITE [DC-RNA
+{0'5 WT-HBLE HD—MEI—I—LE ICC-MEWle _ ' I KID-WTAP
+
+Fig. 12. Distribution of m6A sites in mRNAs and IncRNAsAO1
+
+the rest. This could suggest that M14 and WTAP may engage in car-
+
+rying out similar functions.
+
+4 Conclusion
+
+We presented MeTPeak, a novel graphical model—based peak call—
+ing method for detecting m6A sites from MeRIP—seq data. We for—
+mulated the m6A peak calling problem as an inference of the
+mixture of binomial distributions by introducing a hierarchical
+layer of Beta distribution to model the variances among m6A sites
+in replicates. We also used HMM model to capture the reads de—
+pendency among the bins. To find the solution to the inference
+problem, we proposed a constrained Newton’s method for estimat—
+ing the Beta parameters and developed a fast inference mothed for
+estimating the m6A peaks. The method is suitable for processing
+MeRIP—seq data with replicates and high variance, which are com—
+mon cases in MeRIP—seq data. We have compared MeTPeak with
+exomePeak both on simulated and real MeRIP—seq datasets and
+the results showed that MeTPeak is highly robust against the data
+variances and outliers and making far less FPs than exomePeak.
+Finally, prediction of MeTPeak on real MeRIP—seq datasets have
+suggested that it precisely recapitulates the motif and distribution
+of m6A sites, as well as correctly predicting the methylation differ-
+ences among these methyltransferases, demonstrating the validity
+of MeTPeak.
+
+Acknowledgments
+
+The authors thank the computational support from the UTSA Computational
+System Biology Core, funded by the National Institute on Minority Health
+and Health Disparities (G12MD007591) from the National Institutes of
+Health.
+
+Funding
+
+National Institutes of Health (NIH-NCIP30CA54174, 5 U54 CA113001 to
+Y.C. and R01GM113245 to Y.H.); National Science Foundation (CCF-
+1246073 to Y.H.); The William and Ella Medical Research Foundation grant,
+Thrive Well Foundation and The Max and Minnie Tomerlin Voelcker Fund
+to M.K.R.; Natural Science Foundation of China (61473232) to 8.2.
+
+Conﬂict of Interest: none declared.
+
+References
+
+Alarcon,C.R. et al. (2015) N6-methyladenosine marks primary microRNAs
+for processing. Nature, 519, 482—485.
+
+Bailey,T.L. (2011) DREME: motif discovery in transcription factor ChIP-seq
+data. Bioinformatics, 27, 1653—1659.
+
+Dominissini,D. et al. (2012) Topology of the human and mouse m6A RNA
+methylomes revealed by m6A-seq. Nature, 485, 201—206.
+
+Fu,Y. et al. (2014) Gene expression regulation mediated through reversible
+m6A RNA methylation. Nat. Rev. Genet., 15, 293—306.
+
+Garber,M. et al. (201 1) Computational methods for transcriptome annotation
+and quantiﬁcation using RNA-seq. Nat. Methods, 8, 469—477.
+
+Kidder,B.L. et al. (2011) ChIP-Seq: technical considerations for obtaining
+high-quality data. Nat. Immunol., 12, 918—922.
+
+Kim,D. et al. (2013) TopHat2: accurate alignment of transcriptomes in the
+presence of insertions, deletions and gene fusions. Genome B £01., 14, R36.
+Lindstrom,M.]. and Bates,D.M. (1988) Newton—Raphson and EM algo-
+
+rithms for linear mixed-effects models for repeated-measures data. ]. Am.
+Stat. Assoc., 83, 1014—1022.
+Liu,]. et al. (2014) A METTL3-METTL14 complex mediates mammalian nu-
+clear RNA N6-adenosine methylation. Nat. Chem. Biol., 10, 93—95.
+Meng,]. et al. (2014) A protocol for RNA methylation differential analysis
+with MeRIP-Seq data and exomePeak R/Bioconductor package. Methods,
+69, 274—28 1.
+Meyer,K.D. et al. (2012) Comprehensive analysis of mRNA methylation re-
+veals enrichment in 3’ UTRs and near stop codons. Cell, 149, 1635—1646.
+Nilsen,T.W. (2014) Internal mRNA methylation ﬁnally ﬁnds functions.
+Science, 343, 1207—1208.
+
+Niu,Y. et al. (2013) N 6-Methyl-adenosine (m 6 A) in RNA: an old modiﬁcation
+with a novel epigenetic function. Genomics Proteomics Bioinformatics, 11, 8—17.
+
+Przyborowski,]. and Wilenski,H. (1940) Homogeneity of results in testing
+samples from Poisson series: With an application to testing clover seed for
+dodder. Biometrilea, 31, 313—323.
+
+Quinlan,A.R. and Hall,I.M. (2010) BEDTools: a ﬂexible suite of utilities for
+comparing genomic features. Bioinformatics, 26, 841—842.
+
+Thorvaldsdottir,H. et al. (2013) Integrative Genomics Viewer (IGV): high-
+performance genomics data Visualization and exploration. Brief Bioinform,
+14, 178—192.
+
+Wang,X. et al. (2014a) N6-methyladenosine-dependent regulation of messen-
+ger RNA stability. Nature, 505, 1 17—120.
+
+Wang,Y. et al. (2014b) N6-methyladenosine modiﬁcation destabilizes devel-
+opmental regulators in embryonic stem cells. Nat. Cell Biol., 16, 191—198.
+
+112 /810'spaumo [p.IOJXO'SOTlBIIIJOJUTOTQ/ﬁdllq 111011 pop12010moq
+
+9IOZ ‘09 lsnﬁnv uo ::
+

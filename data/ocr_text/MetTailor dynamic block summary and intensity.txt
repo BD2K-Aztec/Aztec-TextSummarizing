@@ -1,0 +1,1336 @@
+Bioinformatics, 31 (22), 2015, 3645—3652
+
+doi: 10.1093/bioinformatics/btv434
+
+Advance Access Publication Date: 27 July 2015
+Original Paper
+
+ 
+
+Systems biology
+
+MetTailor: dynamic block summary and
+intensity normalization for robust analysis of
+mass spectrometry data in metabolomics
+
+Gengbo Chen1. Liang Cuiz, Guo Shou Teo1, Choon Nam Ong1'3,
+Chuen Seng Tan1 and Hyungwon Choi1*
+
+1Saw Swee Hock School of Public Health, National University of Singapore and National University Health System,
+Singapore, Singapore, 2Interdisciplinary Research Group in Infectious Diseases, Singapore-MIT Alliance for
+Research & Technology, Singapore, Singapore and 3National University of Singapore Environment Research
+Institute, Singapore, Singapore
+
+*To whom correspondence should be addressed.
+Associate Editor: Alfonso Valencia
+
+Received on January 30, 2015; revised on June 13, 2015; accepted on July 21, 2015
+
+Abstract
+
+Motivation: Accurate cross-sample peak alignment and reliable intensity normalization is a critical
+step for robust quantitative analysis in untargetted metabolomics since tandem mass spectrometry
+(MS/MS) is rarely used for compound identification. Therefore shortcomings in the data processing
+steps can easily introduce false positives due to misalignments and erroneous normalization ad-
+justments in large sample studies.
+
+Results: In this work, we developed a software package MetTailor featuring two novel data preprocess-
+ing steps to remedy drawbacks in the existing processing tools. First, we propose a novel dynamic
+block summarization (DBS) method for correcting misalignments from peak alignment algorithms,
+which alleviates missing data problem due to misalignments. For the purpose of verifying correct re-
+alignments, we propose to use the cross-sample consistency in isotopic intensity ratios as a quality
+metric. Second, we developed a flexible intensity normalization procedure that adjusts normalizing fac-
+tors against the temporal variations in total ion chromatogram (TIC) along the chromatographic reten-
+tion time (RT). We first evaluated the DBS algorithm using a curated metabolomics dataset, illustrating
+that the algorithm identifies misaligned peaks and correctly realigns them with good sensitivity. We
+next demonstrated the DBS algorithm and the RT-based normalization procedure in a large-scale data-
+set featuring >100 sera samples in primary Dengue infection study. Although the initial alignment was
+successful for the majority of peaks, the DBS algorithm still corrected ~7000 misaligned peaks in this
+data and many recovered peaks showed consistent isotopic patterns with the peaks they were re-
+aligned to. In addition, the RT-based normalization algorithm efficiently removed visible local variations
+in TIC along the RT, without sacrificing the sensitivity of detecting differentially expressed metabolites.
+Availability and implementation: The R package MetTailor is freely available at the SourceForge
+website http://mettailor.sourceforge.net/.
+
+Contact: hyung_won_choi@nuhs.edu.sg
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+©The Author 2015. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com
+
+ 
+
+9mg ‘09 1sn8nV uo seleﬁuV soq ‘etulomeg JO KHSJQATII [1 1e ﬂJO'sleumo[pJOJXO'sopeuuogutotq/ﬁdug mm; pepeolumoq
+
+3646
+
+G. Chen et al.
+
+ 
+
+1 Introduction
+
+Mass spectrometry (MS) coupled with gas or liquid chromatography
+(GC-MS or LC-MS) is already the technology of choice in the
+metabolomics literature (Dettmer et al., 2007; Griffiths and Wang,
+2009). In the experiment, hundreds to thousands of compounds
+elute through the chromatography column at varying rates, resulting
+in separation of compounds across the retention time (RT). The
+compounds are then ionized and analysed by the MS, in which the
+mass to charge ratio (m/z) and the intensity of ions are determined.
+In the untargeted setting, compound identification is typically
+achieved by searching the mono isotopic mass of each peak against a
+large-scale database of compounds by exact mass values, such as the
+HMDB (Wishart et al., 2007, 2009), MassBank (Horai et al., 2010)
+and Metlin (Smith et al., 2005), to name a few. Quantitative data
+analysis is then performed using the corresponding peak intensity or
+integrated peak area in each sample.
+
+Despite conceptual similarity, extraction of peak features with
+precise compound identification has proved to be a challenging task
+in untargeted metabolomics. In particular, the lack of the identifica-
+tion step via global-scale MS/MS fragmentation makes cross-sample
+matching of peak feature data, so called alignment, as the most
+crucial data extraction step. This is because multiple compounds of
+a similar or identical mass with slightly different chemical structure
+(isomers) and different elemental composition, can co-elute and they
+are simultaneously analysed, creating mixed signals. Without the
+MS/MS evidence, the intensity signals for such molecules will be
+aligned together, being treated as the same compound. On the other
+hand, when thousands of features are processed across a large num-
+ber of samples, it is also possible that the same compound can be
+misaligned across the samples and subsequently treated as different
+compounds in the statistical analysis stage. Hence accurate data
+extraction and robust preprocessing steps are prerequisite for suc-
+cessful untargeted metabolomics analysis.
+
+The general workﬂow for MS data preprocessing consists of sev-
+eral steps. First, peak picking algorithms are applied to identify the
+ion chromatograms with robust isotopic patterns and each of them
+is reported as a peak feature with three-dimensional coordinates (m/
+z value, retention time and peak areas/intensities, often aggregated
+over isotopes and adducts into a major peak feature). Next, the peak
+alignment step removes the variations in both RT and m/z axes for
+the same compounds across the samples, aligning the extracted
+peaks to the same m/z and RT grid to a single identifier. The aligned
+peak intensity data are then further processed by a normalization
+procedure prior to statistical analysis, to remove the systematic bias
+introduced during sample preparation and the variation in the ion-
+ization efficiency and instrumental analysis. Common choices for
+normalizing metabolomics MS data include total intensity sum (TIS)
+(Manna et al., 2013), internal standard calibration (ISC) (Cui et al.,
+2013), or a statistical model that combines standards and T15
+(Sysi-Aho et al., 2007).
+
+Although the existing open source software packages such as
+MZmine (Pluskal et al., 2010) and XCMS (Smith et al., 2006) per-
+form peak picking and alignment, there is room for further improve-
+ment (Smith et al., 2013). In our observations, for example, even the
+most sophisticated multi-sample alignment algorithms have been
+prone to misalignment error at the individual compound level, espe-
+cially for less abundant compounds or multiply charged compounds.
+Misalignment tends to happen when (i) signal detection algorithms
+fail to separate co-eluting compounds, (ii) peak picking algorithms
+identify incorrect major isotopic peaks or (iii) minor temporal vari-
+ation outlasts the alignment step by a few seconds of RT or a few
+
+decimals in the m/z beyond the tolerance level specified in those
+algorithms.
+
+Besides the misalignment issue, the existing methods for data
+normalization also have limitations. For example, the internal stand-
+ard measurements can be inaccurate in some samples, or mixed with
+co-eluting compounds. The TIS method may ﬂuctuate due to poor
+chromatographic separation or the influence of a few dominantly
+abundant compounds, and it can also be inapplicable when the de-
+tected compounds are genuinely heterogeneous between comparison
+groups. Most importantly, the procedures mentioned above are cor-
+rections by a single constant, which adjusts all intensity values for
+global bias only and does not account for temporal or local vari-
+ations along the RT axis across different samples (Rudnick et al.,
+2014)
+
+To address these two key limitations in the current data process-
+ing pipeline, we developed a software package MetTailor, which im-
+plements two post-extraction processing steps including a method
+for block-wise quantitative summary and a novel RT-based local
+normalization procedure.
+
+2 Approach
+
+2.1 Dynamic block summary algorithm
+
+To address misalignment events in large sample datasets, we de-
+veloped an algorithm called dynamic block summary (DBS) that
+takes de-isotoped and pre-aligned peak intensity data reported from
+data extraction software packages and dynamically reduces local
+misalignment errors in the chromatographic space (m/z and RT
+grids). The DBS algorithm creates rectangular blocks with m/z and
+RT grid coordinates that are small enough to capture a single com-
+pound in the majority or all of the samples, and then acquires quan-
+titative summary for each block by the peak apex or the largest
+integrated peak area for downstream analysis in each sample. The
+resulting quantitative data corrects a certain degree of alignment
+errors when merging a large number of samples, yielding fewer miss-
+ing data in the data table reported by blocks.
+
+Figure 1 illustrates how the DBS algorithm works. The data
+shown are the raw peak intensity data from Agilent 6520 Q-TOF in-
+strument, prior to any signal extraction in the Dengue dataset (see
+Section 4). In each example, XCMS reported at least two consecu-
+tive rows across the samples for the same compound. The point
+where the horizontal line and the first vertical line crosses indicates
+the alignment coordinate for a particular row in the XCMS table
+(the two other vertical lines are expected m/z coordinates for their
+isotopes). In all panels, alignment was successful in the first three
+samples at the fixed m/z—RT coordinate (i.e. thus reported in the
+same row in the original table), while it failed in the fourth sample
+despite having a very similar m/z—RT coordinate (horizontal or verti-
+cal shift in the alignment point). Since the DBS algorithm places rect-
+angular blocks, it is able to bring the fourth sample back into the
+correct alignment and to summarize the maximal intensity data in-
+side the box across all the samples. As a result, this process merges
+the two rows representing the same compound in different samples
+into a single row.
+
+2.2 Isotopic pattern validation
+
+The local realignment achieved by the DBS algorithm does not al-
+ways merge the intensity data of the same compound. We thus pro-
+pose to use the isotopic patterns, represented by the intensity ratios
+between the mono isotopic peak to the next two isotopic peaks, and
+the charge state as the quality metric of alignments. In other words,
+
+9mg ‘09 isnﬁnV uo sejeﬁuV soq ‘erulomeg JO AirSJQAru [1 112 ﬁhO'sIeumo[pJOJXO'sopeuJJOJurorq/ﬁdnq wort pepeolumoq
+
+MetTailor: Post-processing of mass spectrometry-based metabolomics data 3647
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+P CN38 P CN39
+A T... T...
+':: di :2. g 5
+. . . . . . 8
+133 _ :: i» g _ - :: -
+'Cco . . i (Q i. . 8
+g . . . .
+8 o o o o oo Sooooogoo o o o o o ..i.E.E----->:.
+gg — ’ g — o o
+I_LD : to . i. .
+o: , 6.2 °
+0 .‘2 f o :2:
+8 T o 8 T
+I I I I I I I
+426 428 430 432 426 428 430 432
+P_CN38 P_CN39
+B I I I I I I
+I O I g. I
+%e _ e _  i
+CF [\
+o
+o I I I I I I I I I I I I l l l I I I I III I I I I I I I I.
+m i
+U)
+Ere N o
+‘1‘):
+g _ H’ 3 _ i
+N I I I N I I I
+505 507 509 505 507 509
+P_CN38 P_CN39
+C . . .
+1. o - ° .
+o, y 3 . o, g , .
+m — ’ o m — o
+Am . Lo - .
+U) I . .
+I
+E . I : I :
+8st I <1' i 4 O
+03_ . . . .  g . . . . . . .. $_ . . . . . 
+3 j . : .
+IE g o . .
+O : i ' O .
+co — - co — .
+LO .o o . ID i o
+s : ' 4
+I I I I I I I I
+765 767 769 771 765 767 769 771
+
+m/z m/z
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+o oIo > oIo
+N I I;
+:: > : :
+(I) (I) '
+8' it! ‘3 8‘
+.. . . . . . ..,.
+<r '0 <r
+8- air: 3 8"
+e - 8
+- o
+O " O
+a— I -- I' e-
+I I I I I I I I
+426 428 430 432 426 428 430 432
+P_CN 46 P_D1-18
+oo :"
+
+712
+
+|
+I”... '
+712
+
+l
+
+708
+I
+oooo
+708
+I
+oo
+
+oo
+
+. o
+
+. coooo
+I
+
+ooooooo
+
+ooo oo
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+<r <r _ 8 8
+E T I I I I‘3 I I ‘ I I
+505 507 509 505 507 509 51 1
+P_CN 46 P D3-13
+i I I ‘. I
+a _ ‘ I a _ i3 3
+LD o Ln r
+y o :9 o
+)
+Vl' . . . . . . . . .E. . . . . <I- . I
+3 T . 3 - g o.
+‘ 9 I I I I I I I; I I:I
+o g o  0.
+w - O 1 m _ ' '
+m 0. I. m o o
+8 I ’ 'o
+I I I I I I I
+765 767 769 771 765 769 771
+m/z m/z
+
+Fig. 1. Raw O—TOF data prior to preprocessing by XCMS. Each circle is a unique peak extracted from the corresponding szL file, whose intensity is indicated by
+the heat color (white: low intensity; red: high intensity). The green boxes are the blocks placed by the DBS algorithm. The case of failed alignment is presented in
+the fourth sample in each row, where the corresponding intensity data in the misaligned sample appeared in a separate row for that sample in the table reported
+by XCMS. The three panels show the different misalignment scenarios, but the DBS corrects the misalignment error in each case
+
+if the DBS algorithm correctly realigns a peak in a sample to a differ-
+ent m/z—RT coordinate, then its isotopic pattern and charge state
+should be consistent with the peaks from other samples that had
+been well aligned to the same coordinate. To do this, we provide a
+program as a part of MetTailor distribution to identify peak clusters
+around fixed m/z—RT coordinates from the raw MS data and extract
+their isotopic patterns and the charge states.
+
+2.3 Retention time-based local normalization
+We also propose a novel normalization procedure that does not ad-
+just all intensity values by a constant normalization factor. When a
+large number of samples are processed through a GC-MS/LC-MS
+platform, there are numerous temporal factors that can affect inten-
+sity measurements over the chromatographic time and subsequent
+steps such as the ionization efficiency in electro-spray ionization
+(ESI)-MS platforms. To address this, we developed a RT(5)-based
+normalization method, in which the normalizing factor is acquired
+by the weighted sum of peak area values in the RT neighborhood (of
+size 5) of each compound at a specific RT.
+
+The algorithm is capable of automatically determining the opti-
+mal window size 5 (see Section 3 for details). In the RT regions
+
+where few compounds are found, the algorithm recognizes the scar-
+city of data and borrows the information from other RT regions
+with a sufficient amount of data. By design this procedure can adap-
+tively remove temporal variations in the intensity data, and it be-
+comes equivalent to the T15 normalization in the absence of such
+local variations. It is also advantageous in that it prevents a few in-
+tense compounds from dominating the normalizing factor across all
+ions within each sample.
+
+3 Methods
+
+The starting material for MetTailor is the aligned data reported by
+the software packages such as MZmine and XCMS. We denote
+the intensity data as Y = {yi} = {yitm}, where the subscripts
+t: (1,  ,T), m: (1,  ,M) and/'2 (1,  ,n) are the indexes
+for aligned retention times, mass-to-charge ratio (m/z) and samples,
+respectively. Hence yjtm is interpreted as the intensity of a peak at
+the aligned grid of RT rt and m/z xm in sample 7'. T and M are the
+number of unique RT and m/z values appearing in the aligned data
+respectively. We also define the block center as the middle of the
+m/z—RT grid coordinates.
+
+9mg ‘09 isnﬁnV uo sejeﬁuV soq ‘erulomeg JO AirSJQAru [1 112 ﬁhO'sIeumo[pJOJXO'sopeuJJOJurorq/ﬁdnq wort pepeolumoq
+
+3648
+
+G. Chen et al.
+
+ 
+
+3.1 Dynamic block summary
+
+Step A Block Initialization: Given the aligned data, the DBS algo-
+rithm starts by initializing blocks, where each block is uniformly
+sized covering mo in m/z and r0 seconds in the chromatographic
+space (default values m0 = 1.2 and r0 = 6 seconds). For each block,
+the algorithm goes through a series of decision criteria to determine
+whether the current block definition is optimal or not. To explain
+the criteria, we have to define the optimality of peak alignment first:
+we consider the original processing software has aligned a peak well
+if, under the reported alignment, the peak intensity is above a min-
+imal intensity threshold I 4 (default 2000) in at least p% of the sam-
+ples (default p = 80). We say that a peak intensity is missing in a
+sample if its intensity is below I 4 or unreported. After initialization
+of blocks, each initial block may contain no well-aligned peak, one
+such peak, or multiple peaks, and the iterative block updates have
+customized steps for block position adjustment or segmentation in
+each of the three cases.
+
+Step Bl Iterative Updates: One well-aligned peak. If the initial
+block already contains a single well-aligned peak and the block cen-
+ter is located on the m/z-RT grid of the peak, then the DBS termin-
+ates the block update for the current block and moves onto the
+block summary step (Step C). If not, it repositions the block so that
+the block center is at the grid of the well-aligned peak and the algo-
+rithm returns to Step A to restart the checklist (whether the modified
+block still contains only one well-aligned peak).
+
+Step B2 Iterative Updates: No well-aligned peak. If the initial
+block contained no well-aligned peak meeting the criteria, then the
+DBS identifies a ‘lead’ peak, defined as the peak with the smallest
+number of missing data across the samples. If there are more than
+one such lead peaks, then the mean m/z-RT coordinate is defined as
+the lead peak. If the current block center coincides with this lead
+peak, the DBS terminates the block update and moves on to the
+block summary step. If not, it updates the grids of the block so that
+its center is placed on the lead peak, and returns to Step A to restart
+the checklist.
+
+Step B3 Iterative Updates: Multiple well-aligned peaks. If the ini-
+tial block contains two or more well-aligned peaks of different m/z
+and RT grids, then the DBS removes the current block definition,
+creates one block for each of the peaks, keeping the block size the
+same in both m/z and RT axes, and then returns to Step A (recording
+that this duplication move was made). If the DBS returns to this
+same point of multiple peaks situation (D peaks), with a record of
+duplication move, then it breaks the current block into D segments.
+Each segment retains the same m/z range as the parent block, but
+the RT range will now be defined by setting break points at the mid
+points in the RT axis between the D well-aligned peaks. After block
+segmentation, the algorithm returns to Step A. These updates are
+iterated until there are no more blocks containing multiple well-
+aligned peaks.
+
+Step C Summary of intensities and removal of replicated peaks.
+Once the DBS moves onto this stage for each block, then it summar-
+izes the intensity value for the block by the largest intensity value,
+which corresponds to either the apex of an elution profile or the
+integrated peak area, depending on the initial data processing
+scheme. Finally, the DBS goes through the list of summarized blocks
+and removes duplicated blocks.
+
+3.2 Isotopic pattern validation
+
+As a means to extract and compare charge states and isotopic pat-
+terns of realignments, we also implemented a program to first ex-
+tract the MS1 raw peaks from the m/z-RT coordinates in the aligned
+
+data. The peak extraction is performed for m/z neighborhood with
+default parameters of —2 amu to +4 amu on the m/z axis and
+—20 to +40 5 in the RT axis. It then routinely determines the charge
+states of the candidate compound and extracts the isotopic peak in-
+tensity pattern in the form of ratio between the mono isotopic peak
+and the subsequent two isotopic peaks. For each aligned peak, the
+program reports the mean and standard deviation of the isotopic
+ratios across the samples. For a newly recovered peak, we consider
+the peak is well recovered if its isotopic ratio falls within a reason-
+able range of the distribution of the ratios in the samples with good
+initial alignments (e.g. 95% percentile).
+
+3.3 RT(5) normalization
+
+Following the DBS algorithm, MetTailor offers a data normalization
+step, where the user can choose either the TIS normalization or a
+novel method called RT(5), or opts to skip the normalization step.
+
+TIS normalization: For the TIS normalization, we first compute
+the TIS for sample 7'
+
+Ti 2 Zyist
+5,!
+
+and transform the data by
+yjtm —> yjtm/Tj-
+
+Following this step, we rescale the entire dataset so that the total
+normalized intensity across all compounds and samples is equal to
+the total sum of pre-normalization intensities. This step ensures that
+the normalized intensity values are on a comparable scale with the
+raw intensity values.
+
+RT(5) normalization: In this new normalization procedure, we
+transform the data as follows. At the block indexed by (t, m), we
+first compute the sample-specific local weighted intensity sum
+
+Win 2 23751586,- (rt — 7's)
+s!
+
+for all j, where g5i(-) is the Gaussian kernel function with standard
+deviation 5,-. We transform the data by
+
+yjtm —> yitm/ Win
+
+for all peaks (with m/z value xm). Here the ‘size’ of the weighting
+function 5,- can be provided by the user, or determined by our auto-
+mated algorithm (see below). Following this correction, we rescale
+the data in a similar way as the TIS normalization, but at a specific
+RT grid. In other words, we rescale the data at each RT grid so that
+the total intensity sum is the same between the raw data and the ad-
+justed data at the specific RT. This step ensures that the order of ab-
+solute abundance levels is roughly retained across the compounds
+after normalization. Note that the window size 5 should not be too
+small since the scaling factor will be dominated by the intensity of
+the compound itself, especially in highly abundant compounds. On
+the other hand, larger 5 will draw this algorithm closer to the TIS
+normalization.
+
+Automated selection of {5,}. We search for the optimal 5,- for
+each sample as follows. We first transform the data by
+
+n
+
+J’itm —’ Yitm/Ti * ("T12 Te),
+[=1
+
+so that the data is scaled to have the same TIS across all the samples.
+We then place a sliding window with size 1 min and slide the
+
+9mg ‘09 isnﬁnV uo sejeﬁuV sorl ‘etulomeg JO KitSJQAtu [1 1e /810'S{12umo[pJOJXO'soueuJJOJutotq/ﬁdnq wort pepeolumoq
+
+MetTailor: Post-processing of mass spectrometry-based metabolomics data 3649
+
+ 
+
+window by 30 5 each time, recording the intensity sum in each sam-
+ple at each position of the sliding window. For sample 7', we look for
+the sample with the most distinct total ion chromatogram (TIC) pro-
+file, say k, for which we compute the intensity sum differences
+across all the windows and find the longest streak of consecutive
+windows with an identical sign (positive or negative). We iterate the
+same search for each sample to determine the optimal window size,
+and then set 5,- as a quarter of the window size, based on the fact
+that four times the standard deviation 5 of a Gaussian kernel will
+cover 95 % of such a window size.
+
+3.4 Model-based significance analysis
+
+For the differential expression analysis of block-summarized and
+normalized data, we used the hierarchical Bayesian model proposed
+by Wei and Li (2007), implemented in the mapDIA software (see
+Supplementary Information). mapDIA was initially developed for
+quantitative proteomics data analysis obtained from data independ-
+ent acquisition MS (DIA-MS), but the differential expression
+analysis component is directly applicable to any intensity data. In
+the model, two possible probability models of intensity data are pro-
+posed for each compound, namely differential expression (DE)
+model and non-DE model, respectively, and the posterior probabil-
+ity of DE is calculated. The posterior probability scores are used to
+select the differentially expressed compounds and is used to compute
+the false discovery rates (FDR) (Newton et al., 2004).
+
+4 Results
+
+4.1 Datasets
+
+We used two published datasets to evaluate the performance of
+MetTailor in this work. The first is the metabolomics dataset of 24
+samples with extracted feature map (featureXML files) and curated
+alignment from Lange et al. (2008). We will call this dataset M2
+data following the reference in the original paper. To replicate the
+steps in the paper, we also made the XCMS read the featureXML
+files skipping its peak detection step, and perform alignment and re-
+tention time correction with the same parameters as reported in the
+paper. For MetTailor, we used all default parameters other than set-
+ting the minimal intensity 0 to avoid removal of any data points.
+Then we benchmarked all DBS-recovered peaks to the curated peak
+alignment for verification.
+
+The second dataset is from a recently published metabolomics
+study for Dengue virus infection (Cui et al., 2013) (Dengue data
+hereafter). The goal of this study was to identify differentially ex-
+pressed metabolites in the serum samples of Dengue patients at dif-
+ferent phase of infection and recovery. In the study, blood samples
+were taken from 49 control subjects and 27 subjects diagnosed with
+acute Dengue fever (DF) but not life threatening Dengue haemor-
+rhagic fever/Dengue shock syndrome, where samples were collected
+from the patients multiple times at early febrile (rising fever),
+defervescence (abating fever) and convulscant (recovery) stages.
+This comprises 115 MS runs in total. The samples were analysed
+using Agilent 6520 Q-TOF mass spectrometer coupled with ultra-
+high pressure LC.
+
+We processed the data using XCMS (Smith et al., 2006) to per-
+form peak detection and alignment, and applied MetTailor to the
+output data. In the XCMS processing, the default options were used
+(see Supplementary Information). For MetTailor processing of this
+data, we set default parameters. For quality assessment of realigned
+peaks, charge states and isotopic peaks intensity patterns were ex-
+tracted from the raw data using the m/z-RT coordinates reported by
+
+MetTailor. RT(5) normalization was performed with the automatic-
+ally optimized window size 5. For the statistical significance analysis
+using mapDIA, we set the score thresholds associated with 5%
+FDR.
+
+4.2 DBS algorithm
+
+4.2.1 The DBS algorithm recovers misalignments with high
+sensitivity and specificity
+
+The M2 data contains on average 16 122 features in the 24 samples
+and the authors have curated 2630 gold standard peaks by consen-
+sus peak groups with annotations from the CAMERA package
+(Kuhl et al., 2012). As reported in the reference paper, the initial
+alignment by XCMS had recall rate 98% and precision 78%.
+However, MetTailor discovered a small proportion of misalignment
+events (21 misalignments within 8 unique m/z-RT coordinate,
+Supplementary Table S1) and 19 recoveries of these 21 were consist-
+ent with the curated alignment. Hence, through MetTailor, we veri-
+fied that XCMS achieved the initial alignment really well for the
+majority of the gold standard peaks and a small number of mis-
+aligned cases were re-aligned. We note that, however, the curated
+peaks comprise merely ~16% of the entire peak list and these high
+quality peaks with consistent annotation are expected to be aligned
+well, and therefore our evaluation based on this dataset is quite
+limited.
+
+In the Dengue data, the table initially reported by XCMS con-
+tained 7920 aligned peaks appearing in at least one of the 115 MS
+runs. Similar to the M2 data, many peaks were localized to highly
+consistent m/z and RT coordinates across the samples, if not per-
+fectly aligned across the samples. In the reported table, misaligned
+peaks appeared as different peaks, and if the intensity levels are
+compared between groups of samples (DF stages), then the samples
+with misalignments will be considered as missing data, affecting the
+statistical analysis. The DBS algorithm alleviated this burden consid-
+erably by merging these misaligned peaks into single blocks, while
+decreasing the frequency of missing data at the same time.
+Specifically, the DBS algorithm reduced the number of aligned peaks
+from 7920 to 6915. In this process, the algorithm corrected total of
+6989 misalignments, accounting for 2.2% of 315 454 non-missing
+data points in the final data. To verify that the realignments by the
+DBS algorithm are likely recoveries into the correct line of the table,
+we compared the isotopic patterns of the recovered peaks to those of
+samples with good initial alignment. We could extract clear isotopic
+patterns from 2380 recovered peaks at 285 unique m/z-RT coordin-
+ate, and the isotopic ratios between the first and second isotopic
+peaks fell in 95% of the ratio distributions from the previously well
+aligned peaks in 1938/2380 of the cases (81.4%) (see
+Supplementary Table S2 for summary at 285 m/z-RT coordinates).
+Combined with the similarity of m/z-RT cooridnates, this reﬂects
+high quality realignments by the DBS algorithm across the dataset.
+
+4.2.2 Misalignments arise from a few major sources
+
+The fact that merely 2.2% of the peaks were corrected confirms that
+the initial data extraction and alignment was of a high quality in this
+data. To gain insights for the source of misalignments, we plotted
+the distances to the misaligned peaks on both m/z and RT axis from
+the m/z-RT coordinate to which the majority of the samples are
+aligned (Fig. 2). 4601/6989 misaligned peaks showed m/z shift of
+0.4—0.6 amu and 681/6989 misaligned peaks showed a m/z shift by
+0.27—0.4. This suggests that these compounds are likely doubly
+or triply charged and the misalignment was caused by incorrect
+grouping of the isotopic peaks. This occurred frequently in the data
+
+9mg ‘09 isn8nV uo sepSuV sorl ‘etulomeg JO KitSJQAtu [1 1e /810'S{12umo[pJOJXO'soueuJJOJutotq/ﬁdnq wort pepeolumoq
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+3650 G.Chen et al.
+.. . o . . g . o o . . o . A  
+gm -J;H°w:—£;§-EMWMMHW~I#H.~H -- _H 8
+. .. o. T .. I o o . . o o. o C _ + O
+' 0. o o '- o ' T I CD CD —
+QT""T.“¢'r-':\°'"‘I:':1‘-r--:°“~‘------3---'-- E 8- °° '—
+.‘__U ‘— .I  . I:.-' -.;° °' - ' 8: I5
+E - -. *=- -° -° .-: .1:- .~-.. -°  ' ' -- 5 —8 E
+2 .- : I .I o I . .0. . . .1, o_ a} a
+CD . 0 o . O E N “I _
+E o__._ _ _ _ _ _ _ _.______l.°___l._____o_ _ _ _ _ __ H5 8
+E o o . .. o o f i o. I . :III: 3
+\ oo .- ' . 0 0'. o O ' o 0‘ — O
+E o . 'I'o ' ° .- oo 0" . 0. ‘v 5 o . I I I I
+m . o o. O... . . 0o... o. k . o. . o . . o 0  1 1
+3| " “'f'" 7'.” " .‘ T." ' '4" "Wh‘r'ﬁ " .' ' '- "‘°" "I- ' '; " ' ' RT (seconds)
+Q -- QI-IF I: v.-:1'—.:‘"::" .ﬂbILoéGIh-IGWJQ" ﬂ-I‘BOJDI-n.‘ :.--- l" l - B o
+‘T . o . . O . 3 o .. . o . 4.: . ' I
+o 0 C . O
+I I I I I I I m 3— To I: '
+—3 —2 —1 o 1 2 3 E '
+. . .9
+RT dIfferentIal (seconds) Tar; o
+._ N _
+E
+Fig. 2. The RT and m/z differences of misaligned peaks to the m/z-RT coordin- “5
+ate to which the majority of the samples aligned in Dengue data. The dashed I”: o — o -
+
+lines were drawn at :1/2 and :1/3, which indicates that misaligned peaks
+are likely from doubly or triply charged compounds
+
+when multiple co-eluting compounds in the vicinity of m/z-RT re-
+gions, since the elution profiles of the isotopic peaks overlap.
+Misalignment also happened when minor temporal variations out-
+last the alignment step by a few seconds of RT or a few decimals in
+the m/z beyond the tolerance level specified in those algorithms.
+
+4.2.3 Block-wise recovery reduces missing data in RT regions with
+active chromatographic elution
+
+To better understand the benefit of the DBS algorithm, we further
+investigated where in the chromatographic space (RT and m/z) and
+in what abundance range the DBS algorithm recovered misalign-
+ments. Figure 3 shows the number of recovered misalignment events
+across 115 samples in the Dengue data, in terms of the chromato-
+graphic time (RT) and the abundance range. Figure 3A shows that
+the frequency of re-alignments by the DBS algorithm is correlated
+with the cross-sample TICs (dashed line), which was computed as
+the sum of TICs across the RTs. At the same time, Figure 3B shows
+that misalignments occurred mostly for low to medium intensity
+peaks. Taken together, this suggests that the misalignment occurs
+more frequently for low abundance compounds in active RT regions
+with elution of multiple compounds. This also indicates that the
+alignment procedure built in XCMS is primarily driven by the most
+intense peaks in local RT regions.
+
+4.3 Normalization
+
+Next we tested three different normalization methods, including the
+internal standard calibration, TIS normalization and RT(5) normal-
+ization. Note that the first two normalization methods uses a single
+constant as the normalizing factor for each sample, while the RT(5)
+adjusts the normalizing factor locally at each RT grid in each sam-
+ple. The first two methods are also different from each other in the
+sense that the first uses a known compound injected before sample
+preparation for LC-MS whereas the TIS is calculated from the ex-
+tracted intensity data.
+
+Before we compared the normalization methods, we first exam-
+ined the raw data and discovered that there was no visible vari-
+ation in terms of the TIC profiles across the samples, indicating
+that there was no constant systematic variation in the chromatog-
+raphy across a large number of MS runs [mean correlation 0.971
+and 95% confidence interval (0.925 ,0.994)]. However, a closer
+examination revealed temporal variations in TIC across many sam-
+ples. Figure 4A shows the TIC plots in the raw intensity data, with
+
+ 
+
+ 
+
+ 
+
+ 
+
+log10(mean intensity)
+
+Fig. 3. The frequency of missing data recovery by the DBS algorithm in the
+Dengue data (115 runs) across the RT (A) and the abundance range (B). The
+dashed line is the cross-sample local sums of TICs in sliding windows of RT
+(after scaling to the misalignment frequency plot)
+
+a pair of samples highlighted in purple and orange colors. It is easy
+to see that the sample in pink had much higher intensities between
+600 and 800 5, while the pattern dissipated after 800 5. Even
+though these two samples were from different patients, the overall
+total intensity differences were very specific to certain RT periods
+and this pattern was consistently observed across many pairs of
+samples.
+
+4.3.1 Internal standard calibration and TIS normalization
+
+The acetic acid standard (9-fluorenylmethoxycarbonyl-glycine)
+showed little variation across the samples in the Dengue data
+(Supplementary Fig. S1). The internal standard appeared in the mid-
+dle of the RT range (408 s) and their intensities were not dominant
+(the standards accounted for 0.3% of the TIS). Meanwhile, the TIS
+values were also calculated for normalization. Interestingly, the TIS
+values were not correlated with the intensity values of the internal
+standard (Pearson correlation 0.11; Supplementary Fig. S1). As a re-
+sult, the normalized data were substantially different between the
+two methods (Fig. 4B, C) and this also led to unique sets of com-
+pound selected in the DE analysis (see next section).
+
+4.3.2 RT(5) normalization removes temporal variation along
+
+the RT axis
+
+For the RT normalization, 5 values chosen by the automated
+search varied in the range of 2—4 min, which is around 10% of the
+total RT. Figure 4A suggests that there is a strong evidence of tem-
+poral variation in the raw data between 400 and 800 s. The two
+single constant-based normalization (TIS and ISC) reduced this
+temporal variation at the expense of amplifying the variation in
+the 800—1000 second period across the samples. By contrast, the
+proposed RT(5) normalization have substantially reduced such
+variations localized to specific RT periods (Fig. 4D). In the RT re-
+gions with few detected peaks, stable normalizing factors could
+not be calculated and were possibly dominated by the compound
+itself due to the lack of a sufficient number of background. In these
+regions, our procedure borrowed information from the median
+pattern of local intensity sums from other RT regions and normal-
+ized the data against those values.
+
+9mg ‘09 isn8nV uo seje8uV sorl ‘etulomeg JO KitSJQAtu [1 1e [3.10811211an[plOJXO'SODBIILIOJIITOTQ/ﬂ(11111 wort papeolumoq
+
+MetTailor: Post-processing of mass spectrometry-based metabolomics data 3651
+
+ 
+
+DBS (no normalization)
+
+ 
+
+Intensity
+
+ 
+
+ 
+
+ 
+
+ 
+
+l | l l l
+200 400 600 800 1000 1200
+RT (seconds)
+
+ISC normalization
+
+O
+
+ 
+
+Intensity
+8.0e+08
+
+ 
+
+ 
+
+ 
+
+0
+I
+
+ 
+
+| | | | | |
+200 400 600 800 1000 1200
+
+RT (seconds)
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+B TIS normalization
+00
+O
++ _
+3 a:
+.(T) a)
+C
+9 _
+E
+O _ I I I I I I
+200 400 600 800 1000 1200
+RT (seconds)
+D RT normalization
+00
+S?
+.4? a: T
+(I) (O
+C
+9, _
+E
+o _
+
+ 
+
+ 
+
+ 
+
+ 
+
+| | | | | |
+200 400 600 800 1000 1200
+
+RT (seconds)
+
+Fig. 4. TIC plots across random selected 14 samples in the Dengue data with (A) no normalization (DBS), (B) total intensity sum (TIS), (C) internal standard calibra-
+tion (ISC) and (D) retention time (RT), respectively. Purple and orange lines are the pair of two samples with the lowest correlation
+
+4.3.3 RT(5) normalization does not lead to loss of
+
+statistical power
+
+Although we demonstrated that the normalization procedure
+removed local chromatographic variations in the visual sense, it is
+important to verify that this correction neither removes real biolo-
+gical variations nor introduces false positives. To evaluate the possi-
+bility of such consequences, we first performed DE analysis between
+controls and patients in the febrile stage with normalization options.
+For the DE analysis, we set the significance score threshold to con-
+trol the Bayesian FDR at 5%. We also considered the peaks or
+blocks that can be assigned at least one compound identifier as-
+signed through the online HMDB search (tolerance : 10 ppm, singly
+doubly or triply charged, [M+H], [M+2H] and [M+3H], no
+other adducts, peptides excluded).
+
+The three normalization methods reported 476 DE compounds
+(significant in at least one method) and 62% were shared by all
+methods. Each method reported a handful of unique compounds
+nonetheless. In RT(5) normalized data, which we deem to be the
+optimal normalization method in this data, led to a selection of
+unique DE compounds which were more spatially randomly dis-
+tributed across the RT. Moreover, when compounds show DE
+in both TIS and ISC normalized data, a majority of them are also
+DE in RT(5) normalized data. On the other hand, many of the
+compounds significant in the TIS and RT-normalized data were
+found to be non-significant in the ISC normalized data.
+Supplementary Figures S2 and S3 show the distribution of signifi-
+cant compounds in the data with each normalization method and
+the differences between the three outputs respectively. The latter
+figure verifies that the RT normalization did not lead to potential
+loss of statistical power compared to the other two normalization
+methods.
+
+5 Discussion and conclusion
+
+In this work, we developed a software package MetTailor, featur-
+ing a novel block summary method called DBS algorithm and an
+adaptive normalization method to remove temporal variations
+
+across a large number of untargeted MS experiments. These add-
+itional data processing steps were introduced as a complementary
+tool for quality assurance of the data reported by the extrac-
+tion tools such as MZmine and XCMS. With inexpensive compu-
+tational effort, these steps can address missing data problem
+and remove local variations that vary across retention time in a
+long series of MS experiments. We also provide implementations
+to extract the charge state and isotopic profiles from the raw data
+at specific m/z-RT coordinates so that the users can evaluate the
+quality of post-alignment peak summary tables as a validation
+step.
+
+5.1 Utility of the DBS algorithm
+
+Although the number of re-alignment events was relatively modest
+in our demonstration with both datasets, the DBS algorithm is com-
+putationally inexpensive and a few minutes of runtime can provide
+an important quality check for the initial alignment data, with add-
+itional recovery of thousands of misaligned peaks across the sam-
+ples. We expect that the DBS algorithm will be equally useful for
+datasets generated with older generation mass spectrometers (e.g.
+linear quadrupole ion trap MS, old generation Q-TOF) and the next
+generation ones (e.g. Quadrupole-Orbitrap, QqTOF), since the
+alignment accuracy has more to do with temporal variations in the
+elution rate of individual compounds across the samples, rather than
+the mass accuracy and resolution of MS. A complementary tool
+such as MetTailor will therefore be of great importance from the
+data quality control perspective.
+
+However, we remark that the DBS algorithm is inherently lim-
+ited by the fact that its working material is the preprocessed data,
+which is a significantly compressed form of information for each
+peak feature as centroiding, deisotoping, and compression of ad-
+ducts is applied during the first-round processing. With the increas-
+ing computation power, a more advanced alignment algorithm with
+a local alignment procedure matching individual peak features can
+be developed, directly utilizing various raw peak features such as
+isotopic distributions and adduct information without a severe data
+compression step.
+
+9mg ‘09 isn8nV uo seje8uV sorl ‘etulomeg JO KitSJQAtu [1 1e [3.10811211an[plOJXO'SODBIILIOJIITOTQ/ﬂ(11111 wort papeolumoq
+
+3652
+
+G. Chen et al.
+
+ 
+
+5.2 Missing data imputation
+
+Another important point of discussion is on the use of machine
+learning methods to impute missing data (Gromski et al., 2014).
+One may argue that the DBS procedure can be replaced by using
+other imputation procedures such as k-nearest neighbor or random
+forest imputation (Stekhoven and Buhlmann, 2012; Troyanskaya
+et al., 2001). To put the utility of the two approaches in perspective,
+it is important to recognize the difference in the source of missing
+data addressed by each method. The DBS algorithm is addressing
+the problem of misalignment or variation in the elution profiles of
+the same analytes across different GC-MS/LC-MS experiments.
+Since this approach addresses the missing data problem incurred
+during the data tabulation process, it only deals with the source of
+missing data that can be corrected within the limit of detection of
+mass spectrometers.
+
+By contrast, the aforementioned methods perform imputation by
+inference, which do not differentiate between different sources of
+missing data and primarily aim to fill in the missing values based on
+the pattern matching with other compounds. In practice, this group
+of methods should be used carefully in highly variable systems as
+GC-MS/LC-MS, as a last resort after all available remedies to cor-
+rect the errors in the data extraction stage have been exhausted. This
+is because the algorithms depend heavily on the availability of in-
+formative neighbor compounds in the same dataset. Moreover, al-
+though these methods are widely used at present, they were
+evaluated primarily on gene expression microarrays that quantify
+predetermined molecular targets. Hence whether the same proced-
+ures will be applicable and equally efficient on MS-based metabolo-
+mics datasets, plagued by the ambiguity of isomers in small
+molecules, remains to be evaluated.
+
+5.3 Data normalization
+
+Finally, we have also proposed a novel normalization algorithm that
+removes temporally systematic variations frequently observed in the
+GC-MS and LC-MS pipeline. Retention time is clearly one of the
+most important anchors of experimental variations in the GC-MS
+and LC-MS platforms (Rudnick et al., 2014), which is often ignored
+in conventional computational normalization strategies. It is also
+important to note that some of the distribution equalizing methods
+such as IQR-based normalization or quantile normalization can
+introduce over-adjustments, since these procedures are applicable
+only when a certain assumptions are met. For example, the proced-
+ure based on mean centering and standard deviation scaling requires
+that the overall log-intensity distribution be normally distributed.
+The quantile normalization is not applicable when missing data
+are prevalent and can be risky when there are only a handful of
+metabolites (e.g. a few hundreds) since the procedure can easily
+over-correct intensities of very high or very low abundance com-
+pounds due to the granularity of percentile points.
+
+5.4 Conclusion
+
+Overall, our contribution in this work is to provide an open source
+software package implementing two data processing steps, as a com-
+plimentary tool to remedy some gaps unaddressed by the popular
+data extraction tools in the context of large sample experiments.
+There are a number of experimental factors that are unique to MS
+platforms and the two proposed methods are different from the exist-
+ing alternatives that had been developed for other -omics platforms
+such as gene expression microarrays. We provide these tools in a
+
+popular R programming environment, and will continue to adapt the
+tools for constantly evolving instrumentation in the future.
+
+Acknowledgments
+
+The authors are grateful to Scott Walmsley and Damian Fermin for helpful
+discussion, and to Hiromi Koh for carefully reading the manuscript.
+
+Funding
+
+This work was supported in part Singapore Ministry of Education Tier 2
+grant (R-608-000-088-112).
+
+Conﬂict of Interest: none declared.
+
+References
+
+Cui,L. et al. (2013) Serum metabolome and lipidome changes in adult patients
+with primary dengue infection. PLoS Neglected Trop. Dis., 7, e2373.
+
+Dettmer,K. et al. (2007) Mass spectrometry-based metabolomics. Mass Spectr.
+Rev., 26, 51—78.
+
+Grifﬁths,W.J. and Wang,Y. (2009) Mass spectrometry: from proteomics to
+metabolomics and lipidomics. Chem. Soc. Rev., 38, 1882—1896.
+
+Gromski,P.S. et al. (2014) Inﬂuence of missing values substitutes on multivari-
+ate analysis of metabolomics data. Metabolites, 4, 433—452.
+
+Horai,H. et al. (2010) Massbank: a public repository for sharing mass spectral
+data for life sciences. ]. Mass Spectr., 45, 703—714.
+
+Kuhl,C. et al. (2012) CAMERA: an integrated strategy for compound spectra
+extraction and annotation of liquid chromatography / mass spectrometry
+datasets. Anal. Chem., 84, 283—289.
+
+Lange,E. et al. (2008) Critical assessment of alignment procedures for LC-MS
+proteomics and metabolomics measurements. BMC Bioinformatics, 9, 375.
+
+Manna,S.K. et al. (2013) Metabolomics reveals aging-associated attenuation
+of noninvasive radiation biomarkers in mice: potential role of polyamine
+catabolism and incoherent DNA damage-repair. ]. Proteome Res., 12,
+2269—2281.
+
+Newton,M. et al. (2004) Detecting differential gene expression with a semi-
+parametric hierarchical mixture method. B iostatistics, 5, 155—176.
+
+Pluskal,T. et al. (2010) MZmine 2: modular framework for processing, visual-
+izing, and analyzing mass spectrometry-based molecular proﬁle data. BMC
+Bioinformatics, 11, 395.
+
+Rudnick,P. et al. (2014) Improved normalization of systematic biases affecting
+ion current measurements in label-free proteomics data. Mol. Cell.
+Proteomics, 13, 1341—1351.
+
+Smith,C.A. et al. (2005 ) METLIN: a metabolite mass spectral database.
+Therap. Drug Monitoring, 27, 747—75 1.
+
+Smith,C.A. et al. (2006 ) XCMS: processing mass spectrometry data for metab-
+olite proﬁling using nonlinear peak alignment, matching, and identiﬁcation.
+Anal. Chem., 78, 779—787.
+
+Smith,R. et al. (2013) LC-MS alignment in theory and practice: a comprehen-
+sive algorithmic review. Brief. Bioinf., 16, 104—117.
+
+Stekhoven,D. and Biihlmann,P. (2012) MissForest-non-parametric missing
+value imputation for mixed-type data. Bioinformatics, 28, 1 12—1 1 8.
+
+Sysi-Aho,M. et al. (2007) Normalization method for metabolomics data using
+optimal selection of multiple internal standards. BMC Bioinformatics, 8, 93.
+
+Troyanskaya,O. et al. (2001) Missing value estimation methods for DNA
+microarrays. Bioinformatics, 17, 520—525.
+
+Wei,Z. and Li,H. (2007) A Markov random ﬁeld model for network-based
+analysis of genomic data. Bioinformatics, 23, 1537—1544.
+
+Wishart,D.S. et al. (2007) HMDB: the human metabolome database. Nucleic
+Acids Res., 35, D521—D526.
+
+Wishart,D.S.S., et al. (2009) HMDB: a knowledgebase for the human metabo-
+lome. Nucleic Acids Res., 37, D603—D610.
+
+9mg ‘09 isn8nV uo seje8uV sorl ‘etulomeg JO KitSJQAtu [1 1e [3.10811211an[plOJXO'SODBIILIOJIITOTQ/ﬂ(11111 wort papeolumoq
+

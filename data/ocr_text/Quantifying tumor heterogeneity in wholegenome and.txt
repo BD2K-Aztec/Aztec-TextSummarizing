@@ -1,0 +1,1459 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 24 2014, pages 3532-3540
+doi: 1 0. 1093/bioinformatics/btu651
+
+ 
+
+Sequence analysis
+
+Advance Access publication October 8, 2014
+
+Quantifying tumor heterogeneity in whole-genome and
+
+whole-exome sequencing data
+
+Layla Cesperi’l”, Gryte SatasI’I and Benjamin J. RaphaelI’2’*
+1Department of Computer Science and 2Center for Computational Molecular Biology, Brown University, Providence,
+
+RI 02912, USA
+
+Associate Editor: Gunnar Ratsch
+
+ 
+
+ABSTRACT
+
+Motivation: Most tumor samples are a heterogeneous mixture of
+cells, including admixture by normal (non-cancerous) cells and sub-
+populations of cancerous cells with different complements of somatic
+aberrations. This intra-tumor heterogeneity complicates the analysis of
+somatic aberrations in DNA sequencing data from tumor samples.
+Results: We describe an algorithm called THetA2 that infers the com-
+position of a tumor sample—including not only tumor purity but also
+the number and content of tumor subpopulations—directly from both
+whole-genome (WGS) and whole-exome (WXS) high-throughput DNA
+sequencing data. This algorithm builds on our earlier Tumor
+Heterogeneity Analysis (T HetA) algorithm in several important direc-
+tions. These include improved ability to analyze highly rearranged gen-
+omes using a variety of data types: both WGS sequencing (including
+low ~7>< coverage) and WXS sequencing. We apply our improved
+THetA2 algorithm to WGS (including low-pass) and WXS sequence
+data from 18 samples from The Cancer Genome Atlas (T CGA). We
+find that the improved algorithm is substantially faster and identifies
+numerous tumor samples containing subclonal populations in the
+TCGA data, including in one highly rearranged sample for which
+other tumor purity estimation algorithms were unable to estimate
+tumor purity.
+
+Availability and implementation: An implementation of THetA2 is
+available at http://compbio.cs.brown.edu/software
+
+Contact: |ay|a@cs.brown.edu or braphael@brown.edu
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on April 6, 2014; revised on August 8, 2014; accepted on
+September 29, 2014
+
+1 INTRODUCTION
+
+Several recent studies indicate that most tumor samples are a
+heterogeneous mixture of cells, including admixture by normal
+(non-cancerous) cells and subpopulations of cancerous cells with
+different complements of somatic aberrations (Gerlinger et al.,
+2012; Nik-Zainal et al., 2012). Characterizing this intra-tumor
+heterogeneity is essential for several reasons. First, an estimate
+of tumor purity, the fraction of cancerous cells in a tumor, is
+necessary for accurate identification of somatic aberrations of
+all types in the sample. Most cancer genome sequencing studies
+
+ 
+
+*To whom correspondence should be addressed.
+IThe authors wish it to be known that, in their opinion, the ﬁrst two
+authors should be regarded as Joint First Authors.
+
+use a re—sequencing approach to detect somatic aberrations.
+Reads from a tumor sample (and usually a matched normal
+sample) are aligned to the human reference genome.
+Differences in the sequence of aligned reads, the number of
+aligned reads or the configuration of aligned reads (e.g. split
+reads or discordant pairs) are used to infer the presence of single
+nucleotide or other small variants, copy number aberrations or
+structural aberrations, respectively (Ding et al., 2010; Meyerson
+et al., 2010). However, the presence of intra-tumor heterogeneity
+can dilute the signals required to identify somatic aberrations.
+
+Second, estimates of the composition of a tumor sample—
+including not only the tumor purity, but also the number and
+fractions of subpopulations of tumor cells—provide useful for
+understanding tumor progression and determining possible treat-
+ment strategies (Greaves and Maley, 2012; Mullighan et al.,
+2008). In particular, clonal somatic aberrations that exist in all
+tumor cells are likely early mutational events and their identifi-
+cation sheds light on the early stages of cancer. Conversely, sub-
+clonal somatic aberrations might reveal properties shared by a
+subset of tumor cells, such as drug resistance or ability to me-
+tastasize. Identiﬁcation of such aberrations and subpopulations
+of tumor cells might inform treatment strategies, and/or help
+predict metastasis/relapse.
+
+In the past few years, several methods to infer tumor purity
+and/or tumor composition have been developed. These methods
+generally fall into two categories: (i) methods that use somatic
+single-nucleotide variants (SNVs) and (ii) methods that use som-
+atic copy number aberrations. SNV-based methods such as
+EXPANDS (Andor et al., 2014), PyClone (Roth et al., 2014)
+and many others (Jiao et al., 2014; Larson and Fridley, 2013)
+use clustering of variant allele frequencies to determine tumor
+populations and frequencies. While these types of methods are
+able to derive multiple tumor subpopulations, they often require
+estimates of copy number for each region containing SNVs.
+Deriving such estimates for highly rearranged aneuploid
+tumors is as difficult as the estimation of intra-tumor heterogen-
+eity itself. Moreover, these approaches require high-coverage
+sequencing to overcome the high variance in read counts at in-
+dividual SNVs. For example, both PyClone (Roth et al., 2014)
+and PhyloSub (Jiao et al., 2014) explicitly require deeply
+sequenced data. Thus, less expensive low-coverage sequence
+data as generated in TCGA (Cancer Genome Atlas Network,
+2012) is not amenable to these approaches.
+
+Copy number-based methods such as ABSOLUTE (Carter
+et al., 2012) and CNAnorm (Gusnanto et al., 2012) use observed
+shifts in read depth due to copy number aberrations to predict
+
+ 
+
+3532 © The Author 2014. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com
+
+112 /§JO'S{eumo [p.IOJXO'SOllBIIHOJUTOTQ/ﬁdllq 11101; prBOIIIAAOG
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+Quantifying tumor heterogeneity
+
+ 
+
+tumor purity, but do not explicitly consider multiple tumor sub-
+populations, and therefore may return purity estimates that only
+reﬂect a single subpopulation of tumor cells in a sample. In
+Oesper et al. (2013), we introduced the Tumor Heterogeneity
+Analysis (THetA) algorithm to infer the composition of a
+tumor sample—including both the percentage of normal admix-
+ture and the fraction and content of one or more tumor subpo-
+pulations that differ by copy number aberrations.
+
+In this article, we present THetA2, which extends the THetA
+algorithm in several important directions. First, we substantially
+improve the computation for the case of multiple distinct tumor
+subpopulations in a sample. Second, we extend THetA to infer
+tumor composition for highly rearranged genomes using a two-
+step procedure where initial estimates are made using high-
+conﬁdence regions of the genome, and then are extended to
+the entire genome. Third, we devise a probabilistic model of
+B-allele frequencies (BAFs), which can be used to solve the iden-
+tiﬁability issue when read depth alone is consistent with multiple
+possible tumor compositions. Finally, we extend THetA to ana-
+lyze whole-exome (WXS) sequencing data. We apply our new
+algorithm to both whole-genome (WGS) (including low-pass)
+and WXS sequence data from 18 samples from The Cancer
+Genome Atlas (TCGA). We ﬁnd that the improved algorithm
+is substantially faster and able to analyze highly rearranged gen-
+omes—identifying numerous tumors with subclonal tumor popu-
+lations in the TCGA data. Where available, we compare our
+purity estimates to published values for ABSOLUTE (Carter
+et al., 2012). While the purity estimates are largely in agreement
+for higher purity samples, we ﬁnd cases where ABSOLUTE fails
+or underestimates purity, but THetA2 identiﬁes multiple tumor
+subpopulations. These improvements greatly expand the range of
+sequencing data and tumors for which we can infer tumor
+composition.
+
+2 METHODS
+
+2.1 Notation and problem formulation
+
+We assume that the reference genome is partitioned into a sequence 1:
+(11, ...,Im) of non-overlapping intervals, according to changes in the
+density, or depth, of reads aligning to each position in the reference (Xi
+et al., 2011). Given I, we deﬁne a corresponding read depth vector r = (r1
+, . . . , rm) e N" where rJ- is the number of reads with a (unique) alignment
+within 1]. A cancer genome is deﬁned by an interval count vector c 6 N",
+where cj is the integer number of copies of interval 1]- in the cancer
+genome.
+
+A tumor sample T is a mixture of cells that contain different collec-
+tions of somatic mutations, and in particular somatic copy number ab-
+errations. Each subpopulation has a distinct interval count vector
+representing the genome of the subpopulation. Following the model
+introduced in Oesper et al. (2013), we represent T by: (i) an interval
+count matrix C = [cl-,k] 6 NW" where cJ-J, is the number of copies of inter-
+val I,- in the kth distinct subpopulation; and (ii) a genome mixing vector u
+e An_1={(u1, ...,un)T|Z;=1uj=l, and M} Z 0 for all j} where uk is
+the percentage of cells in T that belong to the kth distinct subpopulation.
+
+Let the interval count matrix C =(c1, ...,cn), where cj is the jth col-
+umn of C. We assume that C satisﬁes three constraints. (i) The ﬁrst
+column c1 :2" so that the ﬁrst component of the tumor sample is the
+normal genome. (ii) The number n of subpopulations is less than the
+number m of intervals. (iii) The copy numbers of the intervals are
+bounded below by 0 and above by a maximum copy number k 2 2.
+
+Thus, C e {0, ...,k}’"X". We deﬁne Cm,“ to be the set of all such C,
+and deﬁne 9m,n,k={(C, u)|C e Cmmk, u e An_1} to be the domain of
+pairs (C, a) satisfying all constraints.
+
+We model the observed read depth vector r using a multinomial prob-
+ability distribution with parameter p : (p1, .. . , pm), where pj is the prob-
+ability that a randomly chosen read will align to interval A pair (C, 11.)
+
+deﬁnes a value for the multinomial parameter p = CD. =  Thus, the
+
+negative log likelihood L(C, ulr)= — log (Mult(r; C17.» is the negative
+log of the multinomial probability of observing counts r in the intervals
+given the probability of a read aligning to an interval is deﬁned by 
+The goal is to ﬁnd the interval count matrix C* and genome mixing
+vector u* that minimize the negative log likelihood:
+
+(Ck, if) : argmjn(C,u)€S2mqnqu(Ca M; r) (1)
+
+2.2 Interval count matrix enumeration
+
+In this section, we derive an improved procedure to solve the optimiza-
+tion problem (1). In Oesper et al. (2013), we showed that the function
+L(C, u; r) is a convex function of it. Thus, for a ﬁxed interval count
+matrix C, the optimal value of u can be computed efﬁciently. In the
+important special case of a mixture of normal cells and a single tumor
+population (n = 2), we reduce the domain of the interval count matrix C
+to a set whose size is polynomial in m and guaranteed to contain the
+optimal C*. This set is easy to enumerate, and we obtain an efﬁcient
+algorithm. However, when a tumor sample contains multiple tumor sub-
+populations (n>2), the algorithm in Oesper et al. (2013) enumerates all
+C e Cm,“ and checks whether each such C satisﬁes a particular ordering
+constraint that is a necessary, but not sufﬁcient, condition for the optimal
+C*.
+
+In this section, we derive an algorithm that explicitly enumerates only
+those matrices C that satisfy a more restrictive necessary ordering con-
+straint for a mixture of any number of tumor genomes. All proofs are
+contained in the Supplementary Material.
+
+2.2.] Compatible order We say that vectors v= (v1, . . . , vm) and W:
+(W1, ..., Wm) e [Rm have compatible order provided all 1 5 i, j 5 m, v,- 5
+vj if and only if w,- 5 Wj. In Oesper et al. (2019\we proved that if (C*, u*)
+is optimal [i.e. satisﬁes Equation (1)] then C*u* and r have compatible
+order. We deﬁne 8mm], to be the set of matrices C 6 CW”, that satisfy this
+o/r\dering constraint: i.e. 8mm], = {CIC 6 Cmmk and Ely. e An_1 such that
+Cu is in compatible order with r}. Thus, to ﬁnd the optimal solution
+(C*, pf“), it is sufﬁcient to examine matrices C G 8",“.
+
+Without loss of generality, we assume that the read depth vector r =
+(r1, ...,rm) satisﬁes r1 5 r2 5  5 rm. Thus, the set 8%“:
+{C E Cm,n,kl(Cu)1 S (C102 S  S (Cmm forsomw E An—II-
+
+For a matrix C e Cmmk, the set of u that result in a compatible order-
+ing can be calculated using the function <I>(C) as follows:
+
+m—l
+<I>(C) =19, {ulu e AH such that (Cu),- 5 (C110,, 1}. (2)
+
+Thus, a matrix C G 8mm], if and only if <I>(C) is not empty. Corollary 2.1
+follows directly from Equation (2).
+
+COROLLARY 2.1. Suppose C E Cmmk. Ifthere exists an i E {1, . . . , m — 1}
+such thatfor allt E {2, ,n}, cm > c,-+1,, and there exists at E {2, ...,n}
+
+such that c,,,>c,-+1,,, then <I>(C)=Q.
+
+2.2.2 Using a graph to enumerate Sm,“C We now present an algo-
+rithm to enumerate 8mm], for n 2 2. Consider a complete (including self
+loops) directed graph Gmk, with a vertex for each possible row in a matrix
+in Cmmk. Paths on Gm;C of length m—l correspond to matrices in Cm,“
+(See Fig. l and Supplementary Fig. S1).
+
+ 
+
+3533
+
+112 /§JO'S{numo [p.IOJXO'SOIlBIHJOJUIOICWZdllq 11101; prBOIIIAAOG
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+L.Oesper et al.
+
+ 
+
+ 
+
+||
+[\DNNMN
+l—‘l—‘OOO
+i—loi—Il—to
+
+ 
+
+Fig. 1. The graph G3,1 is used to enumerate the matrices 8m 31 as a subset
+of the paths of length m— l. The dashed edges can be removed by apply-
+ing Corollary 2.1. The highlighted path corresponds to the matrix on the
+right
+
+To enumerate the subset of paths on Gm;C that correspond to matrices
+in 8%“, we use a depth-ﬁrst search. While building paths, we calculate
+the set (I) for the matrix implied by the current path, and only proceed
+down branches that do not result in the empty set (see Supplementary
+Material for details). As a result, we are guaranteed to enumerate only the
+matrices in 8mm.
+
+Corollary 2.1 allows us to reduce the graph Gm;C by showing that there
+are certain edges that will never appear in paths that correspond to matri-
+ces in 8mm, and thus can be removed from the graph before matrix
+enumeration. In the case where n = 3, the calculation of (I) is reduced
+to a problem in a single variable, 
+
+2.3 A two-step procedure for genome-wide inference of
+copy numbers
+
+In Oesper et al. (2013), we inferred tumor composition using a relatively
+coarse interval partition I of the reference genome, considering only large
+copy number aberrations. As a result, the published approach could not
+readily be applied to highly rearranged genomes that are segmented into
+many intervals. Moreover, manual selection of a subset of intervals was
+typically required when analyzing samples containing multiple tumor
+populations. Even with the improved enumeration procedure described
+in the previous section, when more than one tumor subpopulation is
+considered, the number of matrices C that need to be enumerated is
+exponential in the number m of intervals. Moreover, the number of matri-
+ces C is also exponential in the maximum copy number state k con-
+sidered, making analysis of genomes with extensively ampliﬁed regions
+more difﬁcult.
+
+In this section, we present a two-step procedure for interval selection
+that overcomes the limitations stated above, and allows us to infer the
+composition of highly rearranged genome that are highly fragmented
+and/or contains ampliﬁed segments with more than k copies. Our two-
+step procedure consists of the following steps: (i) Select a set of high-
+conﬁdence intervals and determine the most likely C and u for those
+intervals. (ii) Use the estimates of C and u to determine copy numbers
+for all other intervals in I not used in the ﬁrst step, thus allowing for
+analysis of both highly ampliﬁed regions and fragmented genomes.
+
+2.3.] Interval selection We automate the selection of a subset
+of high-conﬁdence intervals used to determine the optimal (C*, 11*)
+for those intervals. Further details are included in the
+
+Supplementary Material. Brieﬂy, we partition I into two sets of intervals:
+(i) IH—high-conﬁdence intervals; (ii) IL—lower-conﬁdence intervals. IH
+is selected to contain up to a ﬁxed integer d longest intervals from I such
+that each interval selected is longer than a predetermined minimum length
+and is not obviously ampliﬁed beyond the speciﬁed max copy number k.
+IL contains all remaining intervals from I. Additionally, IH must repre-
+sent > 10% of the total length of all provided intervals, otherwise the
+sample is determined not to be a good candidate for analysis using
+THetA2. Once IH and IL have been selected, we use the improved
+THetA2 algorithm described in the previous section to calculate C2,
+and 11.2, for just the intervals in IH.
+
+2.3.2 Determining additional copy numbers: single row Given
+(C2,, p2,) predicted for high-conﬁdence intervals I H, we infer copy num-
+bers for the remaining intervals IL. We start with the simplifying assump-
+tion that |IL| = 1. We prove the following theorem.
+
+THEOREM 2.1. Let C=[c,-,,~] be an interval count matrix. L(C, ulr) is a
+convex function of cm.
+
+We use Theorem 2.1 to ﬁnd the optimal real-valued solution for
+the c,,,-’s corresponding to the single interval I 6 IL, given C2, and 11.2,.
+We then check the surrounding integer values to ﬁnd the integral
+solution, which, by convexity, is guaranteed to ﬁnd the optimal integer
+solution.
+
+2.3.3 Determining additional copy numbers: multiple rows In the
+previous section, we showed how to ﬁnd the optimal copy number for a
+single additional interval in IL given optimal values C2,, and 11.2, for a
+set of high-conﬁdence intervals IH. To estimate copy numbers when
+I 6 IL contains more than one interval, we estimate the optimal copy
+numbers for each interval in I 6 IL when appended to CH individually
+as described in the previous section, and then jointly append all inferred
+copy numbers to C2, to obtain a new matrix CHUL. We then return
+the solution (C HU L, 11.2,). We note that this approach provides no
+guarantee for ﬁnding the optimal copy numbers across all I 6 IL given
+C2,, and 11.2,. However, in practice, we ﬁnd that the solutions returned by
+our procedure are generally similar to this optimum (Supplementary
+Table S1).
+
+2.4 Model selection
+
+As in Oesper et al. (2013), we use the Bayesian information criterion
+(BIC) to select from different sized models (i.e. different numbers n of
+tumor populations) and their corresponding maximum likelihood solu-
+tions. We use the standard BIC of —2[og(L)+alog(b) where L is the
+likelihood of a solution, a=(m+ l)(n — l) is the number of free param-
+eters in the model and b is the number of data points (the total number of
+tumor and normal reads). In contrast, Oesper et al. (2013) used a mod-
+iﬁed BIC that more strongly penalized solutions with more tumor popu-
+lations. Such a modiﬁcation is not necessary here, as our improved
+algorithm considers copy number data across the entire genome, rather
+than only a small number of intervals, reducing the possibility of over-
+ﬁtting. Thus, we are able to more robustly identify samples with multiple
+subpopulations of tumor cells.
+
+2.5 Probabilistic model of BAFs
+
+THetA2 may return multiple equally like pairs (C, u) when using read
+depth alone. We derive a probabilistic model of BAFs—the fraction of
+reads containing the minor allele—that may be used to distinguish be-
+tween multiple pairs (C, u). Let v = (v1, v2, .. . , vq) be the observed BAFs
+for q heterozygous germ line SNPs in the normal sample and w = (W1, W2
+, . . . , wq) be the corresponding BAFs from the tumor genome. We model
+w as being drawn from Gaussian distributions whose parameters depend
+
+ 
+
+3534
+
+112 /§JO'S{12umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁdllq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+Quantifying tumor heterogeneity
+
+ 
+
+on v, C and a. We then select the (C, a), which maximizes the likelihood
+of the observed BAFs in the tumor sample:
+
+1]
+L(C, ulv, w) = P(w|6, 02) = HN(W,|sgn(0.5 — w,)6,-, of) (3)
+i—l
+
+Here of is the observed variance for all heterozygous SNPs in v that lie
+within interval 1,3 and 6]- is the expected BAF deviation away from 0.5
+given C and a. See the Supplementary Material for further details.
+
+2.6 Application to WXS data
+
+Finally, we extend THetA2 for WXS data, where only the coding regions
+of the genome have been targeted for sequencing. From WXS data we
+need to infer the following two values: (i) a set of non-overlapping inter-
+vals I = (11, . . . , Im) in the reference genome; and (ii) a corresponding read
+depth vector r= (r1, . . . , rm).
+
+To infer the interval partition I, we rely on recently developed algo-
+rithms such as ExomeCNV (Sathirapongsasuti et al., 2011) and
+EXCAVATOR (Magi et al., 2013) for segmentation and detection of
+copy number aberrations from WXS data. The segmentation returned
+by one of these algorithms may contain gaps rather than being a complete
+partition of the reference genome, but still provides a set of non-over-
+lapping intervals that may be used as input to THetA2. We note that
+some methods use normalization procedures for GC content, mappability
+and even exon length and this information is therefore implicitly incor-
+porated into the input provided to THetA2.
+
+We compute the read depth vector r=(r1, ...,rm) for WXS data as
+follows. Given a set I of non-overlapping intervals in the reference
+genome, a set E of exons in the reference genome and a read length 6,
+we set rj=  where x]- is the total number of sequenced nucleotides that
+have a unique alignment to some exon e e E within interval 1,. Thus, r]- is
+approximate count of the number of reads aligning to some exon located
+in interval 1,.
+
+3 RESULTS
+
+We ran THetA2 on simulated data, WGS (including low-pass
+data 5—7x coverage) and WXS data from 18 breast carcinoma,
+ovarian carcinoma, glioblastoma multiforme, kidney renal clear
+cell and lung squamous cell carcinoma samples from TCGA
+(Supplementary Table S2). Where available, we compare our
+estimates of tumor purity to the estimates reported by the
+ABSOLUTE algorithm (Carter et al., 2012) that estimates
+purity from SNP array data.
+
+The rest of this section is organized as follows. First, we dis-
+cuss results on simulated data. Second, we demonstrate
+THetA2’s performance on WXS data, including comparison of
+results for samples for which both WGS and WXS data were
+available. Next, we present in-depth analysis of several WGS
+samples to demonstrate the efﬁcacy of THetA2 on highly rear-
+ranged genomes, using both low-pass and moderate coverage
+sequence data. Finally, we apply our probabilistic model of
+BAFs to one sample and disambiguate between two equally
+likely solutions.
+
+3.1 Simulated data
+
+We tested THetA2 on simulated data to demonstrate the im-
+provements in THetA2 over the original THetA as well as
+ABSOLUTE. We created simulated mixtures using real sequen-
+cing data from an AML tumor sample and matched normal
+sample (TCGA-AB-2965) from The Cancer Genome Atlas
+
+(3) Runtime (b) Estimation Error
+1
+1000 + u
+
+—0— Tum1 (all)
+800 0-8 - o -Tum1 (>1Mb)
+mo ~ Tum1 (>5Mb)
+
++ Tum2 (all)
+- A - Tum2 (>1Mb)
+ Tum2 (>5Mb)
+
+ 
+
+  
+     
+
+Error
+
+ 
+
+ 
+
+ 
+
+THetAﬂHEtAE
+Runtime
+
+ 
+
+5 10 15
+# intervals
+
+Size of Tum2
+
+Fig. 2. Runtime comparison and estimation error for THetA2 on simu-
+lated data containing a mixture of normal cells and two tumor subpopu-
+lations. (a) The ratio of runtimes for the old and new enumeration
+procedures as a function of the number of intervals used in the ﬁrst
+step of the algorithm. (b) Estimation error for both a and C for each
+tumor population (Tum1 and Tum2) as the proportion of Tum2 increases
+and the proportion of Tum1 is ﬁxed at 0.5. Error for u is the Euclidean
+distance from the true value and error for each tumor population is the
+fraction of the genome for which the copy number is incorrectly inferred
+for the all copy number estimates, and when only considering intervals
+that are longer than 1 Mb and 5 Mb
+
+Research Network (2013). This sample was chosen because of
+its high purity (~95% pure) and lack of copy number aberra-
+tions as predicted by array data, providing high conﬁdence that
+our simulated mixture and implanted copy number aberrations
+are not confounded by impurity and aberrations in the real data.
+Simulated mixtures are created by implanting random ampliﬁ-
+cations and deletions (see Supplementary Material) to create dif-
+ferent tumor populations, and then creating a mixture
+representing different tumor compositions.
+
+3.I.I Mixtures with three subpopulations We ﬁnd that THetA2
+computes the optimal solution orders of magnitude faster than
+the original THetA (Fig. 2a). Using 30x simulated data, THetA2
+demonstrates consistent accuracy at estimating ,u. (error<0.05)
+and copy numbers in the larger tumor population (error<0.l).
+In addition, the accuracy in estimating copy numbers improves
+for the smaller tumor population as its proportion increases
+(Fig. 2b). Furthermore, THetA2 has increased performance at
+estimating copy numbers for both populations when considering
+only longer intervals. For example, when the smaller subpopula-
+tion comprises 0.3 of cells in the sample and we consider only
+intervals longer than 5 Mb, the error rate for both populations
+drops <0.06. We see similar trends using 7x simulated data, but
+the lower coverage results in slightly worse copy numbers esti-
+mates (Supplementary Fig. S2).
+
+We also directly compare THetA2 with the original THetA on
+this simulated data. The two-step method enables THetA2 to
+infer copy numbers for 100% of the genome compared with
+only 6—11% of the genome with the original THetA
+(Supplementary Fig. S3). The expanded fraction of the genome
+analyzed also translates into a substantial increase in the fraction
+of genome with correct copy number estimates. In our simula-
+tions, THetA2 correctly infers copy numbers for the larger and
+smaller tumor subpopulation in 83—87% and 28—72% more of
+the genome, respectively, than THetA (Supplementary Fig. S4).
+
+Using the simulated mixture in Figure 3a, we demonstrate that
+the improved enumeration procedure in combination with the
+
+ 
+
+3535
+
+112 /§JO'S{12umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁdllq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+L.Oesper et al.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+    
+    
+
+ 
+
+I
+
+o 0.2 0.4 0.6 0.8 1
+Purity
+
+Fig. 3. Comparison of THetA2, THetA and ABSOLUTE on a simulated
+mixture of three subpopulations. (a) True simulated mixture including
+read depth ratios (dots) within 50 kb bins and the true copy numbers for a
+mixture of normal cells and two tumor subpopulations. (b) Tumor com-
+position inferred by THetA2 using default parameters. Genome coverage
+is the fraction of the genome for which copy number estimates are made.
+a error is the Euclidean distance from the true a and C error is the
+fraction of the genome with the incorrect copy number estimate. (c)
+Similar to (b) but shows composition inferred by the original THetA
+and also shows C error across both predicted regions and the complete
+genome. (d) (left) Histogram of all 12 purity estimates output by
+ABSOLUTE. (right) The purity and ploidy reported in the most likely
+and most likely using only Karyotype solutions output by ABSOLUTE
+
+Purity=0.63, Tumor1 Ploidy: 1.75, Tumor2 Ploidy: 1.77
+
+A Simulation — Normal:37%, Tumor1:43%, Tumor2:20%
+é 3' _ — Normal
+2 — Tumor1
+> 1— -— - - - — - - -
+8—0 — Tumor2
+1 2 3 4 5 6 7 8 9 10 11 12 1314151617181912‘22
+Chromosome
+B THetA2 . Normal:40.1%, Tumor1:43.6%, Tumor2:16.3%
+E 3‘ ' ' "“ ' " ' ' ' ' Genome Coverage: 100%
+E " 11 error: 0.05
+:1— . __ _ - . _ ._ .-. — — - - - Tumor1 C Error: 0.05
+D.
+8 o. Tumor2 C Error: 0.13
+I1 2 (I! :1 I5 5 I7 I8 I9 10 11 12 131415161718121222
+Chromosome
+C THetA Normal:34.4%, Tumor1:49.5%, Tumor2:16.1%
+g 3 Genome Coverage: 11%
+£3 2 = ' ' ' 11 error: 0.08
+a. 1 ' ' Tumor1 C Error: 0.02 (0.9)
+8 ° . . . . . . . . . . . . . . . . . . .  TumOFZCErr0r30-95IO-99I
+1 2 3 4 5 6 7 8 9 10 11 12 131415161718192022
+Chromosome
+4 A” 12 ABSOLUTE we M Lik I W
+E 3 Solutions Purity=0.35, Ploidy = 8.82 Purity = 0.28, Ploidy = 4.18
+D
+o
+o 2 True (0‘63I True Mixture
+1
+o
+
+ 
+
+ 
+
+ 
+
+ 
+
+two-step method can lead to improved estimates of both ,u. and
+C. On this mixture, THetA2 is able to reconstruct both tumor
+populations with accuracy >0.87 (Fig. 3b) across the entire
+genome. However, because THetA is only able to consider a
+small fraction of the genome, when applied to this mixture, it
+has increased error at estimating ,u. and completely misestimates
+the smaller tumor subpopulation with error of 0.95 across the
+regions for which copy number estimates were made and error of
+0.99 across the whole genome (Fig. 30). We also applied
+ABSOLUTE (Carter et al., 2012) to this mixture, run with de-
+fault parameters, using the same partition of the genome output
+by BIC-seq (Xi et al., 2011). ABSOLUTE returns a collection of
+12 different solutions, each with a different purity and likelihood
+(Fig. 3d). The most likely solutions returned by ABSOLUTE
+underestimate purity by at least 0.28 and estimated a tetraploid
+solution, whereas the true sample has mean ploidy 1.75 and 1.77
+in the two tumor populations. Further details are located in the
+Supplementary Material.
+
+3.1.2 Mixtures with four subpopulations To demonstrate the
+extensibility of the model to greater numbers of subpopulations,
+we create a simulated 30x coverage mixture containing four dis-
+tinct subpopulations. Because of the increased runtime when
+considering larger numbers of subpopulations, we use an alter-
+native segmentation procedure to reduce the total number of
+intervals (see Supplementary Material for details). We ﬁnd that
+
+on this simulation, THetA2 was able to estimate ,u. with 0.05
+error, comparable with the accuracy achieved for smaller num-
+bers of subpopulations, and was able to correctly infer copy
+number for 99.6% of the intervals considered, with the tradeoff
+of only considering 87.6% of the total genome (Supplementary
+Fig. S5). Further, we demonstrate how the output of THetA2
+changes when the number of subpopulations (n) is ﬁxed below
+the true number of subpopulations. In particular, we show that
+in this case THetA2 still provides useful information about the
+true mixture (Supplementary Fig. S6).
+
+3.2 Extension to WXS data
+
+To demonstrate THetA2’s effectiveness on WXS data, we ran
+THetA2 on Illumina WXS data for the subset of 16 of the 18
+tumor samples from TCGA for which WXS data were available
+(Supplementary Table S2). For each sample, we used both
+ExomeCNV (Sathirapongsasuti et al., 2011) and
+EXCAVATOR (Magi et al., 2013) with default parameters to
+determine an interval partition I (see Supplementary Fig. S7 for
+the complete WXS workﬁow). If we assume that the tumor
+sample is a mixture of normal cells and a single tumor popula-
+tion, then the purity estimates obtained by THetA2 on the
+ExomeCNV and EXCAVATOR interval segmentations were
+similar for most samples (Supplementary Fig. S8). The two ex-
+ceptions were two tumor samples where we ﬁnd subclonal copy
+number aberrations (for one example see Supplementary Fig.
+S9). We found that the presence of subclonal aberrations can
+result in estimates of purity that are artiﬁcially low. For example,
+a segmentation may not accurately distinguish all the present
+subclonal aberrations. Thus, in the results below, we use the
+THetA2 solution with higher purity estimate from the
+ExomeCNV and the EXCAVATOR segmentations. Further
+details are in the Supplementary Material.
+
+3.2.] Comparison of T HetA2 with ABSOLUTE On most sam-
+ples, THetA2 purity estimates are within 0.08 of the estimates
+reported by the ABSOLUTE algorithm (Carter et al., 2012)
+(Fig. 4a). One example is the glioblastoma sample TCGA-06-
+0214, for which we estimate purity of 0.67 compared with 0.66
+reported by ABSOLUTE. However, although the purity esti-
+mates are similar, THetA2 is additionally able to identify two
+subpopulations of tumor cells, in 46.4 and 20.1% of cells in
+sample (Fig. 4b) and determine which copy number aberrations
+are part of each subpopulation.
+
+There are two samples where THetA2 purity estimates are not
+in agreement with those reported for the ABSOLUTE algorithm
+(Carter et al., 2012) (Fig. 4a). The ﬁrst is the ovarian carcinoma
+sample TCGA-29-l768 where we infer multiple tumor subpopu-
+lations and report a purity of 0.87 compared with 0.55 reported
+by Carter et al. (2012). Notably, one of the tumor subpopula-
+tions returned by THetA2 is in 54% cells. A possible explanation
+is that ABSOLUTE reported the purity for the major tumor
+subpopulation. The second is glioblastoma sample TCGA-06-
+0188 which we infer to contain two tumor subpopulations con-
+sisting of 43.1 and 20.3% cells. In comparison, ABSOLUTE
+reports that the sample is highly non-clonal and is unable to
+estimate purity. Our purity estimate of 0.7 is in the range of
+0.6—0.8 reported by TCGA histopathology reports. We perform
+
+ 
+
+3536
+
+112 /§JO'S{12umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(11111 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+Quantifying tumor heterogeneity
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+(a) 1 '.. (b) TCGA-06-0214-exome—Normal: 33.5%, Tumor1:46.4%, Tumor2:20.1%
+E08 . Q i
+g 06 3 '
+$0.4 1 - I II
+E  I I I I | I | | | I | | I .l I I I I ll
+0:: 0.2 r=0.63(all) - 1 2 3 4 5 6 7 8 9 1o 11 12 1314151617181521222
+r=0.90 (blue only) Chromosome
+0 - - -A -
+
+Purity (THetA—Max)
+
+ 
+
+Fig. 4. THetA2 results on WXS data. (a) Comparison of purity estimates by THetA2 and ABSOLUTE (as reported in Carter et al., 2012). With
+exception of two outlier samples (red triangles; TCGA-29-1768 and TCGA-06-0188), both approaches predict similar estimates on high purity samples:
+r = 0.9 from Pearson correlation coefﬁcient. Circled sample is TCGA-06-0214, for which both methods agree on sample purity. (b) Tumor composition
+inferred by THetA2 on glioblastoma multiforme sample TCGA-06-0214. Read depth ratios (dots) within 50 kb bins and the copy numbers (for all
+intervals >2 Mb) inferred by THetA2 for a mixture of normal cells and two tumor subpopulations. We detect rearrangements common to glioblastoma
+multiforme (Sturm et al., 2014) such as ampliﬁcation of chromosomes 7, and loss of chromosomes 6q, 9p, 10, 13q and 14q
+
+further analysis of this sample and ﬁnd supporting evidence for
+our estimated tumor composition (Supplementary Fig. S10).
+These results demonstrate that consideration of multiple tumor
+populations may be important for determining tumor purity,
+especially for samples with large subclonal populations.
+
+3.2.2 Consistency across sequencing platforms To further valid-
+ate the results of THetA2 on WXS data, we compared results for
+the 7 of the 18 TCGA samples for which both WGS (including
+low-pass with 5—7>< coverage) and WXS sequence data were
+available. For WGS samples, we partition the reference
+genome using the BIC-seq algorithm (Xi et al., 2011) run with
+default parameters (see Supplementary Fig. S7 for WGS work-
+ﬁow). We found that purity estimates for WXS data to be within
+0.04 of purity estimates for WGS data for 4 of the 7 samples
+(Table 1).
+
+We also compare the copy number aberrations predicted for
+the different subpopulations between the WXS and WGS data
+using a similarity measure described in Table 1 caption. We ﬁnd
+that four of the genomes have 2 0.89 similarity under our meas-
+ure (Table 1) for the major subpopulation. Notably, we ﬁnd that
+THetA2 infers three subpopulations for sample TCGA-06-0214
+on both WXS and WGS data—selecting the n = 3 solution over
+both n = 2 and n = 4 for WGS data (see Supplement) and has
+similarity 0.92 between the data types for the minor subpopula-
+tion. We also found similar copy number similarity results using
+a less stringent measure that only considers copy number state
+rather than exact copy number value (Supplementary Table S3).
+These results demonstrate the consistency of THetA2—including
+the inference of multiple tumor subpopulations—across different
+types of sequencing data.
+
+3.3 Analysis of highly rearranged and heterogeneous
+genomes
+
+One of the main advantages of THetA2 is the ability to analyze
+
+highly rearranged genomes containing many copy number aber-
+
+rations in one or more tumor subpopulations. We analyze in
+
+further detail several highly rearranged genomes that THetA2
+predicted to contain subclonal populations from WGS data.
+
+3.3.1 Low-pass breast cancer samples T CGA-A2—AOEU and
+T CGA-AO-AOJL We used THetA2 to analyze two breast
+cancer genomes, TCGA-A2—AOEU and TCGA-AO-AOJL, that
+were sequenced with low-pass (5-7X) WGS sequencing. These
+are the most rearranged of the breast cancer genomes that we
+analyzed—containing many intervals in BIC-seq segmentation
+(493 and 675 intervals respectively) and more predicted copy
+number aberrations. We attempted to run ABSOLUTE
+(Carter et al., 2012) on these genomes using the BIC-seq segmen-
+tation. However, despite trying a range of values for the param-
+eters, we obtained purity <0.3 for both samples. For comparison,
+we cite the results reported by Yadav and De (2014) on these
+samples, using ABSOLUTE and a different segmentation.
+
+In both samples, THetA2 identiﬁes multiple subclonal popu-
+lations. We infer that breast cancer sample TCGA-A2—AOEU
+contains normal admixture with two distinct tumor subpopula-
+tions, one with 42.7% cells and another with 34.6% cells
+(Supplementary Fig. Slla). We note that our estimate of
+tumor purity (0.77) is below the reported histopathology purity
+of 0.90 for this sample, but closer than the ABSOLUTE estimate
+of 0.49. We infer that breast cancer sample TCGA-AO-AOJL
+contains normal admixture with two distinct tumor subpopula-
+tions, one with 57.0% cells and another with 30.5% cells
+(Supplementary Fig. Sllb). Despite being the most rearranged
+of the breast cancer genomes analyzed, our estimated tumor
+purity of 0.88 is near the reported histopathology value of
+0.80. In comparison, ABSOLUTE inferred purity of 0.50 for
+this sample. We are also able to identify a number of clonal
+and subclonal chromosome arm level events for both genomes
+(see Supplemental Material), as well as many other small events,
+thus demonstrating that THetA2 can analyze highly rearranged
+genomes with low-coverage WGS sequencing data.
+
+3.3.2 Lung squamous cell sample T CGA-56-1622 We ran
+THetA2 on a highly rearranged lung squamous sample
+TCGA-56-1622, containing 2847 intervals in the segmentation.
+
+ 
+
+3537
+
+112 /§JO'S{12umo [p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(11111 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+L.Oesper et al.
+
+ 
+
+Table 1. Comparison of THetA2 results on WGS and whole-exome data
+
+ 
+
+ 
+
+Sample Path. ABS WGS Purity (# populations) WXS Purity (# populations) Overlap CNA Sim
+TCGA-06—0185 0.95 0.89 0.87 (3) 0.83 (2*) 0.97 0.91
+TCGA-06—0188 0.6—0.8 NA 0.70 (3) 0.63 (3) 0.96 0.79, 0.62
+TCGA-06—0214a 0.25—0.8 0.66 0.67 (3) 0.67 (3) 0.96 0.97, 0.92
+TCGA-56—1622 0.9 — 0.68 (3) 0.78 (3) 0.96 0.89, 0.57
+TCGA-A2-AOEU 0.9 — 0.77 (3) 0.90 (3) 0.91 0.61, 0.22
+TCGA-AO-AOJJ 0.8 — 0.52 (3) 0.52 (2) 0.85 0.67
+TCGA-BH-AOW5 0.7 — 0.51 (2*) 0.54 (2*) 0.98 0.97
+
+ 
+
+Notes. Path. are purity estimates reported in TCGA histopathology reports. ABS are ABSOLUTE purity estimates reported by Carter et al. (2012) (samples marked with ‘—’
+
+do not have published purity estimates from ABSOLUTE). WGS Purity, WXS Purity and # populations are values predicted by THetA2. Overlap is 1*
+
+IIWGSIUIIWXSI Where [WGS
+
+and [WXS are the interval partitions for the WGS and whole-exome data, respectively, and 1* is the set of intervals longer than 100 kb contained in both [WGS and IWXS. CNA
+Sim is the fraction of I* where the copy number estimates are the same between the two data types. *Indicates that the sample did not pass the criteria to be considered for
+multiple tumor populations (see Supplemental Material). aFor sample TCGA-06—0214, WGS data were aligned to hg18 and WXS data aligned to hgl9. See Supplementary
+Table S3 for purity estimates across all genomes analyzed and results using an additional similarity metric. Bolding indicates the sample for which THetA2 can estimate purity,
+
+but ABSOLUTE reports as highly non-clonal and is unable to estimate purity.
+
+We note that this genome is so fragmented that ABSOLUTE
+(Carter et al., 2012) does not attempt to estimate tumor purity
+when run with default parameters. Moreover, this sample has so
+many copy number changes that SNV-based algorithms (Andor
+et al., 2014; Roth et al., 2014) would have extreme difﬁculty in
+deﬁning regions of normal copy number to analyze. THetA2
+infers that sample contains normal admixture with two distinct
+tumor subpopulations, one with 50.1% cells and another with
+18.1% cells (Fig. 5a). Using the new two-step procedure,
+THetA2 also identiﬁes many smaller copy number aberrations
+(Supplementary Fig. S12) and we ﬁnd that the read depth pre-
+dicted using our reconstruction closely matches the observed
+read depth (Fig. 5b).
+
+We examine this sample in further detail using B-allele fre-
+quency (BAF) information not used by THetA2. We constructed
+a virtual SNP array deﬁning the BAF at a known germ line SNP
+to be the fraction of reads containing the minor allele as
+described in Oesper et al. (2013). In diploid regions of the
+genome that have not undergone any copy number changes,
+we expect that the BAFs for germ line heterozygous SNPs to
+be near a value of 0.5, as approximately half of the reads should
+contain the B-allele. In a pure tumor sample a deletion of a
+segment on a single chromosome will lead to a loss of heterozy-
+gosity (LOH) and BAFs at 0 or 1 in a symmetric double banded
+pattern centered around 0.5. As the sample become less pure (i.e.
+more admixture by normal cells), the double banded pattern will
+shift closer to 0.5.
+
+In many of the regions where THetA2 predicted a clonal de-
+letion (i.e. in all subpopulations), such as chromosomes 3, 5q and
+18 (Fig. 5b), we observe that the BAFs cluster near 0 and l, as
+expected for a deletion occurring in a majority of cells in the
+sample. Similarly, we ﬁnd that the shifts in BAF are consistent
+with THetA2’s predictions of subclonal deletions in 50.0 and
+18.1% of cells (Fig. 5b). On chromosome 1p, we observe a dis-
+crepancy between THetA2’s predictions and BAF. THetA2 pre-
+dicts that 1p is a clonal deletion; however, the BAFs are clustered
+tightly around 0.5, indicating an equal number of both parental
+copies of this region in the tumor sample. One explanation is that
+1p is homozygously deleted in one of the tumor subpopulations,
+
+rather than a heterozygous deletion in both subpopulations,
+which would keep the balance of the parental copies of 1p in
+the tumor sample.
+
+3.4 Using BAFs
+
+For glioblastoma sample TCGA-06-0145, THetA2 outputs two
+possible (C, ,u.) pairs using only read depth — one largely haploid
+and one largely diploid. We apply our probabilistic model of
+BAFs and ﬁnd that the diploid reconstruction, which includes
+rearrangements characteristic to glioblastoma such as ampliﬁca-
+tion of chr7 and deletion of chr10 (Sturm et al., 2014), is deter-
+mined to be the more likely tumor composition (Supplementary
+Fig. S13).
+
+4 DISCUSSION
+
+We introduced an algorithm to infer tumor composition — of
+highly rearranged genomes from WGS (high or low coverage)
+or WXS DNA sequencing data. These are implemented as im-
+provements to our THetA algorithm. The THetA2 algorithm is
+able to analyze highly rearranged, aneuploid samples that are
+beyond the scope of existing algorithms that infer tumor hetero-
+geneity. A recently published comparison of algorithms for infer-
+ring tumor purity (Yadav and De, 2014) showed that our
+original THetA algorithm (Oesper et al., 2013) performed well,
+but sometimes underestimated tumor purity when run to only
+consider normal cells and one tumor subpopulation. We argue
+that this purity underestimation is likely a result of not directly
+considering all tumor subpopulations in the sample. In every
+sample that we analyzed with the new algorithm, tumor purity
+was higher when considering multiple tumor subpopulations.
+Although the improved THetA2 presented here is useful on a
+wide range of sequencing data from different tumors, some limi-
+tations remain. First, THetA2 is unable to distinguish tumor
+subpopulations that are not differentiated by copy number ab-
+errations. As copy number aberrations are ubiquitous in most
+solid tumors (Albertson et al., 2003), we expect that THetA2 will
+be applicable to many genomes. However, for some diploid
+tumors, SNV analysis is preferable. Incorporation of additional
+
+ 
+
+3538
+
+112 /E.IO'S[BLI.ITIO[p.IOJXO'SOIlBIIIJOJUIOIQ/ﬁ(11111 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+Quantifying tumor heterogeneity
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+   
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+-1: 1p, 3, 5o,
+
+5' ?p.3p.9p.13
+E 4 _ II: ' 'I' I‘I =.I III I— 'II I I I
+.1:
+g 3 _ -IIII . I II I ..l I III III I I. III I
+i 2 -_.ll .JIITHHJIILIII. II I...;Ili ..I Mai. I‘ll—E Iii.
+o.
+,3 11.“ II IIIIIl-II'“ I ' ' IIII II" III—"lull: 1". .l
+
+D __ 1 I I I u 1 I1 II I I l I 1
+
+I 2 :2 :1 I1 is 1' 1'?- Is 1'0 1'1 1'2 1'3 14 15115121312222 NDrmaI '1: 4p’ 13q'  li’gﬂq’
+Chromosome HP '4' F'
+ TCGA—55—1522—wgs — Normal:31.9%, Tumor1:50_1ii-E,Turnor2:1ﬂ_1i?fs +13 17"": +1: 10p: 2'31: 5p
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+    
+
+ 
+
+ 
+
+   
+ 
+ 
+
+5
+.e
+E ‘1" '
+E H ' Expected Reed Depth
+‘3 2 Ratio based on
+E E “in I 'II i ” ff, 1 I“ I . “I; “a it?" inferredCand u.
+E  "III" '._'l'"'- "6.1;: 'F'I: "IE-IN- -- I"-“M'I-I'IIJ-I' m I. “I "w '-I ' I' n-I-I 'I
+1:].
+I I! I2 2- :1  E 3’ 2 2 11} 1:1 12 1'3 14 1:5 1IE1IF1IB19202I122
+Chromosome
+_b| b I I Suhclonal
+(“I PGSE' E 5” Ema deletion CIDHEI EIEIET'D” Subclonal deletion Normal gubcmna] de|eﬁﬂn
+“mm???” (13.1%) (ES-1%} [soossl COW (13 1%)
+E‘ ,e'oo . . . / (31.9%} - .'
+g ' . _,..., T" " ‘1, Mean BAF
+E in; .- . suggested
+2 EL " ' "" "_ " -.""'." by data
+E Inl'll
+7? .' _ "'" "'__1___
+no 3 4 5 15
+
+ 
+
+Fig. 5. Analysis of squamous cell lung cancer sample TCGA-56-1622. (a) (Left) Read depth ratios (gray dots) within 50 kb bins and the inferred copy
+number aberrations calculated by THetA2 when the tumor is considered to be a mixture of three subpopulations: normal cells (black) and two tumor
+subpopulations (blue and red). (Right) A reconstruction of the tumor mixture along with ancestral clonal population (purple) with the inferred
+aberrations and estimated fraction of cells in each population (see Supplementary Material). (b) Expected read depth ratios (see Supplementary
+Material) for intervals longer than 2Mb based on inferred C and a (black) overlaid on observed read depth ratios (gray dots). (c) Virtual SNP
+array showing BAFs at germ line SNPs on indicated chromosomes and the mean BAF in each segment (see Supplementary Material)
+
+information, such as BAFs for somatic and germ line SNPs,
+into the model (Andor et al., 2014; Roth et al., 2014) may
+also increase the scope of samples for which THetA2 is
+applicable.
+
+Second, while the improvements presented here greatly de-
+crease the computational burden of the algorithm when consider-
+ing multiple tumor populations, the algorithm remains
+exponential in the size of the interval partition of the reference
+genome—making it impractical to infer tumor composition with
+more than a handful of subpopulations in many cases.
+Identiﬁcation of further mathematical restrictions to the
+domain of interval count matrices, or use of sampling techniques
+in place of complete enumeration are future avenues of investi-
+gation, which may prove useful in this respect. Additionally,
+when considering multiple tumor subpopulations, the quality
+of the results is limited by features of the data including the
+presence of copy number aberrations that distinguish
+
+subpopulations as well as the number of sequence reads available
+to identify these aberrations. The later is a function of sequencing
+coverage, aberration length and proportion of cells that have the
+aberration.
+
+While the limited number of tumor subpopulations that
+THetA2 analyzes may not be sufﬁcient to fully analyze tumor
+progression, THetA2’s ability to recover subpopulations with
+relatively low-coverage sequencing data can provide some insight
+into tumor subpopulations in cases where methods that rely on
+high-coverage data (Jiao et al., 2014; Roth et al., 2014) cannot.
+Combining THetA2s output with other methods that do expli-
+citly consider the phylogenetic history of a tumor such as Jiao
+et al. (2014) or Hajirasouliha et al. (2014) may prove a useful
+avenue of exploration.
+
+The two-step procedure introduced here allows us to infer
+subclonal copy number aberrations at much smaller scales.
+However, some care is required to avoid overﬁtting the data,
+
+ 
+
+3539
+
+112 /310'sp2umofp101xo'sor112u1101urorq//:d11q 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+L.Oesper et al.
+
+ 
+
+particularly for small, subclonal copy number aberrations where
+GC bias or other sequencing artifacts may lead to incorrect in-
+ferences. Incorporating more sophisticated segmentation proced-
+ures that account for such effects and appropriately scale read
+counts (Benjamini and Speed, 2012) are useful directions for
+future research.
+
+Finally, this work focuses on the important ﬁrst step of quan-
+tifying intra-tumor heterogeneity from a single mixed tumor
+sample. Downstream analysis including the clinical and func-
+tional impact of the inferred tumor composition is an important
+area for future work.
+
+5 CONCLUSION
+
+We present a new algorithm, THetA2, to infer the composition
+of a tumor sample—including both the percentage of normal
+admixture and the fraction and content of one or more of
+tumor subpopulations that differ by copy number aberrations.
+The new algorithm builds on our THetA algorithm (Oesper
+et al., 2013), and includes several improvements that allow us
+to analyze highly rearranged genomes from WGS (high and low
+coverage) or WXS sequencing data. In addition, the new algo-
+rithm is orders of magnitude faster and allows us to use BAFs to
+distinguish between different reconstructions.
+
+ACKNOWLEDGEMENTS
+
+The results published here are in whole or part based on data
+generated by TCGA research network established by the
+National Cancer Institute and the National Human Genome
+Research Institute.
+
+Funding: This work is supported by a National Science
+Foundation (NSF) graduate research fellowship DGE0228243
+(to L.O.); National Science Foundation (NSF) career award
+CCF-1053753 (to B.J.R.); and grant ROlHG005690 from
+the National Institutes of Health to B.J.R. B.J.R. is also sup-
+ported by a Career Award at the Scientiﬁc Interface from the
+Burroughs Wellcome Fund, an Alfred P Sloan Research
+Fellowship.
+
+Conﬂict of interest: none declared.
+
+REFERENCES
+
+Albertson,D.G. et al. (2003) Chromosome aberrations in solid tumors. Nat Genet,
+34, 369—376.
+
+Andor,N. et al. (2014) Expands: expanding ploidy and allele frequency on nested
+subpopulations. Bioinformatics, 30, 50—60.
+
+Benjamini,Y. and Speed,T.P. (2012) Summarizing and correcting the GC content
+bias in high-throughput sequencing. Nucleic Acids Res., 40, e72.
+
+Cancer Genome Atlas Network. (2012) Comprehensive molecular portraits of
+human breast tumours. Nature, 490, 61—70.
+
+Cancer Genome Atlas Research Network. (2013) Genomic and epigenornic land-
+scapes of adult de novo acute myeloid leukemia. N. Engl. J. Med, 368,
+2059—2074.
+
+Carter,S.L. et al. (2012) Absolute quantiﬁcation of somatic DNA alterations in
+human cancer. Nat Biotechnol, 30, 413—421.
+
+Ding,L. et al. (2010) Analysis of next-generation genomic data in cancer: accom-
+plishments and challenges. Hum. Mol. Genet, 19, R188—R196.
+
+Gerlinger,M. et al. (2012) Intratumor heterogeneity and branched evolution re-
+vealed by multiregion sequencing. N. Engl. J. Med, 366, 883—892.
+
+Greaves,M. and Maley,C.C. (2012) Clonal evolution in cancer. Nature, 481,
+306—313.
+
+Gusnanto,A. et al. (2012) Correcting for cancer genome size and tumour cell con-
+tent enables better estimation of copy number alterations from next-generation
+sequence data. Bioinformatics, 28, 40—47.
+
+Hajirasouliha,I. et al. (2014) A combinatorial approach for analyzing intra-tumor
+heterogeneity from high-throughput sequencing data. Bioinformatics, 30,
+i78—i86.
+
+Jiao,W. et al. (2014) Inferring clonal evolution of tumors from single nucleotide
+somatic mutations. BM C Bioinformatics, 15, 35.
+
+Larson,N.B. and Fridley,B.L. (2013) Purbayes: estimating tumor cellularity and
+subclonality in next-generation sequencing data. Bioinformatics, 29, 1888—1889.
+
+Magi,A. et al. (2013) Excavator: detecting copy number variants from whole-exome
+sequencing data. Genome Biol, 14, R120.
+
+Meyerson,M. et al. (2010) Advances in understanding cancer genomes through
+second-generation sequencing. Nat Rev. Genet, 11, 685—696.
+
+Mullighan,C.G. et al. (2008) Genomic analysis of the clonal origins of relapsed
+acute lymphoblastic leukemia. Science, 322, 1377—1380.
+
+Nik-Zainal,S. et al. (2012) The life history of 21 breast cancers. Cell, 149, 994—1007.
+
+Oesper,L. et al. (2013) THetA: inferring intra-tumor heterogeneity from high-
+throughput DNA sequencing data. Genome Biol, 14, R80.
+
+Roth,A. et al. (2014) PyClone: statistical inference of clonal population structure in
+cancer. Nat Methods, 11, 396—398.
+
+Sathirapongsasuti,J.F. et al. (2011) Exome sequencing-based copy-number variation
+and loss of heterozygosity detection: exomecnv. Bioinformatics, 27, 2648—2654.
+
+Sturm,D. et al. (2014) Paediatric and adult glioblastoma: multiform (epi)genomic
+culprits emerge. Nat Rev. Cancer, 14, 92—107.
+
+Xi,R. et al. (2011) Copy number variation detection in whole-genome sequencing
+data using the bayesian information criterion. Proc. Natl Acad. Sci. USA, 108,
+E1128—E1136.
+
+Yadav,V.K. and De,S. (2014) An assessment of computational methods for estimat-
+ing purity and clonality using genomic data derived from heterogeneous tumor
+tissue samples. In: Brief Bioinform, in press. [Epub ahead of print, doi:10.1093/
+bib/bbu002, February 20, 2014].
+
+ 
+
+3540
+
+112 /810'8112umo [progxo'sor1nu1101urorq//:d11q 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+

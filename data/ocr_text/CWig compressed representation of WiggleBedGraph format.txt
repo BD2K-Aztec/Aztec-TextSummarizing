@@ -1,0 +1,1357 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 18 2014, pages 2543-2550
+doi: 10. 1 093/bioinformatics/btu330
+
+ 
+
+Genome analysis
+
+Advance Access publication May 27, 2014
+
+CWig: compressed representation of Wiggle/BedGraph format
+
+1,2,*
+
+Do Huy Hoang1 and Wing-Kin Sung
+
+1Department of Computational and Systems Biology, Genome Institute of Singapore, Singapore 138672 and
+2Department of Computer Science, School of Computing, National University of Singapore, Singapore 117417
+
+Associate Editor: lnanc Birol
+
+ 
+
+ABSTRACT
+
+Motivation: BigWig, a format to represent read density data, is one of
+the most popular data types. They can represent the peak intensity in
+ChIP-seq, the transcript expression in RNA-seq, the copy number
+variation in whole genome sequencing, etc. UCSC Encode project
+uses the bigWig format heavily for storage and visualization. Of 5.2
+TB Encode hg19 database, 1.6 TB (31 % of the total space) is used to
+store bigWig files. BigWig format not only saves a lot of space but also
+supports fast queries that are crucial for interactive analysis and
+browsing. In our benchmark, bigWig often has similar size to the
+gzipped raw data, while is still able to support ~5000 random queries
+per second.
+
+Results: Although bigWig is good enough at the moment, both stor-
+age space and query time are expected to become limited when
+sequencing gets cheaper. This article describes a new method to
+store density data named CWig. The format uses on average one-
+third of the size of existing bigWig files and improves random query
+speed up to 100 times.
+
+Availability and implementation: http://genome.ddns.comp.nus.edu.
+sg/~cwig
+
+Contact: ksung@comp.nus.edu.sg
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on March 3, 2014; revised on May 1, 2014; accepted on
+May 5, 2014
+
+1 INTRODUCTION
+
+As the next-generation sequencing (NGS) cost reduces, huge
+amount of reads can be generated nowadays. After aligning
+the reads on a reference genome, we can generate the read dens-
+ity, i.e. the number of NGS reads covering each base in the
+genome. Density data are useful because it can be used to rep-
+resent the transcript expression in RNA-seq (Hu et al., 2013), the
+peak intensity in ChIP-seq (Liu et al., 2011), the copy number
+variation in whole genome sequencing (Bock, 2012), etc. For
+example, Figure 1 shows plots of density signals of a ChIP-seq
+region and a RNA-seq region, respectively.
+
+Currently, read density is often represented using the wiggle
+(wig) format, the bedGraph format or the bigWig format. They
+all store the densities of NGS reads along the whole reference
+genome. Wig and bedGraph are uncompressed text formats,
+thus, are usually huge. BigWig (Kent at al., 2010) is the com-
+pressed form of wig and bedGraph. Its compression approach is
+to sort and partition the density data into blocks and compress
+
+ 
+
+*To whom correspondence should be addressed.
+
+them by gzip. BigWig also supports a few types of queries over
+any selected region: coverage, max, min, average and standard
+deviation. These queries facilitate efficient downstream analysis
+and enable fast visualization of the data.
+
+With bigWig format, UCSC genome browser (Karolchik et al.,
+2014) can support interactive browsing of density data. In fact,
+bigWig is one of the most popular track types. In the th9 brow-
+ser, ~4400 tracks (10% of all hgl9 tracks) are bigWig tracks, and
+they use 1.6TB (it is equivalent to 31% of the total space for all
+UCSC th9 tracks). To reduce space and improve query speed,
+the resolution of the density signals of some UCSC tracks has
+been reduced, which affects the accuracy. In the future, it is im-
+portant to reduce the storage space of density data and improve
+their query speed while maintaining the accuracy of the data.
+
+Our project aims to develop an alternative storage format for
+density signal. Our design is based on careful observations of the
+data and knowledge of succinct and compressed data structures.
+For example, we observed that mapping locations of NGS are
+usually overlapped. Regions with non-zero intensity are often
+clustered. This fact enables us to reduce the space. Another ob-
+servation is that the density values of adjacent regions are not
+independent. Storing the differences between adjacent density
+values can reduce the size of 80% of the datasets in UCSC
+hgl9. To enable fast queries, we use data structures like
+SDArray (Okanohara and Sadakane, 2007) that can compress
+data while still allowing random access. We also adopt a mod-
+ified Cartesian tree (Fritz et al., 2011) that uses linear number of
+bits and provides constant time min/max query.
+
+Similar to UCSC bigWig tool, cWig tool also implements the
+remote file access feature. In this feature, the program and the
+data file can be placed in different computers. The program can
+answer queries by accessing the data file through the HTTP/
+HTTPS network protocol.
+
+In our experiment using all UCSC th9 database, the cWig
+format uses on average one-third of the size of existing bigWig
+files, and uses much lower space in high resolution data files.
+In addition, it also improves query speed by 10—100 times
+depending on the query types.
+
+2 BACKGROUNDS
+
+UCSC database stores and displays many types of genome-
+related data. They can generally be divided into three groups
+of formats. Sequence formats: store raw DNA sequences and
+quality scores. Examples include SAM/BAM (Li et al., 2009),
+FASTQ (Cock et al., 2010) formats. Annotation formats: store
+information about some biological features (e. g. genes, variants)
+
+ 
+
+© The Author 2014. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 2543
+
+112 /§JO'S{numo [p.IOJXO'SOIlBIHJOJUIOIQ/ﬁdllq 11101; popeoIII/noq
+
+9IOZ ‘091sn3nv uo ::
+
+D.Huy Hoang and W.-K.Sung
+
+ 
+
+la}
+
+f'I-fC‘I': “With-.1 F':|'.f-. l".'.". L'4 'Il'1F-::Il '."\-'|I'I' 1|'.'|' EII'JII‘II'L fl'.'.'l'.|
+
+ 
+
+lb}
+
+I $1,935,33N 31,0IB.BE$I 9+.915,B$BI 31.92B,B$3| BLEEBEGI $111.93}, B-EBI 5-
+H53: pol-JP"- EIFHaEIJ Fllﬁ-fﬁﬁ ital.- i1jnal Fran ErIEIZIL-E -'31-'l'.-:-I
+
+al mam-.555: 34.9w,on JL'ilﬂ'J-DBI :Lemel 34.91tl.$'-"-.I-| -14.'5|L~:|.-5D¢|
+CHHHTHCHEI:EHTTGRHE-LHHHEEﬁE-GEEE-E-
+ESE-E nun-II:th :F'taJﬁ Erin-5H Ecru E13Im1 Fran EflCEIZlIEJ'S'I-‘EH
+
+ 
+
+Fig. 1. (a) A zoom region in ChIP-seq ﬁle. (b) A zoomed region in a
+RNA-seq ﬁle. The dotted lines indicate boundaries of two consecutive
+intervals
+
+located in a genome. Some popular formats in UCSC are Bed,
+BigBed (Kent et al., 2010) and VCF (Danecek et al., 2011). Some
+annotation formats are designed to keep different types of fea-
+tures, for example, (Hoffman et al., 2010) and (Gundersen et al.,
+2011). Signal formats: store continuous numerical signal values
+for each genome bases. Examples include Wiggle, BedGraph and
+bigWig formats.
+
+The sequence and annotation files can be big, but they only
+require simple queries, i.e. list or count all sequences/annotations
+in a given region. This query can be solved by adding some index
+pointers on top of the existing formats. The signal files are struc-
+turally simple; however, it requires fast summary operations over
+some long regions.
+
+This article focuses on improving the existing signal formats.
+The raw density dataset is usually big (measured in Giga bytes
+per file) and contains a lot of duplicated information. To reduce
+size, bigWig applies the following compression scheme. It keeps a
+set of non-overlapping intervals such that the bases in each inter-
+val share the same signal value. Intervals with zero intensity or
+missing values are usually omitted. All intervals are sorted by
+their starting positions and they are partitioned into blocks of
+512 by default. Each block of intervals and their corresponding
+signal values are compressed using the gzip algorithm in zlib
+library. To allow partial random access, bigWig stores the start-
+ing locations of all blocks using an R-tree-based index (Guttman,
+1984), which is commonly used for geographical data.
+
+In addition to the original data, bigWig also stores extra tables
+to provide fast computation of four summary operations over
+any query interval. These operations are mean, min/max, cover-
+age and standard deviation. They are crucial for UCSC genome
+browser visualization function.
+
+Before we formally define the four operations, we need some
+additional notations. Let rk be the value at position k of the
+genome. If there is no value at position k, we denote rk
+as NaN. Operations that involve NaN are NaN+x=x,
+NaN-x=x, l/0=Na1\l, min(1\la1\i,x)=x, max (NaN,x)=x,
+where x is any value (including NaN). For any query range
+p..q, let N be the number of positions k in p..q, where
+rk 75 NaN. The four operations are defined as follows.
+
+0 coverage(p, q): Proportion of positions k where rk 75 NaN,
+that is, N/(q —p+ l).
+o mean(p, q): The arithmetic mean of the non-NaN values in
+p..q, that is, izq rk.
+N k=p
+o min_val(p, q) and max_val(p, q): the minimum/maximum
+value in p..q, that is, min k=puq{rk} and maxk=puq{rk}.
+
+o stdev(p, q): The standard deviation of the non-NaN values in
+- 1 q 2 2
+p..q, that is, \/N (Zkzp rk> — mean(p, q) .
+
+The extra tables in bigWig file stores precomputed answers
+of the operations in different zoom levels. For example, zoom
+level 1 stores answers for regions of length 50000 bases and
+zoom level 2 stores answers for regions of length 5000 bases.
+The precomputed tables are also indexed using R-trees.
+
+ 
+
+3 OBSERVATIONS
+
+This section describes our observations on the bigWig data in
+UCSC th9 database. bigWig groups bases that have the same
+values into intervals instead of storing signal values for each
+individual base. The problem becomes storing a set of tuples,
+i.e. (Si, (2,, v,) where, s,- and e,- are the start and the end positions
+of the intervals in a genome; and v,- is the signal value of the bases
+in the interval s,..e,. As the positions and the values are highly
+independent across the database, we study them separately in the
+next two subsections.
+
+3.1 Observations on interval positions
+
+This section discusses our observations on the characteristics of
+the interval data s,..e, stored in bigWig format. For high-density
+regions, NGS reads are often overlapped. Once the reads are
+piled up to generate the coverage data, each high-density
+region is expected to form a set of consecutive intervals. To
+illustrate, Figure 1 shows the density plots of a ChIP-seq
+region and a RNA-seq region. In both data types, we observed
+that the position intervals are usually consecutive (i.e. the start of
+the next interval equals the end of the previous one).
+
+To precisely measure this characteristic, we define a measure-
+ment called consecutiveness, which is the percentage of intervals
+in a signal data file that have their start positions equal the end
+positions of their adjacent intervals. The consecutiveness is zero
+when no interval stays next to another. It approaches one when
+all intervals are chained together.
+
+Figure 2a plots the proportion of bigWig files in UCSC th9
+database based on consecutiveness. We found that 81% of the
+files have the consecutiveness >0.5. To have a clear picture,
+Figure 2b further shows the relationship between the consecu-
+tiveness and the coverage. (Recall that the coverage is the
+
+ 
+
+2544
+
+112 /§JO'S{numo [p.IOJXO'SOllBIIIJOJUIOIQ/ﬁdllq 11101; popeoIII/noq
+
+9IOZ ‘091sn3nv uo ::
+
+CWig
+
+ 
+
+ 
+
+ 
+
+{a} 14m: -
+120E] -
+1WD -
+33m -
+=
+E
+E
+u. ED]
+1100 -
+200 l
+El
+¢$Hﬂmﬁmﬁﬁgﬁﬂﬂghgﬁaﬁgﬁ
+D D - D - D - D - '53 Cl .
+D D D a D D D D D D D D
+Cnnu-cutfuaness
+{b J  " N  """""""" " 
+) _.-'-- I: ~'-._ E iHrmﬂHualnml E
+ -. : i
+“"3 .r' F. - E itiwnH-smne
+: l
+'  Ulestent:
+‘ 1
+LE 5 HthHh;
+L. I II   swnrlm
+ + uni-teamma-
+I :
+015 '-. lefh‘.‘ .I'
+LI -.___._.________I_I__-
+E” Un-Dul
+y D
+:- Llwl'lnaae
+u _ .. . _ . _ . .H
+u u; r Italwchﬂnawq I
+|
+.. 1- CalleLIILuIIgEI‘IaSeu'
+It | I
+D ' 11: I Emlilwenﬁnaieq I
+. #55:? I I
+“I; Eur" '. 'HFIIL'IRI'IB'SIEITI
+n: ' ' a - - ' ' ' ' ' - "
+I Git-RIIJF'EI
+51 .n' -|:||.‘IerIC|‘II IZII'II
+ ._ -  x leEr-E-PIHE'
+'3 ' “tn—r" _ leeuli
+
+ 
+
+Consecutiveness
+
+Fig. 2. (a) Histogram of the datasets based on consecutiveness.
+0)) Coverage versus consecutiveness in UCSC hgl9 bigWig ﬁles. The
+big dotted oval highlights most Chip-seq datasets. The small oval high-
+lights low coverage, but high consecutive datasets
+
+percentage of bases of the genome that have signal data.)
+Intuitively, we expect high coverage ﬁles have high consecutive-
+ness. This is actually true as shown in the ﬁgure. Most of the
+Chip-seq data ﬁles (highlighted in red oval) are high in both
+coverage and consecutiveness. However, many RNA-seq ﬁles
+only have high consecutiveness. That means high consecutiveness
+may be a characteristic of RNA-seq data. Section 4.2 will use this
+property to reduce the space consumption for storing the pos-
+itions of the intervals.
+
+3.2 Observations on signal values
+
+This section discusses our observations on signal values in
+bigWig ﬁles. Let v,- be the signal value of an interval s,..e,.
+Figure 1 shows that signal values of adjacent intervals are similar
+for most cases. We suspect that storing the differences (i.e.
+vi+1— vi) may be better than storing the raw signal values
+(i.e. v,). To validate this observation, we compare the entropy
+of raw signals and the entropy of signal differences of adjacent
+intervals. [Under certain conditions, entropy (Cover and
+
+Average Entrnpyr in all UCSC files
+
+A
+h
+1...-
+
+   
+
+'5'
+_= 5
+E
+E 5 '
+D.
+e 4 -
+E-
+:— 3 -
+EL
+E
+E 1 '
+Ill-I
+
+1
+
+D .
+
+RewSignals Differences
+
+{b} Histug ra m of [entaignal - ent.diff]
+
+Numbernfﬁles
+E
+IE!
+
+ 
+
+eweeeeeee
+rt NNI‘I’JI'I'I IItu'tr
+
+mew erect
+mm rh- DI;
+
+Entropy difI‘Ere nce
+Fig. 3. (a) Average entropy of raw signals and their differences in UCSC
+
+ﬁles. 0)) Histogram of the entropy of the values minus the entropy of the
+differences in each ﬁle
+
+Thomas, 1991) is the minimum number of bits required to
+store each element in a sequence of values]
+
+Figure 3 shows that, among all UCSC bigWig ﬁles, the aver-
+age entropy of raw signals is ~4.9 bits, whereas the entropy of
+differences is around 3.2 bits. This means that, with a suitable
+compression scheme, storing differences uses less space than stor-
+ing raw signal values on average.
+
+To be more precise, we try to ﬁnd the list of bigWig tracks,
+where storing differences is better by computing the discrepancy
+between the two entropies for each bigWig track. Figure 3b
+shows the histogram plot of the results. We found that 81% of
+the bigWig tracks (represented by the area under the curve on the
+right side of the zero line) give smaller entropy when the differ-
+ences of the adjacent signals values are stored. In other words, we
+can classify the ﬁles into two classes. The ﬁrst class is smaller by
+storing differences of the signals. The second class is smaller by
+storing raw signal values.
+
+Our second observation is that certain signal (or difference)
+values occur more frequently in the bigWig ﬁle. To be precise, we
+deﬁne the number of frequent signal (or difference) values in a
+bigWig ﬁle as the minimum number of distinct values whose sum
+of occurrences makes up 75% of the total number of values in
+that ﬁle. Figure 4 shows the number of bigWig ﬁles that have x
+frequent signal (or difference) values for all x. Of 4400 bigWig
+ﬁles in UCSC hgl9, about 1500 ﬁles have less than six frequent
+raw signal values, and ~2500 ﬁles have less than six frequent
+differences values. Most of the ﬁles have <60 differences values.
+
+We further investigate the distributions of the values in each
+ﬁle. After studying many examples, we found that the frequent
+
+ 
+
+2545
+
+112 /810'S[12umo [pJOJXO'SOIIBIHJO}LIIOIQ//Idllq 1110131 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+D.Huy Hoang and W.-K.Sung
+
+ 
+
+Histogram of the number of frequent values
+[make up 15% occurrences]
+
+ 
+
+ 
+
+ 
+
+ 
+
+soon
+i’ _ _
+
+25110 - 4 Differences
+.52 —I— Rev.- aignals
+U
+E zoom
+.1“ .
+E .
+E laoo
+.n -,
+'5 '.
+L I
+e 
+
+[WU '1 '
+E 1
+Z '-
+
+500 k F
+
+'1__ x
+.-"
+
+.-'
+2'
+
+I... f
+o E + “I IImI-li-tl I II «t
+D 20 40 I50 SCI 100 120
+Number of freq uence value5
+
+Fig. 4. Histogram of frequent values
+
+{a} Integer values £be Floating point values
+a to . o :- loom
+ll 1*. ' ' goon-1
+can I'D-III?
+o 25 .3 3. loom
+in ED ' - EDGE“
+11.15 "-3 :ooze
+o m Eon-:1
+
+ll.ll.‘| _ _ :ooo.‘ : ' 3
+“09111 ' ' '-'5' o - ' i' ' ' 'Juﬂinm ' -'E El E 'Io. -:o -5 i 5 LL:
+I
+
+ 
+
+Fig. 5. Histogram of signal differences. (a) and (b) are two common
+histograms observed in integer value signal ﬁles. (c) is a common histo-
+gram observed in ﬂoating point value signal ﬁles. In these subﬁgures, the
+X -axes are the difference between adjacent signal values shown from —10
+to 10. Y-axes show the frequencies of these signal differences. The max-
+imal frequencies shown in (a), (b) and (c) are 0.4, 0.5 and 0.016,
+respectively
+
+values are usually close to zero. For integer signal ﬁles, Figure 5a
+and b show the typical distributions of signal differences. They
+usually contain one or two peaks in the center. For ﬂoating point
+signal ﬁles, Figure 50 shows the typical distribution of the sig-
+nal differences. They often have dense values near zero. We ran
+a simple classiﬁer on the database and found that of 2627 inte-
+ger signal ﬁles, 1851 ﬁles have two peak shape that look like
+Figure 5b, whereas 813 ﬁles have shape that are similar to
+Figure 5a.
+
+In summary, we have three observations for the signal values.
+More than half of the data is better stored by differences. Most
+data ﬁles have a small set of frequent values. The frequent values
+are usually small and close to zero. We will use these observa-
+tions to design schemes for storing signal values.
+
+4 METHODS
+
+Using the knowledge from the observations of all bigWig ﬁles in UCSC
+hgl9 database, this section presents our storage scheme.
+
+4.1 SDArray
+
+One of the frequently used components in our design is SDArray pro-
+posed by (Okanohara and Sadakane, 2007). It can be seen as a
+
+compressed array of increasing integers. We use this data structure
+for storing both data and index pointers. The advantages of this data
+structure over the traditional search tree is that, it uses nearly optimal
+number of bits while still provides 0(1) time to access and less than 0(
+logzm) time to search (where m is the number of elements). There are a
+few alternative compressed structures, which have similar properties as
+described by Raman et al., 2002 and Patrascu, 2008. SDArray is used
+because of its speed and simplicity. In addition, it has good compression
+ratio when the values are not dense, which is commonly observed in
+our data.
+
+The details of SDArray are as follows. Consider an array of non-
+decreasing nonnegative integers P[l..m]. Storing P[l..m] explicitly costs
+mllog2n1 bits (where n is the biggest number). SDArray is a com-
+pressed data structure storing the array P[l..m] and enables constant
+time access of any element P[i]. It also provides an operation called
+rank(P, x) to ﬁnd the ﬁrst element P[z] that is greater than or equal
+to x, i.e. rank(P, x)=min {i|P[i] Z x, i e l..m}. Let n=P[m].
+The SDArray for the array P uses l.56m+mlog 2(n/m)+o(m) bits
+and computes rank operation in 0(log 2(min (n/m, m))) time.
+This data structure is better than explicit storage when 11 >> m and
+m>4.
+
+4.2 Compression schemes for interval positions
+
+Consider a set of m position intervals {S,..e,|i= l..m}. Without loss of
+generality, assume the intervals are sorted in increasing order of Si. This
+section describes two alternative schemes (basic scheme and space saving
+scheme) to store the position intervals. Our two schemes also support
+random access of the values 5,- and 6,. To implement compatible bigWig
+operations, our schemes require an operation called ﬁnd_interval(p) that
+ﬁnds the maximal index i, such that s,- 5 p, and an operation called
+COUETJBTLUC) that reports the total length of the ﬁrst k intervals (i.e.
+21,: 1(e, — s, + 1)).
+
+The basic scheme has better access time for the queries, whereas the
+space saving scheme is more compact when there are many consecutive
+intervals. CWig uses the space saving scheme, if the consecutiveness
+(deﬁned in the observation section) is >0.5; otherwise, it uses the basic
+scheme.
+
+Basic scheme: The basic scheme stores the starting positions and inter-
+val lengths in two SDArrays: S[l..mj and L[l..m+ 1], respectively, such
+that S[i] = Si, L[0] = 0 and L[i] = Z; 1(e;C — 57,). Given S and L, s,- and 6,-
+equal S[i] and S[i]+L[i+ l] —L[i], respectively. Operation find_inter-
+val( p ) equals rank(S, p). Operation c0ver_len( k ) equals the value of the
+k—th entry of L plus k. Hence, all operations take 0(log2(n/m)) time.
+
+The space complexity for this scheme is m(3.l2+log2(n/m)+
+log2(l/m))+o(m) bits, where n=sm, and l is the total length of all
+intervals (i.e. L[m]). This scheme enables efﬁcient query. It also has
+good space usage when the intervals are sparse (e.g. in RNA-seq
+datasets).
+
+Space saving scheme: By the observations in the previous section, the
+space saving scheme groups the consecutive intervals into segments to
+save space. Precisely, we group consecutive intervals (S1363), ...,(SJ', 6])
+into one segment, if 6;, =Sk+1 for k: i, .., j — l. The space saving
+scheme stores the starting positions of segments, the numbers of intervals
+in each segment and the lengths of all intervals. Assume that there are g
+segments, we store:
+
+0 G[l..g] is a length-g array, where G[]] is the start position of the j—th
+segment.
+
+0 Ic[l..g+ l] is an array such that (Ic[i+ l] — Ic[i]) equals the number
+of intervals in the i—th segment.
+
+0 L[l ..m + 1] contains the preﬁx sum of the lengths (same as the one in
+basic scheme).
+
+ 
+
+2546
+
+112 /§JO'S{12umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁdllq 1110131 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+CWig
+
+ 
+
+To ﬁnd the start of the interval 1' (i.e. the value of Si), we ﬁrst compute
+the segment j that contains the interval 1' by calculating j = rank(Ic, i), then
+s,- = G[f_| +L[i] — L[Ic[f_|]. The end of the interval, 6,- =5,- +L[i+ 1] — L[i].
+
+function find_interval p
+j = rank(G, p)
+i = rank(La (p — G01) + LUCUH)
+if (i<IC[j+ 1]) then return 1'
+else return L[Ic[j+ 1]]
+
+The operation find_interval( p ) can be computed using a two-step al-
+gorithm. The ﬁrst step ﬁnds the segment nearest to p. Because the inter-
+vals inside each segment are consecutive, the second step ﬁnds the index
+of the interval that contains p, using the distance between p and the start
+of the segment. The operation c0ver_len( k ) equals the value of the k—th
+entry of L plus k.
+
+The space complexity for this scheme is 1.56m + mlogz (l/ m) + g(3. 12 +
+log2(n/ g) +log2(m/ g))+ 0(g+m) where l is the total length of the inter-
+vals, g is the number of groups and m is the number of intervals. The
+estimated space requirement is better than the basic scheme when 2g<m.
+That is when each group on average has more than two intervals (i.e. the
+consecutiveness is >0.5).
+
+4.3 Compression schemes for signal values
+
+By the observations in Section 3.2, we design our compression scheme for
+storing values and the auxiliary data structure to support the required
+query.
+
+The compression has two main stages. The ﬁrst stage converts the
+signals into integers and decides whether we need to store the raw
+signal values or the differences based on the entropy. It also applies
+some common transformations to make numbers easier for compression.
+The second stage uses a mixture of methods to compress the integers.
+
+Transformations: Let V: {V1, V2, . . . , vm} denote the signal values. For
+ﬂoating point datasets, we convert all signal values into integers by multi-
+plying with a scale factor. Precisely, we scan all values in V and identify
+the maximum number of digits 0: after the decimal point; then, every
+value is multiplied by the same scaling factor f = 10“. For practical pur-
+pose, we keep at most seven fractional decimal digits of precision, which
+is compatible to the precision level in bigWig format. It is similar to use
+IEEE’s 32-bit ﬂoating point numbers for storing signal values.
+
+The next step is to decide whether we store the signal values or differ-
+ences. To make the decision, we compute the entropy of the values and
+the differences. If the entropy of the values is smaller, we will store the set
+B: {17,-} such that b,- = VJ" for 1': 1..n where, f is the scaling factor.
+Otherwise, we store the set B: {17,-} such that b,- = (VH1 — v,)f for
+i=1..n — 1. To avoid the gaps between the numbers introduced by the
+scaling, we convert B into C such that c,- equals the rank of the values of b,-
+in sorted order.
+
+Compression: The previous section showed that only a few signal dif-
+ferences have high frequency. Furthermore, many signal differences with
+high frequency are scattered around zero. To capture this type of distri-
+butions, we use two compression methods: Huffman code and Elias delta
+code. Each method has its own strength and weakness.
+
+Elias delta code (Elias, 1975) is a variable length encoding scheme for
+positive integers. It represents an integer x in Llog x] + 2Llog2 Llog2x+ 1]
+j +1 bits. This compression scheme is asymptotically optimal when the
+numbers are uniformly random in a large range.
+
+Huffman code (Huffman, 1952) is a variable length encoding scheme
+for a set of symbols (i.e. characters). It encodes each symbol by a new
+sequence of bits. This compression wastes at most 1 bit per symbol when
+the probability distribution is known. However, because it needs to store
+a symbol mapping table, the method is not practical when the number of
+symbols is large.
+
+To encode the set of numbers C from the transformation stage, we use
+Huffman code to capture the small set of frequent numbers and use Elias
+
+delta code for the rest. The details are as follows. We construct a
+Huffman code with 128 symbols. The most frequent 127 values in C
+are encoded by 127 Huffman symbols. The remaining values share the
+128th Huffman symbol as their preﬁx and use the delta code values as
+sufﬁxes. The weights used to build the Huffman symbols are the frequen-
+cies of the values. Note that we choose 128 symbols because Figure 4
+showed that most of the ﬁles have <100 frequent values.
+
+The signal values V is, therefore, represented by storing the value C,
+and necessary information to reverse transform from values C to values V
+(e.g. the factor f, the scheme is raw values or differences, the ranks, the
+Huffman code table).
+
+Auxiliary data structures for queries: We also require a few additional
+auxiliary data structures and intermediate operations to implement the
+summary operations deﬁned in Section 2 (i.e. min/max, average and SD).
+
+To support the min and max operations, we use Cartesian tree from
+(Fritz et al., 2011). This structure uses 2m+0(m) bits. It supports
+computation of the minimum/maximum values in any range using 0(1)
+time. Formally, the data structure provides two operations min_z'd:1:(i, j)
+=arg minkeLJ-{vk} and ma:1:_z'd:1:(i,j)=arg maxkeLJ-{vk}.
+
+For the average and SD operations, we need auxiliary data structures
+to compute two intermediate operations: sum and square sum of
+the values. The intermediate operations are deﬁned as follows: 00126721201
+(k) = 21.2102} — sj +1)vj and cover_val_sqr(k) = 21.2109} — sj +1)v} for
+k: 1, ...,m. To implement operations c0ver-val and cover_val_sqr, we
+keep one sampled value in every 64 values of the functions. The sampled
+values are stored in SDArray for fast access. To compute the values that
+are not sampled, we jump to the nearest sampled value and sequentially
+extract (SJ, 6], vj) to compute the exact sum.
+
+4.4 Query
+
+Previous subsections have outlined our storing scheme for the positions
+and values of the intervals. This section shows how to use these compo-
+nents to support the four summary query operations deﬁned in Section 2.
+In general, given a query region p..q, the query asks for some summary
+values (e.g. average, min/max, SD, coverage) of the signal values of the
+genome positions from p to q. The details are as follows.
+
+Coverage query: Given the input region p..q, the coverage query
+c0verage(p,q) computes the proportion of non-NaN bases. Note
+that the number of non-NaN bases, which equals
+
+mm - c0verage(0, q) — (p — 1)c0verage(0, p — 1)). Let j be the largest
+
+index such that SJ- is less than or equal to q (i.e. j= find_z'nterval(q)). We
+have q - c0verage(0, q) = cover_len(j) — min {ej — sj, q — 5]} + 1. Similarly,
+we can compute (p — 1) - coverage(0, p — 1) using findJntervaKp — 1)
+and the interval values.
+
+Min/max query: The minimum/maximum of signal values in a query
+region p..q can be computed in three steps. First, we ﬁnd the set of
+intervals {(s,,e,-),...,(sj, 61)} that overlap with the query region p..q.
+This can be done by computing find-z'nterva.l(p) and findJntervaKq).
+The second step uses operations min_z'd:1:(i, j) or ma:1:_z'd:1:(i,j) to ﬁnd
+the index of the minimal/maximal value in constant time. The last step
+extracts the actual signal values.
+
+Mean query: mean(p, q)= %Z:= rk where r,- is the value of the i—th
+base, and n is the num er of non-NaN bases, i.e.
+n = (q — p + 1)c0verage(p, q). Note that Z]: rk = Zq_ n,—
+
+17—1 q _p {6—0.
+
+kzo rk. The value of Zkzo rk can be computed by (1) let j: fznd-
+intervaKq) and (2) 2:20 rk = 001267212010) + vj(min {ej — Sj, q — Si} + 1).
+Similarly, we can compute 2:10 rk.
+
+Standard deviation query: stdev(p, q) can be computed using the
+
+ 
+
+q
+formula  E izp r12 — nizmech), q)2, where, r,- and n are deﬁned same
+
+as above. Using similar approach as the mean query, the sum of squared
+
+ 
+
+2547
+
+112 /§JO'S{12umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁdllq 1110131 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+D.Huy Hoang and W.-K.Sung
+
+ 
+
+signal values %Zl:p r? can be computed from the intermediate queries
+
+c0ver_sum_sqr and find_interval.
+
+4.5 Remote file access
+
+Our solution for remote access feature is to use a simple network layer
+that handles HTTP 1.1 byte ranges and keep-alive protocols. Once a data
+ﬁle is placed under a web server that supports the HTTP protocol (e.g.
+Apache, Microsoft IIS and nginx), it can be queried from different com-
+puter to get any block of data. The implementation also supports HTTPS
+protocol if OpenSSL library is available.
+
+To avoid duplicated data transfer and network protocol overhead, a
+simple ﬁle caching scheme is implemented. Any data requested over the
+network is read in blocks of 16 KB and stored in a cache ﬁle. An add-
+itional bit-map ﬁle is kept to mark down blocks that have been saved
+locally. Multiple queries to some close locations are likely to access the
+same data block, hence, do not incur new network request. In addition,
+the overhead to start transferring data over the network is high (e.g. in
+milliseconds). It is more beneﬁcial to transfer data in blocks.
+
+To enhance the performance of block transferring and ﬁle caching,
+cWig reorganizes the component data structures to make data access
+localized. It groups small, ﬁxed size and frequently accessed ﬁelds of
+different data structures into a consecutive segment called ‘control seg-
+ment”. (The segment usually stores the length, counter and metadata of
+the data structures.) The large and variable length data are stored in
+another segment of the ﬁle. When the data structure is loaded remotely,
+the data in the control segment is more likely to be transferred in one
+request and cached; therefore, it helps to reduce the delay between
+queries.
+
+5 EXPERIMENT RESULTS
+
+In this section, we present three sets of experiments. The ﬁrst set
+of experiments compares the sizes of bigWig and cWig ﬁles.
+It also compares different alternatives of our design to support
+our ﬁnal choice. The second set of experiments compares the
+speed between bigWig and cWig in one machine. The last set
+of experiments compares the remote query speed of cWig’s and
+bigWig’s tools.
+
+We use three datasets for the experiments: full dataset for size
+measurement, sampled dataset for the speed measurement on
+one computer and a few selected ﬁles for the remote access
+experiments.
+
+The full dataset consists of all bigWig ﬁles in UCSC hgl9
+database (~4400 ﬁles). The UCSC bigWig ﬁles use a total of
+1.6 Terabytes. To have a clear picture, we categorize the ﬁles
+in UCSC into groups by value types (i.e. integer signal versus
+ﬂoating point signal) and by data types (i.e. ChIP-seq, RNA-seq,
+DNAse, FAIRE and Other). This dataset is used in the section
+on ﬁle size comparison.
+
+The sampled dataset is a subset of the full dataset. The ﬁles are
+grouped similarly as the full dataset. However, each group only
+contains 5—10 sampled ﬁles. (The detailed list of ﬁles can be
+found in the Supplementary C.) The sampled datasets are used
+for running time comparison.
+
+Furthermore, three ﬁles from UCSC hgl9 of different sizes are
+selected for the remote query speed experiments.
+
+Note that the name bigWig, cWig or gzip is used to refer to
+both the ﬁle format and tool/program to access the format. For
+bigWig, there are a few tools that can create, extract and
+
+Integer value datasets
+CHIP-seq RNA-seq FAIRE Either
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+   
+
+ 
+
+ 
+
+   
+
+ 
+
+ 
+
+ 
+
+hedgraph 545,155,111 155,555,155 4.515.555.551 1.141.551.411
+gzip_bg f.  15,155,555 1,151,555,555
+
+higwig -_""""T',T' 15,411,555 1,145,555,151
+
+val_delta  51,515,455 11,515,551 454,155,515 55.515555
+diff_delta _'ﬁo.555,145 5.514.511 511,555,115 54.555.555
+5511115 '_.'_ _j54.111,415 5,155,551 515,451,511 55,541,555
+5551514 f54,111,155 5,141,555 515,451,451 55,115,555
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Floating-point-value datasets
+FAIRE
+455,553,333 3,533,333,325 1,553,412,421
+435 15
+455
+5551559151335-
+
+131,334,515
+
+“9'11. 113.5155?
+
+. £53115? 3 7'33
+
+41,555,151 551,515,551 15
+1155115 ' 11,555 51,555,145 455,515,154 151,515
+huff1024 3? 13 493
+
+ 
+
+Fig. 6. This table indicates the mean ﬁle sizes for storing ChIP-seq,
+RNA-seq and Other data types using the raw text format (bedGraph)
+and six different compression schemes. The bars in the background show
+the relative ratios between the compression schemes
+
+randomly access the format. We use the latest version of the
+tool provided by the original authors (in Kent et al., 2010).
+
+5.1 File sizes comparison
+
+Compare different methods: Figure 6 shows results that compare
+different storage formats for different data types. The methods
+used in this experiment are (i) bedGraph is the raw text format of
+the input ﬁle, (ii) gzip_bg is the gzip compressed bedGraph for-
+mat, (iii) bigWig is the method from UCSC, (iv) val_delta is our
+method that stores the raw signal values using delta code, (v)
+diff_delta is our method that stores signals by their differences
+using delta code only and (vi) huff 128 and (vii) huff l 024 are our
+methods that store signals by their differences using a mix of
+Huffman code and delta code. huff 128 encodes the most frequent
+127 values by unique Huffman symbols, whereas the rest of the
+values are encoded by delta code. huff 1024 is similar to huff 128;
+but the number of Huffman symbols are 1023.
+
+For clarity, Figure 6 shows only four types of data: ChIP-seq,
+RNA-seq FAIRE and Other. (For full result, please refer to
+Supplementary B.) The bars in the background show the relative
+ratios between the compression schemes. Among our methods,
+huff 128 and huff 1024 are consistently better than val-delta and
+diff-delta. huff 128 and huff 1024 give similar size. This supports
+the observations in Section 3.2 that, higher number of Huffman
+symbols does not improve compression. Based on this experi-
+ment, we choose huff 128 as our default compression method
+for cWig format.
+
+Compared with bigWig and gzip, our methods use at most half
+of their sizes. In most of the ﬁles, the ﬁle sizes of bigWig and gzip
+are similar because the bigWig uses gzip to compress their main
+data. However, for high-resolution ﬁles, e.g. FAIRE data type,
+bigWig uses considerably more space than gzip. We found that
+this space is usually accounted for its indexing structures to sup-
+port random access and queries.
+
+Compare ours and bigWig: Figure 7 compares the ﬁle sizes
+between cWig and bigWig formats. Figure 7a plots the original
+
+ 
+
+2548
+
+112 /§JO'S{12umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁ(11111 111011 pop1201umoq
+
+9IOZ ‘091sn3nv uo ::
+
+CWig
+
+ 
+
+.—1
+ll
+"—-"
+ru
+l.-
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+' 4 chip-545
+I I I RNA-555
+.5 a" ' 511.455
+E1 I 11.155
+5 [1' l I Other
+{5 15. *—
+5 3i.
+E? 15
+"'5
+"3 M 3 
+a s 1.1-1. 1
+: .  ‘, T
+- ~14
+5
+5 113-55 1555 55:55 41:55 55-55 55-55
+Original bigWig size
+“31 Integer Float Both
+ChlP-5eq 2.38 3.2? 3.051
+RNA-seq 3.53 2.35 3.35
+DNAse 3.04 5.10 3.43
+FAIRE 53? 6.05 5.91
+Other 5.52 4.?3
+AIIHUCSC 3.39 3.2? 3.65
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 7. Ratio between bigWig ﬁle sizes and our ﬁle sizes. (a) The com-
+pression ratio for all UCSC ﬁles whose sizes are <6 GB. (The ﬁles that are
+excluded are three FAIRE ﬁles and the liver cancer ﬁle). (b) The mean of
+the compression ratio between bigWig and our format for each ﬁle type.
+(The last column represents both integer-value and ﬂoating-point-value
+ﬁles. ‘All UCSC’ row represents all the ﬁles types in UCSC. The light
+scale of the cells of the table is in proportion to the value inside)
+
+bigWig size versus the reduction that we can achieve. Figure 7b is
+a table that summarizes the ratios based on the data types. It
+shows that our format is (in average) 3.6 times smaller than
+bigWig. In particular, cWig is more compressible for high reso-
+lution datasets, e.g. FAIRE and DNase.
+
+We noticed some users truncate the signiﬁcant digits of the
+values to reduce the ﬁle sizes of bigWig. We conducted an ex-
+periment to investigate its effect on both formats. The detail is
+included in the Supplementary D.
+
+5.2 Running time comparison
+
+Linear compression and extraction: Figure 8 shows the average
+compression/decompression speed for different methods.
+Because the compression/decompression speed is consistent
+with the input ﬁle size, we only show the average processing
+time in terms of megabytes per second. The ﬁgure shows that
+bigWig and gzip have similar compression speed. Our program is
+about two times faster. For decompression speed, our program is
+~150% faster than bigWig, but slower than gzip.
+
+Random queries: This set of experiments measure the query
+speed of operations coverage, minimum and average for both
+our tool and bigWig tool. We tested three sets of queries: (i)
+each query is a random interval. The order of queries is also
+random. (ii) Each query is a random interval. But the list of
+queries is arranged in increasing order of the start positions.
+(iii) The query intervals are the conﬁrmed human gene regions.
+We call this set ‘real queries’ set. (It contains 76 969 intervals.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1410
+-—- T
+'1:  
+E 120 _ 1 aCompre55Ion
+5 El Decompremon
+: 155
+II
+:1.
+g 35
+‘51 T
+5 55 - .1
+3‘
+E 45 {4' 7
+'3 jV
+3. 2'3 ' -  
+uo :
+
+ﬂ .  '. f4
+Gzip BigWig [Wig
+
+Fig. 8. Average compression and decompression speed in Megabytes per
+second (higher is better) with SDs for each method
+
+250.1}
+
+1‘] random 1155 HE.
+2130.0- 11 real querrES 1? 3
+
+ 
+
+ 
+
+5
+1:
+3 155.5
+3
+o
+E
+I'D
+5- 155.5
+4.:-
+E
+.l:
+50.11
+15.3 115
+1.5 1.5 5-0 5-1 
+- .--—-— L-"a'I' -" 'l I+I  
+cWig_55v cWithtIn cWij-Lavg bigWig
+
+Fig. 9. Average query time in nanoseconds (lower is better) for randomly
+generated queries and gene region queries
+
+This set is intended to simulate the actual list of queries made by
+the bioinformaticians).
+
+Because the speed of both programs for query types (i) and (ii)
+are not signiﬁcantly different, we only summarize the speed for
+query types (i) and (iii). In addition, because the query speed for
+the three operations in bigWig is similar, we only report the
+average query speed of bigWig.
+
+Figure 9 shows that the query speed of our program is ~10—
+100 times faster than that of bigWig, depending on query type. In
+our program, coverage queries are much faster than the min-
+imum and the average queries because coverage queries only
+use the interval position component. The minimum queries are
+faster than the average queries in sparse ﬁles where there are a lot
+of regions without values.
+
+We noticed that there is a big difference in bigWig speed be-
+tween random queries and real queries. After some investiga-
+tions, we found that bigWig query speed may be affected by
+the query interval length. It is slower for shorter intervals. We
+create a query ﬁle that has the same starting positions as the real
+query ﬁle, but increased in the interval lengths. bigWig is much
+faster when the interval lengths are larger than 1 million bases.
+Note that the average interval length of the random query in
+Figure 9 is around half the chromosome length, whereas the
+average interval length of the genes is only 54 783.
+
+ 
+
+2549
+
+112 /§JO'S{12umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁ(11111 111011 pop1201umoq
+
+9IOZ ‘091snﬁnv uo ::
+
+D.Huy Hoang and W.-K.Sung
+
+ 
+
+14310.0
+
+I £FL|_time 124”
+um'“ I waiting_lime
+IDDIJJII
+
+3'30 13-
+5'30 {1
+Alﬂlll}
+200.1}
+
+U U
+bigWig bigWig cvvig bigWig twig bigWig
+
+5m all rnedlurn ' I Small medi u '11
+
+SE
+
+ 
+
+Fig. 10. cWig and bigWig remote query time (in seconds)
+
+5.3 Remote file access speed
+
+In this experiment, we measure the query speed in different net-
+work conditions. We select three input ﬁles of different sizes from
+UCSC hgl9 database. They are called ‘small’, ‘medium’ and
+‘big’. The sizes of the corresponding bigWig ﬁles are 824 KB,
+98 MB and 5.5 GB, respectively. The sizes of the corresponding
+cWig ﬁles are 414 KB, 35 MB and 1.4 GB, respectively.
+
+The query speed is measured in two different network condi-
+tions: ‘SG’ and ‘US’. ‘SG’: the ﬁles and the programs are both
+hosted in Singapore and connected through the Internet. The
+average round trip time is ~100 ms; the bandwidth is ~5—10
+MB/s. ‘US’: the programs are in Singapore, and the ﬁles are
+hosted in California, USA. The round trip time is ~210ms,
+the bandwidth is ~300—850 KB/s.
+
+Similar to the previous experiment, we use the human genes
+regions as the query set.
+
+Figure 10 compares the running times of bigWig and cWig
+under different network conditions and using different input
+ﬁles. (Note that, there is no measurement for big ﬁle under
+‘US’ network condition owing to our resource limitation.) In
+these experiments, the CPU times of both programs are ac-
+counted for <10% of the total running times for medium and
+big input ﬁles. The programs spend most of their time waiting for
+network responses.
+
+Our ﬁle size signiﬁcantly helps in the experiments on the
+medium ﬁle. Because cWig ﬁle is smaller, the queries on this
+ﬁle get cached in fewer iterations. For small ﬁle, the time differ-
+ence is not signiﬁcant. Both programs can cache the small ﬁle
+after a few queries. For big ﬁle, both programs fail to cache the
+ﬁle, and hence, both methods spend similar amount of time to
+wait for the network to respond.
+
+6 CONCLUSION
+
+This article proposed the ﬁle format for cWig to store signal
+data. Comparing with bigWig, cWig not only uses lesser space
+
+but also provides faster queries. This format should be useful
+for visualization applications like UCSC genome browser
+(Karolchik et al., 2014) and Broad Institute Integrative
+Genome Viewer (Robinson et al., 2011) and for Biologists to
+analyze and discover features in their data. In the future, we
+would like to extend our idea to represent other types of data
+[like bigBed (Kent et al., 2010) and BAM (Li et al., 2009)]. We
+also want to consider lossy compression methods to gain better
+compression over noisy data.
+
+Conflicts of Interest: none declared.
+
+REFERENCES
+
+Bock,C. (2012) Analysing and interpreting DNA methylation data. Nat. Rev.
+Genet., 13, 705—719.
+
+Cock,P.J. et al. (2010) The Sanger FASTQ ﬁle format for sequences with quality
+scores, and the Solexa/Illumina FASTQ variants. Nucleic Acids Res., 38,
+1767—1771.
+
+Cover,T. and Thomas,J. (1991) Elements of Information Theory. Wiley, New York,
+NY, USA, Chapter 7.6, p. 195.
+
+Danecek,P. et al. (2011) The variant call format and VCF tools. Bioinformatics, 27,
+2156—2158.
+
+Elias,P. (1975) Universal codeword sets and representations of the integers. Inf.
+Theory IEEE T rans., 21, 194—203.
+
+Fritz,M.H.Y. et al. (2011) Efﬁcient storage of high throughput DNA sequencing
+data using reference-based compression. Genome Res., 21, 734—740.
+
+Gundersen,S. et al. (2011) Identifying elemental genomic track types and represent-
+ing them uniformly. BM C Bioinformatics, 12, 494.
+
+Guttman,A. (1984) R-trees: a dynamic index structure for spatial searching. In:
+Proceedings of the 1984 ACM SIGMOD International Conference on
+Management of Data. SIGMOD’84. ACM, New York, NY, pp. 47—57.
+
+Hoffman,M.M. et al. (2010) The genomedata format for storing large-scale func-
+tional genomics data. Bioinformatics, 26, 1458—1459.
+
+Hu,Y. et al. (2013) DiffSplice: the genome-wide detection of differential splicing
+events with RNA-seq. Nucleic Acids Res., 41, 639.
+
+Huffman,D. (1952) A method for the construction of minimum-redundancy codes.
+In: Proceedings of the I.R.E. Springer India, India, pp. 1098—1102.
+
+Karolchik,D. et al. (2014) The UCSC genome browser database: 2014 update.
+Nucleic Acids Res., 42, D764—D770.
+
+Kent,W.J. et al. (2010) BigWig and BigBed: enabling browsing of large distributed
+datasets. Bioinformatics, 26, 2204—2207.
+
+Li,H. et al. (2009) The sequence alignment/map (SAM) format and SAMtools.
+Bioinformatics, 25, 2078—2079.
+
+Liu,T. et al. (2011) Cistrome: an integrative platform for transcriptional regulation
+studies. Genome Biol., 12, R83.
+
+Okanohara,D. and Sadakane,K. (2007) Practical entropy-compressed rank/select
+dictionary. In: Workshop on Algorithm Engineering and Experiments
+(ALENEX). Society for Industrial and Applied Mathematics, New York,
+NY, USA.
+
+Patrascu,M. (2008) Succincter. In: Foundations of Computer Science, 2008.
+FOCS’08. IEEE 49th Annual IEEE Symposium on. IEEE, New York, NY,
+USA, pp. 305—313.
+
+Raman,R. et al. (2002) Succinct indexable dictionaries with applications to encoding
+k-Ary trees and multisets. In: Proceedings of the Thirteenth Annual ACM-SIAM
+Symposium on Discrete Algorithms. SODA’02. Society for Industrial and
+Applied Mathematics, New York, NY, USA, pp. 233—242.
+
+Robinson,J.T. et al. (2011) Integrative genomics viewer. Nat. Biotechnol, 29,
+24—26.
+
+ 
+
+2550
+
+112 /§JO'S{12umo [p.IOJXO'SOllBIIHOJUIOIQ/ﬁ(11111 111011 pop1201umoq
+
+9IOZ ‘091snﬁnv uo ::
+

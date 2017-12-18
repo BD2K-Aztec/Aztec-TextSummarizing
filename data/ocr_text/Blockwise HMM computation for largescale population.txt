@@ -1,0 +1,1324 @@
+ORIGINAL PAPER
+
+Vol. 28 no. 15 2012, pages 2008-2015
+doi: 1 0. 1 093/bioinformatics/bts314
+
+ 
+
+Genetics and population analysis
+
+Advance Access publication May 28, 2012
+
+Blockwise HMM computation for large-scale population
+
+genomic inference
+Joshua S. Paul1 and Yun S. Songl’2’*
+
+1Computer Science Division and 2Department of Statistics, University of California, Berkeley, CA 94720, USA
+
+Associate Editor: Jeffrey Barrett
+
+ 
+
+ABSTRACT
+
+Motivation: A promising class of methods for large-scale population
+genomic inference use the conditional sampling distribution (CSD),
+which approximates the probability of sampling an individual with a
+particular DNA sequence, given that a collection of sequences from
+the population has already been observed. The CSD has a wide
+range of applications, including imputing missing sequence data,
+estimating recombination rates, inferring human colonization history
+and identifying tracts of distinct ancestry in admixed populations.
+Most well-used CSDs are based on hidden Markov models (HMMs).
+Although computationally efficient in principle, methods resulting
+from the common implementation of the relevant HMM techniques
+remain intractable for large genomic datasets.
+
+Results: To address this issue, a set of algorithmic improvements
+for performing the exact HMM computation is introduced here,
+by exploiting the particular structure of the CSD and typical
+characteristics of genomic data. It is empirically demonstrated
+that these improvements result in a speedup of several orders of
+magnitude for large datasets and that the speedup continues to
+increase with the number of sequences. The optimized algorithms
+can be adopted in methods for various applications, including the
+ones mentioned above and make previously impracticable analyses
+possible.
+
+Availability: Software available upon request.
+
+Supplementary Information: Supplementary data are available at
+Bioinformatics online.
+
+Contact: yss@eecs.berkeley.edu
+
+Received on March 3, 2012; revised on April 18, 2012; accepted on
+May 22, 2012
+
+1 INTRODUCTION
+
+With the cost of genomic sequencing rapidly decreasing, there is
+a growing need for statistical methodologies that can efﬁciently
+accommodate genomic—scale data for many individuals while
+accounting for complex patterns of variation (e.g. linkage
+disequilibrium) caused by evolutionary processes such as mutation
+and recombination. The applicable underlying statistical model is
+the coalescent with recombination, which describes the distribution
+of genealogical histories for a collection of individuals. Known
+methods for inference under this model are generally intractable
+at the genomic scale, so practicable methods must realize a balance
+
+ 
+
+*To whom correspondence should be addressed.
+
+between computational efﬁciency and approximating key properties
+of the coalescent with recombination. A promising class of such
+methods use the conditional sampling distribution (CSD).
+
+A CSD approximates the probability (under the coalescent with
+recombination) of sampling an individual with a particular DNA
+sequence, given that a collection of sequences from the population
+has already been observed. Intuitively, recombination partitions the
+newly sampled sequence into segments, each of which is a copy of
+the corresponding segment in a previously sampled sequence, with
+imperfections introduced by mutation. For computational efﬁciency,
+this construction is often cast as a hidden Markov model (HMM).
+The hidden state at a site indicates the previously sampled sequence
+being copied and the associated observed state the allele of the new
+sample.
+
+Even within this framework there are alternatives, as it is
+possible to trade—off ﬁdelity to the underlying coalescent process
+for computational efﬁciency. The CSD of Paul at al. (2011), for
+example, is the most accurate but is a constant factor slower than
+CSDs proposed by Fearnhead and Donnelly (2001) and by Li and
+Stephens (2003), with the latter being the fastest, but least accurate.
+CSDs for more complex models, incorporating gene conversion
+(Gay et al., 2007; Yin et al., 2009), diploidy (Marchini et al., 2007),
+demography (Davison et al., 2009; Hellenthal et al., 2008) and
+admixture (Price et al., 2009; Sundquist et al., 2008), have also
+been proposed.
+
+Methods incorporating the CSD generally fall into one of several
+categories. Likelihoods can be approximated using CSD—based
+importance sampling (De Iorio and Grifﬁths, 2004a, b; Fearnhead
+and Donnelly, 2001; Grifﬁths et al., 2008; Stephens and Donnelly,
+2000) coupled with composite methods (Fearnhead and Donnelly,
+2002; Hudson, 2001) or directly as a product of CSDs (Li and
+Stephens, 2003). In conjunction with expectation—maximization or
+Markov chain Monte Carlo, these methods have been used for
+estimation of ﬁne—scale recombination rates (Crawford et al., 2004;
+Fearnhead and Smith, 2005; Li and Stephens, 2003; McVean et al.,
+2004), gene conversion parameters (Gay et al., 2007; Yin et al.,
+2009), population demography (Davison et al., 2009; Hellenthal
+et al., 2008) and population structure (Lawson et al., 2012). It is
+also possible to infer and use the hidden states in the HMM CSD
+computation. This has been used for admixture inference (Price
+et al., 2009; Sundquist et al., 2008; Wegmann et al., 2011), in
+which genomic segments corresponding to ancestral populations are
+identiﬁed and also within a pseudo—Gibbs sampling framework to
+phase genotype sequence data into haplotype sequence data and to
+impute missing data (Howie et al., 2009; Li et al., 2010; Marchini
+et al., 2007; Stephens and Scheet, 2005).
+
+ 
+
+2008 © The Author 2012. Published by Oxford University Press. All rights reserved. For Permissions, please email: journals.permissions@oup.com
+
+112 /§.IO'SIBU.ITIO[p.IOJXO'SOTlBIHJOJUTOTQ/ﬁdnq U101} pepBOIUAAOG
+
+9IOZ ‘091sn8nv uo ::
+
+Blockwise HMM computation
+
+ 
+
+Nearly, all of these methods rely on iterative Monte Carlo
+or expectation—maximization techniques. As a result, they are
+computationally intensive, often requiring several hours, or, in some
+cases, days, to produce a result, even for modest non—genomic
+datasets (Howie et al., 2009); directly extending the methods to
+large genomic datasets is thus often impractical. Moreover, nearly
+all of the running time is expended on CSD computation, and so the
+choice of CSD is often made on the basis of efﬁciency and (arguably)
+at the expense of accuracy (Browning and Browning, 2007; Howie
+et al., 2009; Li and Stephens, 2003; Scheet and Stephens, 2006;
+Stephens and Scheet, 2005).
+
+In this article, we help to overcome these limitations by
+proposing two related optimizations to the relevant HMM—based
+CSD computations. Consider sampling a large number of sequences
+from a population. If the sampled sequences are very long, it is likely
+that nearly all of them will be unique. However, for most relatively
+short regions, the number of unique subsequences will be reduced.
+This intuition forms the basis of the ﬁrst optimization, which locally
+reduces the complexity of the CSD computation, thereby improving
+efﬁciency. The collection of locally unique subsequences on which
+this optimization depends are formalized as a partition C of the
+sampled sequences; we characterize the optimal partition given the
+sampled sequences and provide a fast algorithm for approximating
+this optimum.
+
+A second common feature of the sampled sequences is an
+abundance of non—polymorphic sites. These sites are informative—
+for example, a local over—abundance of non—polymorphic sites
+indicates a recent common ancestor, which in turn indicates a
+low propensity for recombination—and should be included in
+the analysis. Indeed, Li and Durbin (2011) used the physical
+distribution of polymorphic and non—polymorphic sites between
+a pair of sequences to infer past population sizes of humans.
+Using the fact that non—polymorphic sites do not differentiate the
+sequences, we show that it is possible to reduce the complexity
+of the CSD computation at non—polymorphic sites. We stress that
+our solution is different from simply ignoring non—polymorphic
+sites; we are proposing algorithmic improvements to incorporate
+non—polymorphic sites into the analysis in an efﬁcient way.
+
+In formally describing and evaluating our optimizations, we
+restrict attention to the most accurate HMM—based CSD, ﬁSMC,
+proposed by Paul et al. (2011) and consider the problem of
+computing the conditional sampling probability (CSP), denoted
+ﬁSMC(oz|n), of a particular individual a given a collection 11 of
+previously sampled individuals. (Incidentally, in the case the size
+n of the previously observed sample n is 1, the HMM underlying
+ﬁSMC is equivalent to the HMM used in the aforementioned work
+of Li and Durbin; we anticipate that ﬁSMC provides one way of
+extending this line of work to many sequences). On simulated data,
+our algorithmic improvement leads to a speedup of about 550x
+for n=5000 previously sampled individuals; by making regularity
+assumptions on mutation and recombination rates, this speedup
+increases to about 1850 X. Importantly, we show that the empirically
+observed speed—up increases with the number n of previously
+sampled individuals.
+
+Although we describe our optimizations in the context of
+computing ﬁSMC (aln), they are more generally applicable. We
+provide two sufﬁcient conditions for our optimizations and use them
+to show the applicability to other HMM—based CSDs, including
+those of Fearnhead and Donnelly (2001) and Li and Stephens
+
+(2003), as well as CSDs for more complex demographic models and
+population genetic HMMs. Also, in the Supplementary Material, we
+describe extending our algorithms to allow for efﬁcient inference of
+hidden states, often termed posterior decoding.
+
+We stress that the work presented here is fundamentally different
+from previous works on ‘approximating’ CSD—based population
+genetic inference. Howie et al. (2009) consider a ﬁxed—size subset of
+the haplotype conﬁguration 11, chosen using a measure of ‘closeness’
+to the sampled haplotype a, in order to reduce the state space of the
+HMM—based CSD and speed up computation. Similarly, Scheet and
+Stephens (2006) and Browning and Browning (2007) consider an
+HMM with reduced state space by compacting the conﬁguration
+11 into a substantially smaller haplotype model. More recently,
+Delaneau et al. (2012) have proposed an approximate HMM
+formulation relying on a partition of the sampled sequences similar
+to that proposed herein (Section 2.6). As described earlier, using such
+heuristics improves computational efﬁciency, but ultimately at the
+expense of accuracy. The purpose of this article is to provide highly
+optimized ‘and exact’ computation for a large class of approximate
+CSDs, rather than to introduce additional approximations to the
+underlying models.
+
+2 METHODS
+
+Herein, we describe the HMM formulation of ﬁSMC, the algorithms that are
+currently being used to compute JiSMlen) and the optimizations we are
+proposing to improve the running time.
+
+We remark that the theoretical analysis of our algorithms is limited
+to asymptotic time (and space) complexity. As a measure of real—world
+performance, asymptotic analyses often leave much to be desired. Consider,
+for example, a sample in which 1 out of every 1000 sites is polymorphic. If
+we denote by k the total number of sites and kp the number of polymorphic
+sites, then formally 0(k) = 0(kp). Nevertheless, we would like to distinguish
+between an algorithm that operates on each of the k sites and an algorithm
+that operates only on the kp polymorphic sites, as the the latter will be some
+1000>< faster; we thus write the complexities for the two algorithms as 0(k)
+and 0(kp), respectively.
+
+2.1 Notation
+
+We consider haplotypes in the ﬁnite—locus ﬁnite—alleles setting. Throughout,
+we suppose that there are k loci, and that recombination may occur between
+any adjacent pair of loci (15,15 +1) where 1 5 15 < k.
+
+The space of all such haplotypes is denoted by H, and given a haplotype
+h e H, the allele at locus 15 is denoted by h[£] and the sub—haplotype for a range
+of loci 15 5 15’ is denoted by h[£ :15’]. A sample conﬁguration of haplotypes is
+speciﬁed by a vector 11: (nh)h€7.¢, with nh being the number of haplotypes
+of type it in the sample. The set of ‘unique’ haplotypes associated with
+conﬁguration 11 is denoted by Hn = {h e H : nh > 0}. Finally, the total number
+of haplotypes is denoted by |n| =n, the number of unique haplotypes by
+|Hn| = nu and the number of polymorphic loci, which generally depends on
+the sample n, by kp.
+
+2.2 A brief description of ﬁSMc
+
+Suppose that, conditioned on having already observed a haplotype
+conﬁguration 11, we wish to sample a new haplotype 05. By generalizing the
+technique of Grifﬁths et al. (2008) based on the diffusion process, Paul and
+Song (2010) introduced the CSD tips intended to approximate key properties
+of the coalescent with recombination, the model under which inference is
+to be performed. The central idea of tips is to ﬁx the unknown ancestry of
+n to be the ‘trunk genealogy’ A*(n), in which lineages associated with the
+haplotypes do not mutate, recombine, or coalesce with one another, but rather
+
+ 
+
+2009
+
+112 /§.IO'SIBUJHOIpJOJXO'SOIlBIHJOJUIOICI/ﬁdnq 11101; popeommoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+J.S.Paul and Y.S.Song
+
+ 
+
+31 :32 : (ta),th  A A  A A  A A
+  
+
+i 83 : (tan: Mm);
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+C A* (n)
+
+ 
+
+Fig. 1. Illustration of a sequentially Markov framework for the conditional
+genealogy C. The trunk genealogy A* (n) is indicated. The three loci of each
+haplotype are each represented by a circle, with the shading indicating the
+allelic type at that locus. Time is represented vertically, with the present
+(time 0) at the bottom. The marginal genealogies at the ﬁrst, second and
+third loci are shown as dotted, dashed and solid lines, respectively. Mutation
+event, along with resulting allele, is indicated by small arrow. Absorption
+events at each locus, and the corresponding absorption time (t(") and ta”)
+and haplotype (h(") and ha’), respectively), are indicated by horizontal lines
+
+extend inﬁnitely into the past. Having ﬁxed the ancestry of n, a conditional
+genealogy C associated with haplotype 06 is sampled; within C, lineages
+evolve backwards in time subject to mutation, recombination, coalescence
+and ‘absorption’ into one of the lineages of A*(n). When every lineage of
+C has been absorbed, the process terminates; the type of every lineage of C
+is now determined and a sample for 06 is generated.
+
+Although a recursion for computing the CSP ftpS(a|n) is known, it is
+computationally intractable for all but the smallest datasets. To remedy this
+limitation, Paul et al. (2011) adopted a sequentially Markov framework
+(McVean and Cardin, 2005) for the conditional genealogy C. The central
+idea is to consider the ‘marginal’ conditional genealogy Sg associated with
+each locus 15, which is described, disregarding mutation events, by the pair
+sg=(tg,hg), where Ig€[0,00) is the absorption time and hgeHn is the
+absorption haplotype. The conditional genealogy C can thus be represented
+as a sequence of marginal conditional genealogies {sg}. See Figure 1 for an
+illustration.
+
+In general, the random sequence of marginal conditional genealogies
+is not Markov, due to the potential for coalescence events within the
+conditional genealogy. Nonetheless, it is possible to ‘approximate’ this
+sequence as Markov by using a two—locus transition distribution. Mutation
+can then be realized at each locus independently as a Poisson process on
+the marginal conditional genealogy, thereby generating a sample for 06. The
+resulting CSD is denoted by ﬁSMC. Paul et al. (2011) found that the Markov
+approximation underlying ﬁSMC has minimal effect on accuracy compared
+with tips, coinciding with ﬁndings in similar domains (Marjoram and Wall,
+2006; McVean and Cardin, 2005).
+
+Owing to its Markov structure, the CSD JiSMC can be cast as an HMM
+wherein the 15th hidden state is the marginal conditional genealogy Sg=
+(tg,hg) and the 15th observed state the conditionally sampled allele 0415]. In
+order to use standard dynamic programming methodologies for inference,
+the state space of the HMM must be ﬁnite, and so absorption time is
+discretized by partitioning [0, 00) into a (possibly large) ﬁnite number m of
+intervals I and considering an absorption interval, denoted by dg 61, rather
+than an absorption time. The discretized hidden state at the 15th locus is
+then S3 = ((13 , kg), and the initial, transition and emission distributions for the
+discretized JiSMC HMM are denoted by §('), ¢g(- | ') and 51H ), respectively.
+Interested readers should consult Paul and Song (2010) and Paul et al. (2011)
+for details.
+
+2.3 Computation with ﬁSMc
+
+The CSP JiSMC(Ot|n) under the discrete—space HMM can be efﬁciently
+computed using the ‘forward algorithm’, a dynamic program associated with
+
+the HMM forward recursion:
+
+ﬁSMC(ozIn)=Z 2 men. (1)
+
+del heHn
+
+where
+
+Ft(d,h)=a(oz[n|d,h)2 Z ¢t_1(d,hldch/)Fe_1(dcit). (2)
+
+d’eIh/eHn
+
+with base case
+F0(d,h)=§(d,h)- (3)
+
+Importantly, this recursion, and the associated dynamic program with time
+complexity 0(k(num)2), is applicable to a general HMM. In the following,
+we examine the transition and emission distributions more carefully and
+obtain a series of reﬁned recursions and the associated dynamic programs.
+
+2.4 Improving efﬁciency through the
+transition distribution
+
+Consider the description of JiSMC given above and more rigorously deﬁned
+in Paul et al. (2011). If a recombination does not occur between loci
+15—1 and 15, then (dg_1,hg_1)=(dg,hg); moreover, if recombination does
+occur, the absorbing haplotype hg is independent of hg_1 and uniformly
+distributed. As a result, we have the following property (We remark that
+Property 1 is a sufﬁcient, though not necessary, condition for the algorithmic
+optimizations described in this and subsequent sections. For example, as
+stated, the transition distribution imposes a uniform distribution on the
+absorbing haplotype in the case of a recombination; in fact, the algorithms
+can be generalized to accommodate an arbitrary distribution over haplotypes
+that does not depend on d’ or h’. In Section 4, we discuss the applicability
+of these optimizations to more general (and more specialized) classes of
+approximate CSDs.):
+
+PROPERTY 1. The initial and transition probabilities z and q), take the
+following functional form:
+
+>"h
+'—7
+
+:(d,h)=x<d
+
+d’ d’,d nh
+¢e(dahld‘ah’)=y§ ’-5d/,d<3h/,h+z§ )'Z,
+
+(cl/.61)
+
+d/ . .
+2 ) and zZ are known analytic expresszons.
+
+where x(d), y
+Using Property 1 in conjunction with deﬁnitions
+
+QM): Z We) and Ut(d)=Zz§d“d)Qt(d/), (4)
+
+heHn d’ e]
+
+we can express equations (1)—(3) as
+
+ﬁSMC(aIn)=ZQ/.(d), (5)
+del
+where
+F€(dah):€€(a[£]ld7h)|:y§621FZ—I(dah)+ Z—h Ut—1(d)], (6)
+with base case n
+F0(d, h) =x(d)- —”. (7)
+
+Using these recursions, the dynamic program in Algorithm 1 can be used to
+compute JiSMC (at |n). Within the pseudocode description, the time complexity
+of Lines 6, 7 and 8 are 0(m), 0(nu) and 0(nu), respectively. As a result,
+the time complexity of Lines 5—9, and for the algorithm as a whole, is
+0(km(m + nu)). This represents a substantial improvement over the quadratic
+dependence on n11 in the naive forward algorithm for HMMs. This simple
+optimization has already been generally adopted (Fearnhead and Donnelly,
+2001; Li and Stephens, 2003; Paul et al., 2011) and serves as a baseline for
+improvement.
+
+ 
+
+2010
+
+112 /B.IO'SIBUJHOprOJXO'SOIlBIHJOJUIOIQ/ﬁdnq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+Blockwise HMM computation
+
+ 
+
+ 
+
+Algorithm 1 Compute JiSMlen) using a forward—type recursion improved
+by considering Property 1
+1. for all deI do
+2 Compute F0(d, h) by (7), Vh 6 H11
+3 Compute Q0(d) using (4)
+4. end for
+5. for ﬁ:1—>k and d6] do
+6. Compute U g_1(d) using (4)
+7
+8
+9
+
+ 
+
+Compute F g (d , h) using (6), Vh 6 H11
+Compute Qg (d) using (4)
+. end for
+10. Compute ftSMC(oz|n) using (5)
+
+ 
+
+2.5 Improving efﬁciency through the emission
+distribution
+
+The state of the JiSMC HMM at locus 15 is a tuple (dg,hg). However, the
+emission probability of oz[£] is governed only by the time interval dg and the
+allele hg [15]. As a result, the following property holds:
+
+PROPERTY 2. Consider a subset B C Hn such that there exists an allele a with
+h[li] =a for all h e 8. Then, for each absorption interval d 61, the emission
+distribution Eg(- Id, h) is identical for all h e B. We indicate this fact by writing
+§g(-|d,h) =§g(-|d, B)for all h e 8.
+
+With this in mind, deﬁne a ‘partition’ C of the haplotype conﬁguration 11 to
+be a collection of blocks of the form (8,351.3), such that
+
+0 For every (B,£s,£e)eC, there exists a sub—haplotype x such that
+
+0 For every haplotype h 6H,, and 1 :15 5k, there exists ‘exactly’ one
+(8,155,156) EC with heB and {is :15 5156.
+
+For a given locus 15, a conﬁguration partition C induces a partition of the
+haplotypes Hn, denoted by Cg, and Property 2 applies to each 8 e Cg. In the
+next sections, we present new sets of recursions and dynamic programming
+algorithms valid for an arbitrary partition C. The computational complexity
+of these algorithms will depend on C through two functions, namely \IJ(C)
+and 52(C), deﬁned as follows: For locus 15, deﬁne 10g (C) = |Cg |, the number of
+blocks in Cg and deﬁne cog (C) to be the total number of haplotypes in blocks
+of the conﬁguration partition ‘ending’ at locus 15. Then,
+
+k k
+‘IJ(C)=ZW(C)=ZICgI,
+i=1 [:1
+
+k
+9(C)=ng(c)= Z 181.
+
+£21 (B,ZS,ZC)EC
+
+In some cases, we are primarily concerned with polymorphic loci, and so
+we deﬁne \pr (C) to be the analog of \IJ(C) summed over ‘only’ polymorphic
+loci.
+
+Finally, we deﬁne the trivial partition CT for haplotype conﬁguration 11 as
+the partition containing a single block ({h},1,k) for each h eHn. Note that
+\IJ(CT)=k'nu and 52(CT)=nu. See Figure 2 for an illustration of both CT
+and two non—trivial conﬁguration partitions.
+
+2.5.1 A general conﬁguration partition Let C be a conﬁguration partition
+of n. Begin by deﬁning
+
+Qg(d,8)=ZFg(d,h) sothat Qe<d>=ZQg(d,B). (8)
+
+heB 15’ng
+
+Now suppose (B,£s,£e)eC. Applying Deﬁnition (8) and Property 2 to
+equation (6), then for {is 5 ll 5 be,
+
+QM. B) wound, B)[y§"_),og_1(d, 52+ "78 Ui—1(d)], (9)
+
+4—H—O—O—C—O—O—
+1*} +——I——C:———++———C——D-l——
+
+--£}-----O--~I-------I----.-------D--{}-I--
+
+- ----- -- -- ------- -- ----Ir -------- "Ii-mt."
+
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 
+
+{b} —i—I—G l———C>-—i —
+_._._Gl .......... u... .... n... ............. 
+
+_Q_____.C__...l .......... u. .... u. ............. ..C}.....D........
+
+- "new! I———O-—I I- - - - -I - -I I- -
+
+no ------ --<:i---C:— ------ --+----:::: l—Q—u--0-—
+
+{C} 4—in—0 l———C}-—. i—Q—I—G—
+
+_._.,_CH .......... u. ..... ..'|_._._CJ._Q_.._
+
+--O------O---ll ---------- "I ----- "I I— -—'-Ci-—G-I*—
+
+--:::»-————<:3-—i l———C}-—. l- - - - -I - i .- -
+
+no ------ non-r} |--—- mom-o r O—-I--{'}-—--
+
+ 
+
+Fig. 2. Illustration of three alternative conﬁguration partitions. Each row
+represents a haplotype, with white and black circles representing the allele at
+each of eight polymorphic loci. The line style of each sub—haplotype indicates
+the block to which it belongs. (a) The trivial conﬁguration partition CT;
+\IJP(CT)=40 and S2(CT)=5. (b) A non—trivial conﬁguration partition, C;
+\IJP(C)= 24 and 52(C) = 12. (c) The conﬁguration partition CS found by the
+algorithm described in Section 2.6 for s=3; \IJP(CS)= 24 and S2(Cs) = 15
+
+where n3 2 2,163 nh. Similarly, by induction and making use of equations
+(6) and (9), it is possible to show that, for {is 5 ll 5 be and h e B,
+
+F€(dah):T€(dvB)'F€s—I(dvh)
++ :7: (am. B)—Tg(d.B)Qg,_1(d, 18)), (10)
+where Tg(d , B)=]_[§/:ZS Eg/ (a [15’ ]|d ,8). yéflll, and solves the recursion,
+Tg(d,8)=a(oziuld,Biyé‘ﬂ -Tg_1(d,8), (11)
+for {is :15 file, with base case Tgs_1(d,8)= 1.
+
+For each block (8,1591%) 6 C, we take advantage of equations (9) and (11)
+to directly compute Qg (d, B) and Tg (d ,B) at every locus {is :15 file. At the
+end of each block, when 15 2 be, the ﬁner— grain values F g (d , h) are computed
+for each h e B using equation (10), and subsequently used to compute initial
+values for blocks beginning at locus 15 +1. The associated dynamic program
+to compute the CSP JiSMC(Ot|n) is given in Algorithm 2.
+
+Within Algorithm 2, the time complexity of Line 7 is 0(m); of Line 8 is
+0(1bg(C)) and of Lines 9 and 10 is 0(cog(C)). Thus, the time complexity of
+Lines 6—1 1, and the dynamic program, is 0(km2 +m(\IJ(C) + 52(C))). Observe
+that Algorithm 1 is a special case of Algorithm 2 for C: CT. Thus, if it is
+possible to obtain a conﬁguration partition C for n such that \IJ(C)+SZ(C)
+is substantially less than \11( C T) + $2( C T) = knu +nu, our new algorithm may
+be considerably faster than Algorithm 1; constructing such a conﬁguration
+partition is the subject of Section 2.6.
+
+2.5.2 The absence of polymorphism In many reasonable evolutionary
+scenarios, a great many loci will not be polymorphic. Accommodating such
+loci in the analysis is important and can be done efﬁciently making use of
+Property 2. In particular, for a non—polymorphic locus 15, Property 2 applies
+to the trivial set 80 =Hn, and therefore the emission distribution can be
+written §g('ld,80)=§g('ld) and moreover, Qg(d, Bo)=Qg(d).
+
+Suppose consecutive loci 15:, NJ: are not polymorphic. Rewriting
+equations (9) and (10) for block (801* 15*) yields, for 15: 5 ll 5 15:,
+
+QM) =~Sg(oz[€]ld)- [yfjlomm Ui—1(d)], (12)
+and for 15’; :15 51%: and heBoan,
+Flag): Tg(d)-Fg;_1(d,h)+ "f (Qg(d)—Tg(d)Qg;:_1(d)>. (13)
+where T g(d)=1—[§/: 3.; Eg/ (a [15’ ]|d)' yéflll and solves the recursion
+
+Tg(d)=a(oz[n|d) -y§d_’1 'Tt—1(d), (14)
+for 15: :15 515:, with base case Tg:_1(d)= 1.
+
+ 
+
+2011
+
+112 /B.IO'SIBUJHOprOJXO'SOIlBIHJOJUIOIQ/ﬁdnq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+J.S.Paul and Y.S.Song
+
+ 
+
+ 
+
+Algorithm 2 Compute JiSMcmln) using a forward—type recursion improved
+by considering Properties 1 and 2, for a conﬁguration partition C
+1. for all deI do
+2. Compute Fg(d, h) using (7), Vh 6 H11
+Compute Qg(d, B) using (8) and Tg(d, B): 1, V(B, 1,be) E C
+Compute Qg(d) using (8)
+end for
+. for b=1—>k and d6] do
+Compute U g_1(d) using (4)
+Compute Qg (d, B) and Tg (d, B) using (9) and (11),
+V(B,be,be)€C such that be 5b ﬁbe; compute Qg(d) using
+(8)
+9. Compute Fg(d,h) using (10), Vh E B and V(B,be,b) E C
+10. Compute Qg (d, B) using (8) and Tg (d, B) = 1, V(B, b —l—1,be)€
+C
+11. end for
+12. Compute ﬁeMe(oz|n) using (5)
+
+ 
+
+weaves»
+
+ 
+
+ 
+
+Algorithm 3 Computation of item (at |n) improved by considering Properties
+1 and 2, and a special case for non—polymorphic loci, for a conﬁguration
+partition C such that V(B, be, be) e C, be is polymorphic
+
+1. Algorithm 2, lines 1—5; and set Tg(d)=1 Vd EI and b: :1
+
+ 
+
+2. for b=1—>k and d6] do
+3. if locus b is polymorphic then
+4. if locus b — 1 is not polymorphic then
+5. Compute Qg_1(d, l3) and Tg_1(d, B) using (15) and (16)
+6. end if
+7. Algorithm 2, lines 7—10
+8. Set Tg(d)=1 and b:=b+1
+9. else
+10. Compute Ug_1(d), Qg(d), and Tg(d) using (4), (12), and
+(14)
+11. end if
+12. end for
+
+13. Compute tieMe(oz|n) using (5)
+
+ 
+
+Now, let C be a conﬁguration partition with (B,be,be) EC. Suppose that
+there is a stretch of non—polymorphic loci b’sk, . . . , b: and that be 5 b’s" 5 b: 5 be.
+Applying Deﬁnition (8) to equation (13), yields, for b’s" 5 b 5 bj,
+
+n
+Qg(d. B)=Tg(d)Qg:—1(d, 62+ 7’3 [am —Te(d)Qg;:_1(d)]. (15)
+Similarly, considering the deﬁnition of Tg (d , 8) along with equation ( 14),
+Tb(daB)=Tb(d)'Tb§‘—l(daB)~ (16)
+
+Algorithm 2 can be modiﬁed to accommodate such stretches of non—
+polymorphic loci as a special case, making use of equations (12) and (14)
+to directly compute the values of Qg (d) and T g (d) at each non—polymorphic
+locus b. If we then assume (without loss of generality) that each (8, be, be) e C
+has be at a polymorphic locus, then at the ﬁnal non—polymorphic locus, for
+which b =b:, equations ( 15) and ( 16) may be used to compute Qg (d, B) and
+T g (d , B) for each 8 e Cg. This modiﬁcation is detailed in Algorithm 3.
+
+Within Algorithm 3, the time complexity of Lines 5 and 8 is 0(1),
+of Line 7 is 0(m+1bg(C)+cog(C)) and of Line 10 is 0(m). As a result,
+the time complexity of Lines 2—12, and of the dynamic program, is
+0(km2 + m(\IJP(C) + 52(C))). Relative to Algorithm 2, less computation needs
+to be done for non—polymorphic loci; thus, in the typical case of many non—
+polymorphic loci, this dynamic program will have a decreased running time.
+For C 2 CT, the time complexity is 0(km2 +kpmnu).
+
+Algorithm 4 Computation of free/[C(a |n) improved by considering Properties
+1 and 2, and a special ‘optimized’ case for non—polymorphic loci, for a
+conﬁguration partition C such that V(B,be, be) e C, be is polymorphic
+
+1. Algorithm 3, line 1
+
+ 
+
+2. for polymorphic b E {2—> k} and d 61 do
+
+3. if locus b — 1 is not polymorphic then
+
+4. Compute Qg_1(d) and Tg_1(d) using (17)
+5. end if
+
+6. Algorithm 3, lines 4—8
+
+7. end for
+
+8
+
+. Compute fteMC(oz|n) using (5)
+
+ 
+
+2.5.3 An optimization for non-polymorphic loci The key recursions (12)
+and ( 14) for non—polymorphic loci can be written in matrix form as Qg =
+5g(yg +Zg)Qg_1 and 72 =£gyg7g_1, where Qg and 72 are m—dimensional
+column vectors having dth entry Qg (d) and T g (d), respectively; 8g and 32g are
+(m x m)—dimensional diagonal matrices having (d x d )th entry Eg (a [b] |d) and
+yédjl , respectively; and Zg is an (m X m)—dimensi0nal matrix having (d, d’)th
+
+/
+entry zéi’ld).
+
+Now, suppose that the mutational model is symmetric and the mutation
+rate constant for all loci. Then, 8g =8 does not depend on b, for all non—
+polymorphic loci b. Similarly, if the recombination rate between each pair
+of loci is constant, then 32g =3? and Zg :2 do not depend on b. With these
+assumptions, for b* 5 b 5 bg",
+
+Qb =802+Z)Qg_1=(502+Z))H§‘+log;_1.
+72 =5yn_1=(5y>’—’?+lre_1.
+
+and the values of (5(y+Z))r and (530’ can be pre—computed (either
+by eigenvalue decomposition or repeated multiplication) for a relevant
+range of r—values. Using this technique for explicitly computing only the
+necessary values of Qg (d) and T g (d), stretches of non—polymorphic loci can
+be ‘analytically’ skipped.
+
+The modiﬁed dynamic program associated with this optimization is given
+in Algorithm 4. The time complexity of Line 4 is 0(m) and of Line 6 is
+0(m+ 1bg (C )+a)g (C )). Thus, the time complexity for the dynamic program
+is 0(kpm2+m(xpp(C)+s2(C))).
+
+This reﬁnement once again reduces the computation required for non—
+polymorphic loci, and so we might expect substantial improvements in
+performance over Algorithms 2 and 3. For the choice C=CT, the time
+complexity is 0(kpm(m+nu)). Note that the assumptions necessary for
+Algorithm 4, namely a symmetric mutation model and uniform mutation
+and recombination rates, can be relaxed, but at the expense of additional
+pre—computation. For example, given non—uniform, but locally similar,
+recombination rates, pre—computation might be performed for each of several
+rates; each stretch of non—polymorphic loci could then use the pre—computed
+values associated with the closest recombination rate.
+
+(17)
+
+2.6 A fast algorithm for conﬁguration partitions
+
+In Section 2.5, we assumed a conﬁguration partition C to be speciﬁed and
+showed that, for Algorithms 2—4, the time complexity depends on C through
+the functions \IJ(C) (or \IJP(C)) and 52(C) and more particularly their sum. It
+is intuitively clear that a conﬁguration partition minimizing 52 will maximize
+‘1! (as in CT), and vice versa, and in general these quantities are inversely
+related; minimizing a convex combination of these quantities is therefore
+difﬁcult. In this section, we propose a fast and simple parametrized algorithm
+for constructing reasonably good conﬁguration partitions.
+
+Given a conﬁguration 11, the algorithm proceeds sequentially over the loci:
+initially, let be 2 1. Given be, ﬁnd the largest polymorphic locus be such that
+be 5 be 5 k, and the number of unique sub—haplotypes between loci be and be
+is at most some threshold parameter s. Then, for each unique sub—haplotype
+x between be and be, group all h eHn such that h[be:be] =x into the same
+
+ 
+
+2012
+
+112 /B.IO'SIBUJHOprOJXO'SOIlBIHJOJUIOIQ/ﬁdnq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+Blockwise HMM computation
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+’1}
+It I
+, /’ (J
+,1 1”
+, g,
+,/ ,’/
+g.” a (a;
+,I I’, I g! /
+’ I A ,
+’7 a” f’ I
+,’ ,k (’7 fi,*
+0 1.’I ,/ ’,
+O 0” ,e’ a” ,
+O" t” l,” (I’ll é”
+A <11 .’ ,r ,
+[/3 ’,f ,’/ ’a’ ,7 A
+__ 1’ ,e’ I,” ’J” U)
+E  , —’ x ’, O
+0 rl” / ’TI' p’0 V
+G) O Q (a’/ ,f’ ,e’ a
+E o /,’ ~’ 4 105
+"—1 (N 1’ I ,e’ (O, X
+4: O ” ,’
+,’ ~’ 5
+r .509 2x10
+0
+0 2x105 4x105
+\Ilp(Ce)
+
+Fig. 3. Empirically observed running time of Algorithm 4 used to compute
+JiSMC(oz|n), for a particular conﬁguration 11 and an arbitrary at e Hn. Several
+values of s e (2, .. . , 500) were used, and each circle corresponds to a particular
+value of s. The curve of circles demonstrates the trade—off between small
+\pr (small s—values) and small 52 (large s—values). As predicted by the
+asymptotic time complexity results, running time appears to depend linearly
+on both \IJP— and Sl—values, and ﬁtting a linear model indicates the constant
+associated with We is ~1.5 times greater than the constant associated with
+$2. The conﬁguration 11 was generated using coalescent simulation for 500
+individuals, each having 105 bi—allelic loci, using population—scaled mutation
+rate 6 = 0.005 per locus and population—scaled recombination rate p = 0.001
+between each pair of adjacent loci, and resulting in kp = 1724 polymorphic
+loci and nu = 324 unique haplotypes
+
+block 8 and add (8, be, be) to the conﬁguration partition. Set be 2 be +1 and
+repeat until locus k is reached. An example conﬁguration partition resulting
+from this algorithm is shown in Figure 20.
+
+Applying this procedure to conﬁguration 11 with threshold parameter s
+results in a conﬁguration partition which we denote Ce. Observe that for
+s: lHnl, we obtain Ce 2 CT, which minimizes 52. On the other hand, for
+s = 2 (in the bi—allelic case), the algorithm produces a conﬁguration partition
+that minimizes \Ilp. Intermediate values of s produce the intermediate results
+that are of interest. In order to gauge the effect of different combinations
+of \pr and $2 on the running time, the CSP JiSMC(Ot|n) was computed using
+the conﬁguration partition Ce for each of several values of s, and the times
+recorded; the results are plotted in Figure 3. As our intuition suggested, the
+running time depends substantially on the choice of C and, in accordance
+with the asymptotic time complexity results depends linearly on both We and
+52. Furthermore, as anticipated, the values of We and 52 are inversely related.
+
+By ﬁtting a linear model to the data, we can deduce the constants
+associated with \pr and 52, which the asymptotic results cannot provide.
+Although these constants will depend on the implementation and hardware,
+their ratio should be relatively stable, and therefore informative for choosing
+an optimal trade—off between We and 52. We ﬁnd that the constant associated
+with \pr is ~1.5 times that associated with 52, suggesting that running time is
+minimized for a choice of C that minimizes 1.5 - \Ilp (C) + S2(C). Furthermore,
+making use of the above algorithm, we deﬁne
+
+5* =argrnin{1.5"lfp(Cs)+Q(Cs)}a
+S
+
+and C*=Ce*. In practice the value s* is found using binary search and
+determining C* is very fast. This deﬁnition will be used frequently in
+Section 4, as C* (and the analogous result for Algorithm 1, using \IJ in
+place of \IJP) provides a good, though not necessarily optimal, choice for C.
+
+3 RESULTS
+
+We have presented three optimized algorithms for computing
+the conditional sampling probability (CSP) tieMe(a|n). Brieﬂy,
+
+Table 1. A summary of the proposed algorithms along with their asymptotic
+time complexities
+
+ 
+
+ 
+
+C 2 CT General C
+Algorithm 2 0(km(m+nu)) 0(km2 +m(\IJ(C)-l- 9(0)»
+Algorithm 3 0(km2+kpmnu) 0(km2+m(\lfp(C)-l-9(C)))
+Algorithm 4 0(kpm(m+nu)) 0(kpm2 +m(‘1’p(C)+ 9(0)»
+
+ 
+
+Recall that Algorithm 2 with C = CT is equivalent to Algorithm 1.
+
+Algorithms 2—4 rely on a partition C of the conﬁguration 11. We have
+characterized optimal such partitions and proposed a simple and fast
+method for constructing good partitions C=C* (of, Section 2.6).
+For the sake of comparison, we also consider the trivial partition
+C =CT. Relative to Algorithm 2, Algorithms 3 and 4 represent
+successive improvements in efﬁciency for non—polymorphic loci.
+In this section, we provide an empirical analysis of these algorithms
+and demonstrate that our optimizations yield a substantial speedup.
+
+The optimized algorithms, along with their asymptotic time
+complexities, are summarized in Table 1. Intuitively, for a ﬁxed
+number of haplotypes n, and assuming coarse homogeneity across
+the genome, the runtimes of each of these algorithms should be linear
+in the number of loci. We are interested in determining the constants
+associated with this linear behaviour for each algorithm. Note,
+however, that for the cases when C 2 CT, the time complexities do
+not depend on n directly, but rather the number of unique haplotypes
+nu. For a particular value of n, the quantity nu will increase with
+the number of loci under consideration until nu =n; only at this
+point do the runtimes become linear in the number of loci. A similar
+argument can be made for a more general conﬁguration partition C.
+In order to attain and analyse the linear behaviour for the modestly
+sized conﬁgurations that are considered, we formally interpret even
+non—unique haplotypes to be unique, thereby forcing nu =n.
+
+We produce data using coalescent simulation: we assume a
+symmetric 2—allele model and with population—scaled mutation
+rate 6 =0.005 per locus and population—scaled recombination
+rate p =0.001 between each pair of adjacent loci. For each of
+several values of n, we thus simulate an n—haplotype 2 X 105—
+locus conﬁguration 11. We compute the partitions CT and C* and
+subsequently record the running time of each algorithm in computing
+time (a |n), for an arbitrary haplotype a 6 H11. Throughout, we use a
+time discretization consisting of m = 16 intervals. The running times
+are plotted, on a logarithmic scale, as a function of n in Figure 4a
+and 4b, for C = C T and C = C *, respectively.
+
+From Figure 4a, for which C 2 CT, it is clear that our reﬁnements
+for non—polymorphic loci have practical beneﬁts, as Algorithms
+3 and 4 perform substantially better than Algorithm 2. The
+asymptotic results summarized in Table 1 suggest the running time
+of Algorithm 4 is a factor of k / kp faster than Algorithm 2. This factor
+is roughly reﬂected in the logarithmic plot of Figure 4a as a vertical
+shift, with deviations occurring because kp increases (slowly) with
+n. Similarly, as n increases, the asymptotic results indicate that
+computation is dominated by the 0(kpnm) term for both Algorithms
+3 and 4; this is reﬂected in Figure 4a by a near identity in running
+times for these algorithms for larger values of n.
+
+Comparing Figure 4b to a, the beneﬁts of taking C = C *
+can be observed. For each algorithm, this optimization improves
+
+ 
+
+2013
+
+112 /B.IO'SIBUJHOprOJXO'SOIlBIHJOJUIOIQ/ﬁdnq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+J.S.Paul and Y.S.Song
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ ._..D
+too D . . . . . _ . _ ..|:| . _ . _ . _ . _ ._D._,_,
+H ’D ’.—
+X — P. El' D"
+p / 7!:
+- g:
+m tall zls/ — — — — — — 415/“ — — - — - — -zls
+\E/ w El —t’<tﬂ ’
+’D a _ El +++'X,
+a X 5F.- AA/
+e 4 A
+A
+_ ﬁ ~-l:|- Algorithm 2, C 2 CT
+AA + Algorithm 3, C 2 CT
+E u —A— Algorithm 4, C 2 CT
+x - A
+A
+i—t I I I I I I
+0 1000 2000 3000 4000 5000
+
+ 
+
+ 
+
+(b)
+“’2 _ 4:— Algorithm 2, c = 0*
+E —l— Algorithm 3, C = C"
+-A- Algorithm 4, C = 0*
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1,?
+:5, .. D
+o S _ .D,D._.-D.—.-D . _ . _ . _ . _ ..n . _ . _ . _ . _ "a . _ e _ . _ . _ __
+g X -+-+——+ + + + +
+B '—1
+—---A — — — — — —-A — — — — — —-A
+A—A—--A-“A“‘
+AAaA’
+“a A
+X _ A
+v—l
+I I I I I I
+0 1000 2000 3000 4000 5000
+
+Fig. 4. Log—scaled plots of the running time (in milliseconds) required to compute JiSMcmln) for n with 2 x 105 loci and |n| =n, as a function n, for each of
+Algorithms 2—4. Conﬁgurations were generated using coalescent simulation as described in the text and results obtained on a single core of a MacPro with
+dual quad—core 3.0 GHz Xeon CPUs. (a) C 2 CT, the trivial conﬁguration partition. (b) C = C*, the conﬁguration partition described in Section 2.6
+
+Table 2. A summary of several key statistics from Figure 4
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+C=CT
+n = 100 n = 2000 n = 5000
+Algorithm 2 45 (1.0x) 870 (1.0x) 2153 (1.0x)
+Algorithm 3 3.5 (13x) 21 (41x) 54 (40x)
+Algorithm 4 0.63 (71x) 18 (48x) 49 (44x)
+C=C*
+n = 100 n = 2000 n = 5000
+Algorithm 2 3.8 (12x) 7.8 (110x) 10.3 (208x)
+Algorithm 3 3.0 (15x) 3.5 (250x) 3.9 (546x)
+Algorithm 4 0.14 (320x) 0.68 (1300x) 1.17 (1845><)
+
+ 
+
+The table indicates the time (in seconds) required to compute the CSP ﬁSMdaln) for
+|n| =n, per 1 x 105 loci. The speed-up versus Algorithm 2 with C = CT, equivalent to
+the commonly used Algorithm 1, is given in parentheses.
+
+performance substantially, particularly as the number of haplotypes
+n increases. Given the results for Algorithm 3 in particular, it is clear
+that the key quantity ‘Ilp(C)+SZ(C), taken from Table 1, increases
+more slowly with n for C: C * than for C =CT. Finally, as in the
+previous case, the asymptotic results for general C indicate that
+computation is dominated by the 0(m(\llp(C) + 52(C))) term for both
+Algorithms 3 and 4; the associated convergence of running times
+appears to be occurring in Figure 4b, though more slowly than in
+Figure 4a; thus, Algorithm 4 is a practically useful alternative to
+Algorithm 3, even for larger values of n.
+
+Although general trends are clear from Figure 4, the logarithmic
+scale makes it difﬁcult to appreciate the magnitude of the
+effects of the optimizations. As mentioned earlier, assuming rough
+homogeneity over the genome, the computation time increases
+linearly with the number of loci. In Table 2, we summarize the
+constant associated with this linear behaviour as the time required to
+process 1 X 105 loci, along with the speedup relative to the baseline,
+Algorithm 1. Observe that Algorithm 3, with C = C *, which can be
+applied in complete generality, provides a speedup of 15X, 250x
+and 546x for conditional sample sizes n=100,2000, and 5000,
+respectively; and in most cases, Algorithm 4 can be applied, which
+
+increases these speedups to 320x, 1300>< and 1845 X. Importantly,
+the speedup increases with the conditional sample size n.
+
+4 DISCUSSION
+
+We have presented a number of optimized algorithms for computing
+the CSP ﬁeMe(0t|n). Our optimizations are based on two intuitive
+observations: ﬁrst, the number of unique haplotypes in a genomic
+sample is dramatically reduced within relatively short regions and
+second, the large number of non—polymorphic loci in a genomic
+sample, though informative, do not distinguish between haplotypes.
+These observations are formalized and leveraged to reﬁne the
+recursive equations for computing ﬁeMe(0t|n), yielding optimized,
+yet exact, algorithms.
+
+We have described our optimization algorithms in the context of
+the HMM associated with the CSD ﬁeMe proposed by Paul et al.
+(2011). It is natural to question whether similar optimizations are
+applicable to related CSDs, such as those proposed by Fearnhead
+and Donnelly (2001) and by Li and Stephens (2003). In Section 2,
+we described two sufﬁcient conditions: Property 1, which stipulates
+that, upon recombination, a new hidden haplotype is chosen
+independently and uniformly at random and Property 2, which
+stipulates that the emission distribution depends only on the allele
+at the current locus of the hidden haplotype. The aforementioned
+CSDs do satisfy both of these properties; in particular, stronger
+forms of Property 1 hold for both CSDs, enabling additional
+optimizations. We have not empirically analysed the resulting
+optimized algorithms, but by considering the resulting asymptotic
+time complexities, analogous to those in Table 1, we anticipate that
+the speedups obtained will be qualitatively comparable to those
+observed for tieMe, though the corresponding magnitudes are difﬁcult
+to estimate.
+
+It is also interesting to consider CSDs for more complex
+demographic scenarios. A theoretically straightforward extension of
+time to variable population size, for example, will continue to satisfy
+both Properties 1 and 2 and will therefore be amenable to very
+similar optimizations. On the other hand, extension to structured
+populations, populations that are divided into several demes between
+which there is limited migration, will not satisfy Property 1 as
+the new hidden haplotype chosen upon recombination depends on
+
+ 
+
+2014
+
+112 /B.IO'SIBUJHOIpJOJXO'SOIlBIHJOJUIOIQ/ﬁdnq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+
+Blockwise HMM computation
+
+ 
+
+the deme in which recombination occurs. Nonetheless, a relaxed
+version of Property 1 will be satisﬁed along with Property 2, and we
+anticipate analogous optimizations will be possible. The outcome is
+similar if item is extended to conditionally sampling diploid, rather
+than haploid, individuals.
+
+Related optimizations may be possible in other contexts as well.
+For example, Li and Durbin (2011) make use of a population genetic
+HMM which satisﬁes conditions that correspond to Properties 1 and
+2 and is used to analyse genomic data. It is interesting to note that,
+in order to make their method practicable, Li and Durbin consider
+non—overlapping 100 bp windows as their set of loci; using the
+optimization detailed in this article may render such compromises
+unnecessary. It is less clear whether our optimizations are applicable
+to other population genetic HMMs, such as those considered by
+Hobolth et al. (2007) and Dutheil et al. (2009); nonetheless, we
+hope that our work will foster progress in this area.
+
+We conclude by recalling that a broad range of population genetic
+methods have been developed and will continue to be developed,
+based on the CSD. These methods are generally computationally
+intensive, and approximations are often made on the basis of
+efﬁciency and at the expense of accuracy; with the advent of
+inexpensive genomic sequencing, such computational problems will
+be compounded. We have introduced several optimizations for
+CSD computation that can potentially speed up this computation
+by several orders of magnitude without introducing additional
+approximations. We believe that these optimizations will enable
+analyses that were previously impracticable, particularly for large
+genomic datasets. We also hope that the optimizations will
+encourage more accurate methods, and in particular more accurate
+CSDs, to be developed and used for population genomic inference.
+
+Acknowledgements
+
+We thank Anand Bhaskar and Matthias Steinrl'icken for fruitful
+discussion on both the theoretical and practical aspects of this work.
+
+F unding: NIH National Research Service Award Trainee
+appointment (T32—HG00047) to JSP and an NSF CAREER
+Grant (DBI—0846015) and a Packard Fellowship for Science and
+Engineering to YSS.
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Browning,B.L. and Browning,S.R. (2007) Rapid and accurate haplotype phasing and
+missing data inference for whole genome association studies using localized
+haplotype clustering. Am. J. Hum. Genet, 81, 1084—1097.
+
+Crawford,D.C. et al. (2004) Evidence for substantial ﬁne-scale variation in
+recombination rates across the human genome. Nat Genet, 36, 700—706.
+
+Davison,D. et al. (2009) An approximate likelihood for genetic data under a model with
+recombination and population splitting. Theor. Popul. Biol., 75, 331—345.
+
+De lorio,M. and Grifﬁths,R.C. (2004a) Importance sampling on coalescent histories. 1.
+Adv. Appl. Prob, 36, 417—433.
+
+De lorio,M. and Grifﬁths,R.C. (2004b) Importance sampling on coalescent histories.
+II: Subdivided population models. Adv. Appl. Prob, 36, 4344154.
+
+Delaneau,O. etal. (2012) Alinear complexity phasing method for thousands of genomes.
+Nat Methods, 9, 179—181.
+
+Dutheil,J.Y. et al. (2009) Ancestral population genomics: the coalescent hidden markov
+model approach. Genetics, 183, 259—274.
+
+Fearnhead,P. and Donnelly,P. (2001) Estimating recombination rates from population
+genetic data. Genetics, 159, 1299—1318.
+
+Fearnhead,P. and Donnelly,P. (2002) Approximate likelihood methods for estimating
+local recombination rates. J. Royal Stat. Soc. B, 64, 657—680.
+
+Fearnhead,P. and Smith,N.G. (2005) A novel method with improved power to detect
+recombination hotspots from polymorphism data reveals multiple hotspots in human
+genes. Am. J. Hum. Genet, 77, 781—794.
+
+Gay,J. et al. (2007) Estimating meiotic gene conversion rates from population genetic
+data. Genetics, 177, 881—894.
+
+Grifﬁths,R.C. et al. (2008) Importance sampling and the two-locus model with
+subdivided population structure. Adv. Appl. Probab, 40, 473—500.
+
+Hellenthal,G. et al. (2008) Inferring human colonization history using a copying model.
+PLoS Genet, 4, e1000078.
+
+Hobolth,A. et al. (2007) Genomic relationships and speciation times of human,
+chimpanzee, and gorilla inferred from a coalescent hidden markov model. PLoS
+Genet, 3, e7.
+
+Howie,B.N. et al. (2009) A ﬂexible and accurate genotype imputation method
+for the next generation of genome-wide association studies. PLoS Genet, 5,
+e1000529.
+
+Hudson,R.R. (2001) Two-locus sampling distributions and their application. Genetics,
+159, 1805—1817.
+
+Lawson,D. et al. (2012) Inference of population structure using dense haplotype data.
+PLoS Genet, 8, 61002453.
+
+Li,H. and Durbin,R. (2011) Inference of human population history from individual
+whole-genome sequences. Nature, 475, 493—496.
+
+Li,N. and Stephens,M. (2003) Modelling linkage disequilibrium, and identifying
+recombination hotspots using SNP data. Genetics, 165, 2213—2233.
+
+Li,Y. et al. (2010) Mach: Using sequence and genotype data to estimate haplotypes and
+unobserved genotypes. Genet. Epidemiol., 34, 816—834.
+
+Marchini,J. et al. (2007) A new multipoint method for genome-wide association studies
+by imputation of genotypes. Nat Genet, 39, 906—913.
+
+Marjoram,P. and Wall,J.D. (2006) Fast “coalescent” simulation. BMC Genet, 7, 16.
+
+McVean,G.A.T. et al. (2004) The ﬁne-scale structure of recombination rate variation in
+the human genome. Science, 304, 581—584.
+
+McVean,G.A. and Cardin,N.J. (2005) Approximating the coalescent with recombination.
+Philos. Trans. R. Soc. Lond. B Biol. Sci., 360, 1387—1393.
+
+Paul,J.S. and Song,Y.S. (2010) A principled approach to deriving approximate condi-
+tional sampling distributions in population genetics models with recombination.
+Genetics, 186, 321—338.
+
+Paul,J.S. et al. (201 1) An accurate sequentially markov conditional sampling distribution
+for the coalescent with recombination. Genetics, 187, 1115—1128.
+
+Price,A.L. et al. (2009) Sensitive detection of chromosomal segments of distinct
+ancestry in admixed populations. PLoS Genet, 5, e1000519.
+
+Scheet,P. and Stephens,M. (2006) A fast and ﬂexible method for large-scale population
+genotype data: applications to inferring missing genotypes and haplotypic phase.
+Am. J. Hum. Genet, 78, 629—644.
+
+Stephens,M. and Donnelly,P. (2000) Inference in molecular population genetics. J. R.
+Stat. Soc. Ser. B Stat. Methodol, 62, 605—655.
+
+Stephens,M. and Scheet,P. (2005) Accounting for decay of linkage disequilibrium in
+haplotype inference and missing-data imputation. Am. J. Hum. Genet, 76, 449—462.
+
+Sundquist,A. et al. (2008) Effect of genetic divergence in identifying ancestral origin
+using HAPAA Genome Res., 18, 676—682.
+
+Wegmann,D. et al. (2011) Recombination rates in admixed individuals identiﬁed by
+ancestry-based inference. Nat Genet, 43, 847—853.
+
+Yin,J. et al. (2009) Joint estimation of gene conversion rates and mean conversion tract
+lengths from population SNP data. Bioinformatics, 25, i231—i239.
+
+ 
+
+2015
+
+112 /B.IO'SIBUJHOIpJOJXO'SOIlBIHJOJUIOIQ/ﬁdnq 111011 pop1201umoq
+
+9IOZ ‘09 lsnﬁnv uo ::
+

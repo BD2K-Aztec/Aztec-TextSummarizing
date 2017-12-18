@@ -1,0 +1,1391 @@
+Bioinformatics, 31 (17), 2015, 2785—2793
+
+doi: 10.1093/bioinformatics/btv275
+
+Advance Access Publication Date: 29 April 2015
+Original Paper
+
+ 
+
+ 
+
+Sequence analysis
+
+RVDZ: an ultra-sensitive variant detection model
+for low-depth heterogeneous next-generation
+
+sequencing data
+
+Yuting He‘, Fan Zhang1 and Patrick Flaherty
+
+1.2.-x-
+
+1Department of Biomedical Engineering, Worcester Polytechnic Institute, Worcester and 2Department of
+Mathematics and Statistics, University of Massachusetts, Amherst, MA, USA
+
+*To whom correspondence should be addressed.
+Associate Editor: lnanc Birol
+
+Received on June 4, 2014; revised on March 17, 2015; accepted on April 7, 2015
+
+Abstract
+
+Motivation: Next-generation sequencing technology is increasingly being used for clinical diag-
+nostic tests. Clinical samples are often genomically heterogeneous due to low sample purity or
+the presence of genetic subpopulations. Therefore, a variant calling algorithm for calling low-
+frequency polymorphisms in heterogeneous samples is needed.
+
+Results: We present a novel variant calling algorithm that uses a hierarchical Bayesian model to
+estimate allele frequency and call variants in heterogeneous samples. We show that our algorithm
+improves upon current classifiers and has higher sensitivity and specificity over a wide range of
+median read depth and minor allele fraction. We apply our model and identify 15 mutated loci in
+the PAXP1 gene in a matched clinical breast ductal carcinoma tumor sample; two of which are
+
+likely loss-of—heterozygosity events.
+
+Availability and implementation: http://genomics.wpi.edu/rvd2/.
+
+Contact: pjflaherty@wpi.edu
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+1 Introduction
+
+Next-generation sequencing (NGS) technology has enabled the sys-
+tematic interrogation of the genome for a fraction of the cost of
+traditional assays (Koboldt et al., 2013). Protocol and platform en-
+gineering improvements have enabled the generation of 1 X 109
+bases of sequence data in 27 h for ~$1000 (Quail et al., 2012). As a
+result, NGS is increasingly being used as a general platform for
+research assays for methylation state (Laird, 2010), DNA mutations
+(1000 Genomes Project Consortium et al., 2012), copy number vari-
+ation (Alkan et al., 2009), promoter occupancy (Ouyang et al.,
+2009) and others (Rivera and Ren, 2013). NGS diagnostics are
+being translated to clinical applications including non-invasive fetal
+diagnostics (Kitzman et al., 2012), infectious disease diagnostics
+(Capobianchi et al., 2012), cancer diagnostics (Navin et al., 2010),
+and human microbiome analysis (The Human Microbiome Project
+Consortium, 2013).
+
+©The Author 2015. Published by Oxford University Press.
+
+Increasingly, NGS is being used to interrogate mutations in
+heterogeneous clinical samples. For example, NGS-based non-
+invasive fetal DNA testing uses maternal blood sample to sequence
+the minority fraction of cell-free fetal DNA (Fan et al., 2008).
+Infectious diseases such as HIV and influenza may contain
+many genetically heterogeneous sub-populations (Flaherty et al.,
+2011; Ghedin et al., 2010). DNA sequencing of individual regions
+of a solid tumor has revealed genetic heterogeneous Within an indi-
+vidual sample (Navin et al., 2010). Importantly, accounting for tech-
+nical errors can drastically improve performance (Zagordi et al.,
+2010).
+
+However, the primary statistical tools for calling variants from
+NGS data are optimized for homogeneous samples. Samtools and
+GATK use a naive Bayesian decision rule to call variants (DePristo
+et al., 2011; Li, 2011). GATK involves more sophisticate pre- and
+post-processing steps wherein the genotype prior is fixed and
+
+2785
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution Non-Commercial License (http://creativecommons.org/licenses/by-nc/4.0/),
+which permits non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact
+
+journals.permissions@oup.com
+
+112 [3.10811211an[plOJXO'SODBIILIOJIIlOlQ/ﬂ(11111 wort pepeolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+2786
+
+Y.He et al.
+
+ 
+
+constant across all loci and the likelihood of an allele at a locus is a
+function of the Phred score (McKenna et al., 2010).
+
+Recently, some have developed algorithms to call low-frequency
+or rare variants in heterogeneous samples. Yau et al. (2010) developed
+a Bayesian framework which can model the normal DNA contamin-
+ation and intra-tumor heterogeneity by parameterizing the normal
+genotype cell proportion at each SNP. VarScan2 combines algorith-
+mic heuristics to call genotypes in the tumor and normal sample
+pileup data and then applies a Fisher’s exact test on the read count
+data to detect a significant difference in the genotype calls (Koboldt et
+al., 2012). Strelka uses a hierarchical Bayesian approach to model the
+joint distribution of the allele frequency in the tumor and normal sam-
+ples at each locus (Saunders et al., 2012). With the joint distribution
+available, one is able to identify locations with dissimilar allele fre-
+quencies. muTect uses a Bayesian posterior probability in its decision
+rule to evaluate the likelihood of a mutation (Cibulskis et al., 2013).
+RVD uses a hierarchical Bayesian model to capture the error structure
+of the data and call variants (Cushing et al., 2013; Flaherty et al.,
+2011). That algorithm requires a very high read depth to estimate the
+sequencing error rate and call variants.
+
+Several studies have compared the relative performance of these
+algorithms. Spencer et al. (2013) demonstrated that VarScan-som-
+atic performed the best when comparing SAMtools, GATK and
+SPLINTER for detecting minor allele fractions (MAFs) of 1—8%,
+with >500 coverage required for optimal performance. However,
+Spencer et al. (2013) also highlighted the fact that VarScan2 yielded
+more false positives at high read depth. Stead et al. (2013) showed
+that VarScan-somatic outperformed Strelka and had performance
+on-par with muTect in detecting a 5% MAF for read depths be-
+tween 100 and 1000.
+
+The remainder of this article is organized as follows. In the next
+section we describe the statistical model structure of our new algo-
+rithm, RVD2. Then, we derive a sampling algorithm for computing
+the posterior distribution over latent variables in the model and use
+those samples in a Bayesian posterior distribution hypothesis test to
+call variants. We compare the performance of RVD2 to several other
+variant calling algorithms for a range of read depths and minor al-
+lele fractions. Finally, we show that RVD2 is able to call variants
+on a heterogeneous clinical sample and identify two novel loss-of-
+heterozygosity events.
+
+2 Model Structure
+
+RVD2 uses a two-stage approach for detecting rare variants. First, it
+estimates the parameters of a hierarchical Bayesian model under
+two sequencing datasets: one from the sample of interest (case) and
+one from a known reference sample (control). Then, it tests for a sig-
+nificant difference between key model parameters in the case and
+control samples and returns called variant positions.
+
+Figure 1 shows a graphical representation of the RVD2 statistical
+model. In this graphical model framework, a shaded node represents
+an observed random variable, an unshaded node represents an unob-
+served or latent random variable and a directed edge represents a
+functional dependency between the two connected nodes (Jordan,
+2004). A rounded box or ‘plate’ represents replication of the nodes
+within the plate. The graphical model framework connects graph
+theory and probability theory in a way that facilitates algorithmic
+methods for statistical inference.
+
+For a given sample, the observed data consist of two matrices
+r E RJXN and n E RJXN, where r], is the number of reads with a
+non-reference base at location i in experimental replicate i and 11,-,- is
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+uO jMO
+r W
+p M
+r W
+C 9
+C r
+6 N4 U
+
+ 
+
+Fig. 1. RVD2 graphical model
+
+the total number of reads at locationj in replicate i. ] is the region of
+interest length and N is the number of technical replicates in the
+sample. Technical replicates are used to establish experimental vari-
+ability in NGS procedure (Robasky et al., 2013), though multiple
+replicates are not necessary for RVD2.
+
+The model generative process given hyperparameters uo, M0 and
+M is as follows:
+
+1. For each location i:
+
+a. Draw an error rate u,- N Beta(u0,M0)
+b. For each replicate i:
+
+1. Draw 0,,- ~ Beta(ul-,M,-)
+
+2. Draw rii|nﬁ ~ Binomial(0,-,-, 11),)
+
+The generative process involves several hyperparameters: uo, a glo-
+bal error rate; M0, a global precision; pi, a local error rate; and M,, a
+local precision. The global error rate, uo, estimates the expected
+error rate across all locations. The global precision, M0, estimates
+the variation in the error rate across locations. The local error rate,
+pi, estimates the expected error rate across replicates at
+location i. The local precision, Mi, estimates the variation in the
+error rate across replicates at location i.
+
+RVD2 has three levels of sampling. First, a global error rate and
+global precision are chosen once for the entire dataset. Then, at each
+location, a local precision is chosen and a local error rate is sampled
+from a Beta distribution. Finally, the error rate for replicate i at
+location i is drawn from a Beta distribution and the number of non-
+reference reads is drawn from a binomial.
+
+RVD2 hierarchically partitions sources of variation in the data.
+The distribution rﬁ|nﬁ ~ Binomial(0,-,-,n,~,~) models the variation due
+to sampling the pool of DNA molecules on the sequencer. The distri-
+bution 0,,- ~ Beta(ul-,M,-) models the variation due to experimental
+reproducibility. The variation in error rate due to sequence context
+is modeled by u,- N Beta(u0,M0). Importantly, increasing the read
+depth 11,-,- only reduces the sampling error, but does nothing to reduce
+experimental variation or variation due to sequence context.
+
+The joint distribution over the latent and observed variables
+for data at location i in replicate 2' given the parameters can be
+factorized as
+
+112 ﬁhO'sIeumo[pJOJXO'sotiemJOJutotw/zdnq wort pepeolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+Ultra-sensitive variant detection model
+
+2787
+
+ 
+
+PW, 911‘, Hjlnji; “OaMoa M1) = P0111917:"ii)P(9/i|H/;M/)P(Hj; “03M0)7
+
+F(1’Zj,‘ -)-  1.. n.._,...
+. 9!} 1 _ 9.. I1 I"
+711+ 1)r(nji — 7/; + 1) "( It)
+
+ 
+
+p(rji|9jianji) = m
+eMiHi—lu _ eji)Mi(1—W)—1 (1)
+
+0'; MM- = ﬂ ’
+P( II I /) B(Mjuj,Mj(1 — Iii»
+
+ 
+
+Motto-1 (1 _ lVt.)Mo(1-llo)—1
+I
+
+“i
+B(Mouo,Mo(1 — #0)) ’
+
+ 
+
+P(lvlj;110aM0) =
+
+where B(-,  denotes the beta function.
+The log-likelihood of the dataset is
+
+I N
+log p(r|n; uo,Mo,M) = Zzlogj J P(riil9ii’"ii)
+
+i=1 i=1 It; 9;"
+17(9iz'llli; Mi)P(u,-; Ho, M0)d9iid)li-
+
+RVD2 improves on RVD in three ways. First, RVD2 has a Beta(u0, M0)
+prior on local error rate 11,-, which captures the global across-position
+error rate. The prior distribution allows u,- to share information
+across adjacent positions and allows RVD2 to handle low read
+depths. Second, RVD2 handles multiple replicates in case samples.
+Third, RVD2 has a more accurate Bayesian hypothesis testing
+method compared with the normal z-test in RVD. We show a per-
+formance comparison between RVD and RVD2 in Section 5.2.
+
+3 Inference and Hypothesis Testing
+
+The primary object of inference in this model is the joint posterior
+distribution function over the latent variables,
+, _ POL, 0MI"; 4))
+pm, elm, <1) — WI”; ch) , <3)
+where the parameters are (I) é{110, M0, M}.
+
+The Beta distribution over u,- is conjugate to the Binomial distri-
+bution over 0],, so we can write the posterior distribution as a Beta
+distribution. However, there is not a closed form for the product of
+a Beta distribution with another Beta distribution, so exact inference
+is intractable.
+
+Instead, we have developed a Metropolis-within-Gibbs (MwG)
+approximate inference algorithm shown in Algorithm 1. First, the
+hyperparameters are initialized using method-of-moments (MoM).
+Given those hyperparameter estimates, we sample from the mar-
+ginal posterior distribution for u,- given its Markov blanket using a
+Metropolis—Hasting (M—H) rejection sampling rule. Finally, we
+sample from the marginal posterior distribution for 0,,- given its
+Markov blanket. Samples from 0,,- can be drawn from the posterior
+distribution directly because the prior and likelihood form a conju-
+gate pair. This sampling procedure is repeated until the chain
+converges to a stationary distribution and then we draw samples
+from the posterior distribution over latent variables.
+
+ 
+
+Algorithm 1 Metropolis-within-Gibbs Algorithm
+1: Initialize 0, u, M, uo, M0
+2: repeat
+
+ 
+
+3: for each locationj do
+
+4 Draw T samples from p(ul-|0,-,-, uo, M0) using M—H
+5 Set u,- to the sample median for the T samples
+
+6 for each replicate i do
+
+7: sample from p(9ii|1'ii, 11,7, 11,-, 
+
+8 end for
+
+9 end for
+
+0:
+
+1 until sample size sufficient
+
+ 
+
+3.1 Initialization
+The initial values for the model parameters and latent variables are
+obtained by a MoM procedure. MoM works by setting the popula-
+tion moment equal to the sample moment. A system of equations is
+formed such that the number of moment equations is equal to the
+number of unknown parameters and the equations are solved simul-
+taneously to give the parameter estimates. We simply start with the
+data matrices r and n and work up the hierarchy of the graphical
+model solving for the parameters of each conditional distribution in
+turn.
+
+We present the initial parameter estimates here and provide the deriv-
+ations in Supplementary Information. The MoM estimate for replicate-
+
+level parameters are 0 i,- =  The estimates for the local parameters are
+[1
+
+A _ 1 N “ c _ ﬁ-(l—i‘t) -
+“i — N2i=1 9/1 and M,- — W — 1. The est1mates for the
+N i=1 ii
+global parameters are 110 = %ZIJ.=1 f1]. and M0 =  _ 1.
+7 i=1 i
+
+3.2 Sampling from p(0ij|rij, “ii, p], M)
+
+Samples from the posterior distribution p(0,-,-|r,-,-,n,-,-,ul-,M,-)
+are drawn analytically because of the Bayesian conjugacy be-
+tween the prior p(0,-,~|ul-,M,-) ~Beta(ul-,M,-) and the likelihood
+p(r,-,-|n,-,~, 0,-,-) ~ Binomial(0,-,-, 11,7). The posterior distribution is
+
+p(0,-,~|r,~,-,n,~,—, ill-,MI') N Beta (7,1 + Miul-mﬁ — 1'7"," + M/(l — 1.11)). (4)
+
+3.3 Sampling from p(uj|0ji, M], 110, M0)
+
+The posterior distribution over u,- given its Markov blanket is
+P(u,~|9ii,M;-, umMo) o< P(u,-luo,Mo)P(9iilu,-,Mi) (5)
+
+Since the prior, p(ul-|u0,M0), is not conjugate to the likelihood,
+p(0,-,-|ul-,M,-), we cannot write an analytical form for the posterior
+distribution. Instead, we sample from the posterior distribution
+using the M—H algorithm.
+
+A candidate sample is generated from the symmetric proposal
+
+distribution Q(u;‘| 11)”) N N (ll/(p ), 67(1) )), where 11)?) is the pth from
+
+the posterior distribution. The acceptance probability is then
+
+P(u7|uo,Mo)P(9)§’ +1>09", Mi)
+
+2 . (6)
+1
+P(u)p)luo,Mo)P(9)?+ )lufp),Mi)
+
+ 
+
+We fixed the proposal distribution variance for all the M—H
+steps within a Gibbs iteration to o,- = 0.1 $1]- - (1 — 11,-) if ﬁt,- 6 (10‘3,
+1 — 10‘3) and o,- = 10‘4 otherwise, where ﬁt,- is the MoM estimator
+of 11,-. Though it is not theoretically necessary, we have found that
+the algorithm performance improves when we take the median of
+five or more M—H samples in single Gibbs step for each position.
+
+We resample from the proposal if the sample is outside of the
+support of the posterior distribution. We typically discard 20% of
+the sample for burn-in and thin the chain by a factor of 2 to reduce
+autocorrelation among samples. Since, each position i is exchange-
+able given the global hyperparameters, uo and M0, this sampling
+step can be distributed across up to ] processors.
+
+3.4 Posterior distribution test
+
+3.4.1 Posterior difference test
+
+MwG provides samples from the posterior distribution of u,- given
+the case or control data. For notational simplicity, we define the
+
+112 /810'S{12umo[p101x0'831112u1101utotqﬂ2d11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+2788
+
+Y.He et al.
+
+ 
+
+random variables associated with these two distributions ufase and
+
+I
+uf°ntr°l and the associated samples as it?“ and Eifmtml.
+
+A variant is called if ufase > uf°ntr°1 with high confidence,
+
+1 N MwG
+
+case control N
+ —  >  N  k2: ﬂﬁ;:se_ﬁ;;nﬂol>1 > 1 — (X, 
+=1
+
+ 
+
+where 1: is a detection threshold and 1 — or is a confidence level. We
+
+. . . . ~ A ~ ~
+draw a sample from the posterior distribution Ill-A: ufase — uf°ntr°l by
+
+simple random sampling with replacement from it?“ and Eifmtml.
+The threshold, 1:, may be set to 0 or optimized for a given median
+depth and desired MAF detection limit. The optimal 1: maximizes
+
+the Matthews Correlation Coefficient (MCC),
+12* = arg max {MCC(1:)}. (8)
+T
+
+While we are able to compute the optimal 1: threshold for a test
+dataset, in general we would not have access to 12*. With sufficient
+training data, one would be able to develop a lookup table or cali-
+bration curve to set 1: based on read depth and MAF level of interest.
+Absent this information we set 1: = 0.
+
+3.4.2 Posterior somatic test
+
+We use a two-sided posterior difference test with control and
+case paired samples to identify somatic mutations. We consider scen-
+arios when the case(tumor) error rate is lower than the
+control(germline) error rate (e.g. loss-of-heterozygosity) as well as scen-
+arios when the case(tumor) error rate is higher than the
+control(germline) error rate (e.g. homozygous somatic mutation).
+The two hypothesis tests are then Pr  — ufm‘tml > 1:) > 1 — or and
+Pr (pi/9915‘3 — uf°ntr°1 < —1:) > 1 — or. We typically set the threshold 1: to 0.
+
+3.4.3 Posterior germline test
+
+We use a one-sided posterior distribution test with a single control
+sample to identify germline mutations. We call a germline mutation
+if uf°ntr°l 2 1: with high confidence,
+
+1 1 NMwG
+Pr gent“) > I z — ﬂ~con o 1 — .
+(“I _ ) NMwG k—l “ik tr 13‘ > a (9)
+
+3.5 X2 test for non-uniform base distribution
+An abundance of non-reference bases at a position called by the pos-
+terior density test may be due to a true mutation or due to a random
+sequencing error; we would like to differentiate these two scenarios.
+We assume non-reference read counts caused by a non-biological
+mechanism results in a uniform distribution over three non-reference
+bases. In contrast, the distribution of counts among three non-
+reference bases caused by biological mutation would not be uniform.
+We use a x2 goodness-of-fit test on a multinomial distribution
+over the non-reference bases to distinguish these two possible
+scenarios. The null hypothesis is H0 : p 2 (in, in, p3) where
+in 2 p2 2 p3 = 1 / 3. Cressie and Read (1984) identified a power-
+divergence family of statistics, indexed by 2», that includes as special
+cases Pearson’s x20» 2 1) statistic, the log likelihood ratio statistic
+(7b = 0), the Freeman—Tukey statistic (7b = —1/2), and the Neyman
+modified statistic X20» 2 —2). The test statistic is
+
+ 
+
+A.
+21214:;23)?“ rife) —1 'XER (10)
+M)”— 1) k=1 ﬂ E192) , ’
+
+where rill-k) is the observed frequency for non-reference base k at pos-
+ition j in replicate i and ) is the corresponding expected frequency
+
+under the null hypothesis. Cressie and Read (1984) recommended
+A = 2 / 3 when no knowledge of the alternative distribution is avail-
+able and we choose that value.
+
+We control for multiple hypothesis testing in two ways. We use
+Fisher’s combined probability test (Fisher et al., 1970) to combine
+the P-values for N replicates into a single P-value at position i,
+
+N
+x} = 4213111 (P12)- (11)
+
+Equation (11) gives a test statistic that follows a 18 distribution
+with 2N degrees of freedom when the null hypothesis is true. If the
+sample average depth is higher than 500, we use the Benjamini—
+Hochberg method to control the family-wise error rate over pos-
+itions that have been called by the posterior distribution test
+(Benjamini and Hochberg, 1995; Efron, 2010). The average depth
+threshold is set because Benjamini—Hochberg method is a highly
+conservative method and will reject many true calls when the read
+depth is not high enough.
+
+4 Datasets
+
+We used two independent datasets to evaluate the performance of
+RVD2 and compare it with other variant calling algorithms. The
+synthetic DNA sequence data provide true positive and true negative
+positions as well as define minor allele fractions. The HCC1187
+data is used to test the performance on a sequenced cancer genome
+with less than 100% tumor purity.
+
+4.1 Synthetic DNA sequence data
+
+4. 1 .1 Experimental methods
+
+Two 400 bp DNA sequences (including linkers) that are identical ex-
+cept at 14 loci with variant bases were synthesized and clonally iso-
+lated. The samples with the mutations are taken as the case sample
+and the sample without the mutations is taken as the control.
+Aliquots of the case and control DNA were mixed at defined frac-
+tions to yield defined minor allele fractions (MAFs) of 0.1, 0.3, 1, 10
+and 100%. Paired-end sequencing was performed on an Illumina
+GAIIx sequencer (Illumina SCS 2.8) with real-time image analysis
+and base calling (Illumina RTA 2.8). Eland II (from Illumina pipe-
+line version 1.6) was used with the default parameters to perform se-
+quence alignment to the 300-bp synthetic DNA construct. More
+details of the experimental protocol are available from the original
+publication (Flaherty et al., 2011). As shown in Supplementary
+Table S1, each sample has N1 000 000 35 bp paired end reads.
+
+4. 1 .2 Pre-processing methods
+
+The reads were aligned with Eland as described previously. We then
+ran samtools mpileup with the -C50 option to filter for high mapping
+quality reads. To simulate lower coverage data while retaining the
+error structure of real NGS data, BAM files for the synthetic DNA
+data were downsampled 10><, 100><, 1000>< and 10 000>< using
+Picard v1.96. The final dataset contains read pairs for three replicates
+of each case and pairs of reads three replicates for the control sample
+giving N = 6 replicates for the control and each MAF level.
+
+4.2 HCC1187 sequence data
+
+4.2.1 Experimental methods
+
+The HCC1187 dataset is a well-recognized baseline dataset from
+Illumina for evaluating sequence analysis algorithms (Howarth
+et al., 2011, 2007; Newman et al., 2013). The HCC1187 cell line
+
+112 /810'S{12umo[piOJXO'soi1eu1101uioiq//2d11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Ultra-sensitive variant detection model
+
+ 
+
+was derived from epithelial cells from primary breast tissue from a
+41—year-old adult with TNM stage IIA primary ductal carcinoma.
+The estimated tumor purity was reported to be 0.8. Matched normal
+cells were derived from lymphoblastoid cells from peripheral blood.
+Sequencing libraries were prepared according to the protocol
+described in the original technical report (Allen, 2013).
+
+4.2.2 Pre-processing methods
+
+The raw FASTQ read files were aligned to hg19 using the Isaac
+aligner to generate BAM files (Raczy et al., 2013). The aligned data
+had an average read depth of 40X for the normal sample and 90x
+for the tumor sample with about 96% coverage with 10 or more
+reads. We used samtools mpileup to generate pileup files using hg19
+as reference sequence (Navin et al., 2010).
+
+5 Results
+
+We tested RVD2 using synthetic DNA and data from the HCC1 187
+primary ductal carcinoma sample. The inference algorithm param-
+eters were set to yield 4000 Gibbs samples with a 20% burn-in and
+2X thinning rate for a final total of 1600 samples. We drew 1000
+
+Samples from (1A 2 11;?358 _ ﬂfontrol
+
+to estimate the posterior probabil-
+ity of a variant.
+
+We performed the posterior difference test to identify mutations
+in the haploid synthetic data. We set the threshold 1: = 0 and the size
+of the test 01 = 0.05.
+
+For the HCC1187 dataset, we identified both somatic and germ-
+line mutations. In the posterior somatic test, we set the threshold
+1: = 0 and the size of the test 01 = 0.05. In the posterior germline test,
+we set the threshold 1: = 0.05 considering the low average coverage
+(40X). The size of the test is set at 01 = 0.15. We performed the x2
+non-uniformity test after the posterior density tests.
+
+5.1 Performance by read depth
+We generated receiver-operating characteristic curves (ROCs) for a
+range of median read depth and a range of MAFs. For these ROCs, we
+used the posterior density test without the 18 test to evaluate the per-
+formance of posterior density test individually. Figure 2 shows ROCs
+generated by varying the threshold 1: with a fixed 01 = 0.05. Figure 2a
+shows ROC curves for a true 0.1% MAF for a range of median cover-
+age depths. At the lowest depth the sensitivity and specificity is no better
+than random. However, we would not expect to be able to call a 1 in
+1000 variant base with a coverage of only 43. The performance im-
+proves monotonically with read depth. Figure 2b and c shows a similar
+relationship between coverage depth and accuracy for higher MAFs.
+We measured the computational time for RVD2 varying the num-
+ber of Gibbs sampling steps and the median read depth for the 400 bp
+synthetic dataset. In brief, on a 2.4-GHz processor it took ~13 min
+per 1000 Gibbs samples to fit the model. The computational time is
+independent of the median read depth due to the model structure; the
+same performance was observed for a median read depth of 130 and
+40 000. As stated previously, due to the independence structure of the
+model, we are able to perform the sampling step for each location in
+parallel greatly decreasing the computational time. The memory re-
+quirement is roughly the size of the gene sequence times the number
+of Gibbs samples. Complete timing results without parallelization are
+shown in Supplementary Section 8.
+
+5.2 Empirical performance compared with other
+algorithms
+
+We compare the empirical performance of RVD2 to other variant
+calling algorithms using the synthetic DNA dataset by the false
+
+ 
+
+   
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+2789
+(a) 0.1% Mutant Mixture (b) 0.3% Mutant Mixture
+1.0 - ' 'I— —| — '— 1_o .
+_ ' ' ' ' 7 :-'
+0.8 J I ' 0.8 - _
+E I ’ E
+L: 0.6 - - . I: 0.6 -
+b | l 3*
+E E -
+a: _ _ .4: . . . . . _
+2 0'4 ll Read depth 2 0'4  Read depth
+3 — 41449 $ _  — 41472
+0.2 .l’ - 4129 . 0.2 - /. - 4156 .
+- — 408 / .' — 410
+II . . 39 I .' - - 36
+0.0-, _ , , , , , 0.0-,  , , , ,
+0.0 0.2 0.4 0.6 0.8 1.0 0.0 0.2 0.4 0.6 0.8 1.0
+1-Specificity (FPR) l-Specificity (FPR)
+(c) 1.0% Mutant Mixture (d) 10.0% Mutant Mixture
+1.0 - I
+0.8 - - . I
+E E
+I: 0.6 . I: . I
+.E‘ .é‘
+.2 l‘ . - - 3 I
+ 0'4  _  _ _ _ _ _' Read depth '  0'4  - / Read depth '
+8 _'/ — 55489 3 . / — 26959
+0.2  4‘ — 5584 . 0.2 -| j / — 2718 .
+/ - — 535 - / — 260
+|| .' - - 53 | ' - 22
+0.0 , _ _ , _ , , , , , 0.0  , , ,
+0.0 0 2 0.8 1.0 0.0 0.2 0.8 1.0
+
+0.4 0.6 0.4 0.6
+1-Specificity (FPR) 1-Specificity (FPR)
+
+Fig.2. ROCs varying read depth showing detection performance
+
+discovery rate (FDR) and sensitivity/specificity. Among these algo-
+rithms, Samtools and GATK are optimized for homogeneous sam-
+ples, while RVD, VarScan2-somatic, Strelka and muTect have good
+performance to call variants in heterogeneous samples. In research
+applications, the FDR is a more relevant performance metric be-
+cause the aim is generally to identify interesting variants for follow-
+up. The sensitivity/specificity metric is more relevant in clinical ap-
+plications where one is more interested in correctly calling all of the
+positive variants and none of the negatives. GATK, Varscan2,
+Strelka and muTect are only able to make use of one case and one
+control sample, so we provide results of RVD2 with the same data
+set (N = 1) for comparison.
+
+We compare the empirical performance across a wide range of
+median read depth (~40>< to ~40 000x). In typical whole genome
+applications, the read depth is between 10>< and 100><. For targeted
+cancer sequencing, the median read depth is higher at 100>< to
+1000><. For microbial or viral sequencing for rare variants, the me-
+dian read depth is even higher at 1000>< to 100 000x.
+
+5.2.1 Sensitivity/specificity comparison
+
+Figure 3 shows that samtools, GATK and VarScan2-mpileup all
+have similar performance. They call the 100% MAF experiment
+well even at low depth, but are unable to identify true variants in
+mixed samples. VarScan2-somatic is able to call more mixed sam-
+ples. However, as the read depth increases the specificity degrades.
+Strelka is able to call 10% MAF variants with good performance,
+but is limited at 1% MAF and below. muTect has good performance
+across a wide range of MAF levels. But even at the highest depth
+only has around 0.5 sensitivity for low MAF levels.
+
+The performance statistics for RVD are an average of three sets
+of pair-end case replicates. RVD performed the best among all algo-
+rithms when the read depth is near 40 000. RVD called all the
+mutated positions across all MAF levels with no false positives when
+MAF level is 0.3% or lower. However, RVD cannot call any muta-
+tions when the depth is too low to measure the baseline error rate
+and therefore is not useful for low-depth data.
+
+RVD2 has a high sensitivity and specificity for a broad range of
+read depths and MAFs. The sensitivity increases considerably with
+read depth at a slight expense to specificity. For the most difficult
+
+112 /810'S{120mo[p101x0'801112u11010101qﬂ2d11q 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+2790 Y.He etal.
+N=1 N=6
+
+MAF Median SAMtools GATK VarScan2 VarScan2 Strelka MuTect RVD RVD2 RVD2 RVD2 RVD2
+Depth mpileup somatic (T=0) (T*) (T=0) (T*)
+
+0.1% 39 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/0.99 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+139 0.00/1.00 0.00/1.00 0.00/1.00 0.14/0.87 0.00/1.00 0.07/0.95 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+408 0.00/1.00 0.00/1.00 0.00/1.00 0.07/0.92 0.00/1.00 0.29/0.91 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+4129 0.00/1.00 0.00/1.00 0.00/1.00 0.57/0.52 0.00/1.00 0.64/0.86 0.00/1.00 0.00/1.00 0.00/1.00 0.14/1.00 0.29/1.00
+41449 0.00/1.00 0.00/1.00 0.00/1.00 0.64/0.79 0.00/1.00 0.14/0.93 1.00/1.00 0.43/1.00 0.57/1.00 0.86/0.97 0.79/1.00
+
+0.3% 36 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.43/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+135 0.00/1.00 0.00/1.00 0.00/1.00 0.14/0.85 0.00/1.00 0.57/0.98 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+410 0.00/1.00 0.00/1.00 0.00/1.00 0.21/0.95 0.00/1.00 0.50/0.94 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+4156 0.00/1.00 0.00/1.00 0.00/1.00 0.57/0.53 0.00/1.00 0.36/0.91 0.00/1.00 0.14/1.00 0.29/1.00 1.00/0.99 1.00/0.99
+41472 0.00/1.00 0.00/1.00 0.00/1.00 0.64/0.75 0.00/1.00 0.43/0.90 1.00/1.00 093/097 093/099 1.00/0.85 0.93/0.97
+
+1.0% 53 0.00/1.00 0.00/1.00 0.00/1.00 0.00/0.99 0.00/1.00 0.29/0.98 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+184 0.00/1.00 0.00/1.00 0.00/1.00 0.29/0.82 0.00/1.00 0.50/0.93 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+535 0.00/1.00 0.00/1.00 0.00/1.00 0.43/0.89 0.00/1.00 0.71/0.91 0.00/1.00 0.00/1.00 0.00/1.00 0.21/1.00 0.21/1.00
+5584 0.00/1.00 0.00/1.00 0.00/1.00 0.57/0.47 0.00/1.00 0.64/0.95 0.00/1.00 0.93/0.99 1.00/0.99 1.00/0.98 1.00/1.00
+55489 0.00/1.00 0.00/1.00 0.00/1.00 0.64/0.69 0.00/1.00 0.86/0.90 1.00/0.99 1.00/0.95 1.00/0.99 1.00/0.87 1.00/0.99
+
+10.0% 22 0.21/1.00 0.43/1.00 0.00/1.00 0.36/1.00 0.29/1.00 0.86/0.99 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00 0.00/1.00
+88 0.14/1.00 0.53/1.00 0.00/1.00 0.86/0.99 0.29/1.00 1.00/0.98 0.00/1.00 0.57/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+260 0.00/1.00 0.57/1.00 0.00/1.00 0.86/1.00 1.00/1.00 1.00/0.99 0.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+2718 0.00/1.00 0.79/1.00 0.00/1.00 0.57/0.78 1.00/1.00 1.00/0.98 0.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+26959 0.00/1.00 0.57/1.00 0.00/1.00 0.64/0.53 1.00/0.99 1.00/0.98 1.00/0.98 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+
+100.0% 27 1.00/0.99 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00 1.00/0.98 0.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+101 1.00/0.99 1.00/1.00 1.00/1.00 1.00/0.99 1.00/1.00 1.00/0.98 0.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+298 1.00/0.99 1.00/1.00 1.00/1.00 1.00/0.99 1.00/0.99 1.00/0.98 0.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+3089 0.86/1.00 1.00/1.00 1.00/1.00 1.00/0.65 1.00/0.99 1.00/0.98 0.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+30590 0.71/1.00 1.00/1.00 1.00/1.00 1.00/0.39 1.00/1.00 1.00/0.99 1.00/0.98 1.00/1.00 1.00/1.00 1.00/1.00 1.00/1.00
+
+ 
+
+ 
+
+Fig. 3. Sensitivity/specificity comparison of RVD2 with other variant calling algorithms using synthetic DNA data
+
+test with a low read depth and low MAF, RVD2 performs on-par
+with muTect. With 1* the performance is much better with high sen-
+sitivity and specificity across a wide range of read depths and MAFs.
+However, in practice one may not know the optimal 1* a priori.
+With N = 6 replicates, the sensitivity increases considerably for low
+MAF variants with a slight degradation in specificity due to false
+positives. When the median read depth is at least 10x the MAF,
+RVD2 has higher specificity than all of the other algorithms tested
+and has a lower sensitivity in only three cases.
+
+5.2.2 FDR comparison
+
+Figure 4 shows the FDR for RVD2 compared with samtools,
+GATK, varscan, Strelka and muTect. Blank cells indicate no positive
+calls were made.
+
+Samtools performs well on 100% MAF sample and performance
+improves for read depths 3089 and 30 590. GATK performs well on
+both the 10 and 100% variants, but makes a false positive call at the
+100% MAF level for all read depth levels. VarScan2-pileup per-
+forms perfectly for all but the lowest depth for the 100% MAF.
+
+VarScan2-somatic is able to make calls for all but the lowest
+MAF and coverage level. However, the FDR is high due to many
+false positives. Interestingly, at a MAF of 100% the FDR is zero for
+lowest read depth and over 0.9 for the highest read depth. Strelka
+has a better FDR than the samtools, GATK or Varscan2-somatic al-
+gorithms for almost all read depths at the 10 and 100% MAF.
+However, it does not call any variants at or below 1% MAF.
+muTect has the best FDR performance of the other algorithms we
+tested over a wide range of MAF and depths. But the FDR level is
+relatively high at around 0.7 for 0.1—1% MAF and 0.3 for
+10—100% MAF. RVD has best FDR performance in the high read
+depth for 0.1—1% MAF levels. The FDR increases to around 0.3 for
+10—100% MAF in the high read depth.
+
+RVD2 has a lower FDR than other algorithms when the read
+depth is greater than 10>< the inverse MAF with N = 1 and 1 set to
+the default value of zero or to the optimal value. The FDR is
+higher when N = 6 because the variance of the control error rate
+
+distribution P(ul‘?°“tr°l|r°°ntr°1) is smaller. The smaller variance yields
+improvements in sensitivity at the expense of more false positives.
+Since the FDR only considers positive calls, the performance by that
+measure degrades.
+
+5.3 HCC1187 primary ductal carcinoma sample
+
+RVD2 identified 15 variant locations in the 59 kbp PAXIP1 gene
+from chr7:154735400 to chr7:154794682. There were 11 germline
+variants and 10 somatic mutations. Figure 5 shows the estimated
+MAFs for the normal and tumor samples at the called locations.
+Interestingly, positions chr7:154754371 and chr7:154758813 ap-
+pear to be loss-of-heterozygosity events. Some of these mutations
+are also found to be common population SNPs according to
+dbSNPv138. The corresponding identities are shown in Figure 5.
+The read depth distribution for positions called by RVD2 is pro-
+vided in Supplementary Table S1. Karyotyping indicates that
+chromosome 7 in HCC1187 is tetraploid http://www.path.cam.ac.
+uk/pawefish/BreastCellLineDescriptions/HCC 1 1 8 7.html.
+
+5.3.1 Performance comparison with other algorithms
+
+We ran muTect and VarScan2-somatic to call mutations in the
+PAXIP1 gene in HCC1187 sample. We also compared with the re-
+sult shown in original research report where Strelka was used to
+identify mutations in the same sample (Allen, 2013). Figure 6a
+shows mutation detection result from Strelka, RVD2, muTect and
+VarScan2-somatic. For notation simplicity, we use position index to
+present actual positions in Figure 6 (the corresponding genomic pos-
+itions are provided in Supplementary Table S1).
+
+The mutations called by RVD2 and muTect are the most consist-
+ent among all the techniques. RVD2 detected 15 germline mutations
+and 10 somatic mutations, while muTect reported 16 mutations; 11
+were called by both. In the disagreements, RVD2 did not call pos-
+itions 1, 39, 54 and 84 while muTect did not call positions 41 75
+and 77. Referring to the depth distribution shown in Figure 6b, it
+
+112 [BJO'SIBILIHO[p.IOJXO'SODBIIHOJIIIOIQ/ﬂ(11111 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Ultra-sensitive variant detection model 2791
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+N=1 | N=6
+
+MAF Median SAMtools GATK VarScan2 VarScan2 Strelka MuTect RVD RVD2 RVD2 RVD2 RVD2
+
+Depth mpileup somatic (T=0) (T*) (T=0) (T*)
+0.1% 39 1.00
+
+139 0.96 0.95
+
+408 0.97 0.89
+
+4129 0.96 0.86 0.00 0.00
+
+41449 0.90 0.93 0.04 0.14 0.11 0.50 0.80
+0.3% 36 0.14
+
+135 0.97 0.50
+
+410 0.86 0.76
+
+4156 0.96 0.87 0.00 0.00 0.26 0.26
+
+41472 0.92 0.87 0.08 0.43 0.28 0.80 0.43
+1.0% 53 1.00 0.67
+
+184 0.95 0.79
+
+535 0.87 0.78 0.00 0.00
+
+5584 0.96 0.70 0.19 0.18 0.30 0.07
+
+55489 0.93 1.00 0.76 0.19 0.59 0.22 0.78 0.12
+10.0% 22 0.00 0.00 0.00 0.25
+
+88 0.00 0.14 0.00 0.33 0.00 0.00 0.00 0.00
+
+260 0.08 0.00 0.18 0.00 0.00 0.00 0.00
+
+2718 0.91 0.07 0.36 0.00 0.00 0.00 0.00
+
+26959 0.95 0.18 0.33 0.31 0.00 0.00 0.00 0.00
+100.0% 27 0.12 0.07 0.07 0.00 0.07 0.36 0.00 0.00 0.00 0.00
+
+101 0.12 0.07 0.00 0.22 0.07 0.36 0.00 0.00 0.00 0.00
+
+298 0.12 0.07 0.00 0.12 0.18 0.39 0.00 0.00 0.00 0.00
+
+3089 0.00 0.07 0.00 0.91 0.18 0.33 0.00 0.00 0.00 0.00
+
+30590 0.00 0.07 0.00 0.94 0.00 0.26 0.3 0.00 0.00 0.00 0.00
+
+ 
+
+Fig. 4. FDR comparison of RVD2 with other variant calling algorithms using synthetic DNA data. Blank cells indicate no locations were called variant
+
+1:1 Control
+- Case
+
+1.0 0 0 I I I 0 0 0 0 0 0
+
+*
+0*
+0*
+0*
+
+*
+
+*
+
+*
+
+*
+
+ 
+
+.o .0 .°
+h 0“ on
+I I I
+
+Estimate Minor Allele Frequency
+
+.0
+N
+I
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ A
+
+43899 49704 53635 54371 58813 60439 66732 66832 77118 80960 84369 87357 87367 87612 88798
+r51239326 r51239324 rs71534174 rs35505514 rs4398858 r510276898 rs306280 r5306279 r562471878 r5306278
+
+HG19 Genomic Location [chr7:154,700,000+X]
+
+ 
+
+Fig. 5. Estimated minor allele fraction for germline and somatic mutations called by RVD2 in the 59kbp PAXIP1 gene. Blue diamonds indicate germline mutations,
+where p°°”t’°' is significantly different from the reference sequence. Red stars indicate somatic mutations, where pcase is significantly different from p°°"t’°'. The
+vertical lines represent 95% credible interval around posterior mean MAF. Ten positions are common population SNPs according to dbSNPv138, and the identi-
+ties are shown below the positions
+
+(a) (b)
+
+ ' ' ' ' Index REF Normal Case
+
+”*1“--- -- --~ -- ~-- 33?: £332
+Strelka 37202020 56:2:0:0
+7:0:1920 220229:0
+02382020 0:63:0z1
+0219:0231 0:62:020
+15:0:2820 5420:020
+37:02020 0238:020
+4:212020 102422020
+0:0:0231 0:025:40
+34202020 43:4:020
+0:49:020 0:65:220
+46202020 3124:020
+0:0:0:42 0:020:56
+0:0:3920 020260:0
+0:0:0246 0:020:62
+0:020:42 0:020:56
+2320:2520 68:0:0:0
+2420:2320 5820:020
+29:2:020 4225:020
+
+ 
+
+ 
+
+12
+15
+17
+24
+26
+39
+4o
+41
+54
+55
+60
+73
+74
+I I I I I I I I I I I I I I I I I I I I I 
+5 10 15 20 25 30 35 40 45 50 55 60 65 7O 75 80 85 0 20 40 60 80 77
+
+Position Index Total 84
+
+RVD2
+Germline
+
+RVD2
+Somatic
+
+muTect
+
+VarScan2
+Somatic
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+>>>OO>O>O>HO>QHHG§OO
+
+ 
+
+Fig. 6. (a) Positions called by VarScan2-somatic, muTect, RVD2 and Strelka in the 59kbp PAXIP1 gene from chr7:154735400 to chr7:154794682. The positions are
+sorted by index (correspondence to genomic positions shown in Supplementary Table 81). (b) Read counts for each base for positions called by RVD2 and
+muTect from raw pileup data
+
+112 [3.10811211an[p.IOJXO'SODBIIHOJIIIOIQ/ﬂ(11111 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+2792
+
+Y.He et al.
+
+ 
+
+can be seen that positions 41, 75 and 77 are more likely mutated
+while positions 1, 39, 54 and 84 are less likely mutated.
+
+Strelka was the least sensitive algorithm among all the algo-
+rithms. According to the technical report, Strelka identified position
+26 (chr7:154760439) as variant, but did not call any other variants.
+In particular Strelka missed the two LOH events called by RVD2.
+VarScan2-somatic called most positions among all algorithms,
+84 positions as shown in Figure 6a. VarScan2-somatic detected all
+the positions called by RVD2 except position 39, which turns out to
+be a very likely mutation given the depth distribution in Figure 6b.
+VarScan2-somatic reported 65 positions which were not called
+by any other three algorithms. The read depth in Supplementary
+Table S1 suggests that these positions are very likely to be false posi-
+tives. As shown in Figure 4, the FDR for VarScan2-somatic at read
+depth 53 MAF level 1.0% is as high as 1.00. Spencer et al. (2013)
+also mentioned that VarScan2 has tendency to call many false posi-
+tives at high read depth.
+
+6 Discussion
+
+We describe here a novel algorithm for model estimation and hy-
+pothesis testing for identifying single-nucleotide variants in hetero-
+geneous samples using NGS data. Our algorithm has a higher
+sensitivity and specificity than many other approaches for a range of
+read depths and MAFs.
+
+Our inference algorithm uses Gibbs sampling to do inference in
+the RVD2 hierarchical empirical Bayes model. This sampling pro-
+cedure provides a guarantee to identify the global optimal parameter
+settings asymptotically. However, it may require many samples to
+achieve that guarantee causing the algorithm to be slower than other
+deterministic approaches. We opted for this balance of speed and ac-
+curacy because computational time is often not limiting and the cost
+of a false positive or false negative greatly outweighs the cost of
+more computation. Another factor that can affect the speed of
+RVD2 is the number of M—H sample within one Gibbs sampling
+run. RVD2 is able to use multiple cores in parallel, which can signifi-
+cantly improve time efficiency. In future studies, we plan to reduce
+the computational cost by using more sophisticated MCMC sam-
+pling methods or deterministic approximation methods such as vari-
+ational EM or stochastic variational EM.
+
+We have focused on the statistical model and hypothesis test in
+this study and our results do not include any pre-filtration of errone-
+ous reads or post-filtration of mutation calls beyond a simple quality
+score threshold. Incorporation of such data-cleaning steps will likely
+improve the accuracy of the algorithm.
+
+Our approach does not address identiﬁcation of indels, structural vari-
+ants or copy number variants. Those mutations typically require specific
+data analysis models and tests that are different than those for single-
+nucleotide variants. Furthermore, analysis of RNA-seq data or other data
+generated on the NGS platform may require different models that are
+more appropriately tuned to the particular noise feature of that data.
+
+The availability of clinical sequence data is increasing as the
+technical capability to sequence clinical samples at low-cost im-
+proves. Consequently, we require statistically accurate algorithms
+that are able to call germline and somatic point mutations in hetero-
+geneous samples with low purity. Such accurate algorithms are a
+step toward greater access to genomics for clinical diagnostics.
+
+Acknowledgements
+
+P.F. was supported by seed funding from Worcester Polytechnic Institute.
+Y.H. and F.Z. were supported by PhRMA Foundation Informatics Grant
+2013080079.
+
+Conﬂict of Interest: none declared.
+
+References
+
+1000 Genomes Project Consortium et al. (2012) An integrated map of genetic
+variation from 1,092 human genomes. Nature, 491, 5 6—65 .
+
+Alkan,C. et al. (2009) Personalized copy number and segmental duplication
+maps using next-generation sequencing. Nat. Genet., 41, 1061—1067.
+
+Allen,E. (2013) Molecular characterization of tumors using next-generation
+sequencing. Technical Report 770-2013-01 1, 2013 Illumina, Inc.
+
+Benjamini,Y. and Hochberg,Y. (1995) Controlling the false discovery rate: a
+practical and powerful approach to multiple testing. ]. R. Stat. Soc. B 57,
+289—300.
+
+Capobianchi,M.R. et al. (2012) Next-generation sequencing technology in
+clinical virology. Clin. Microbiol. Infect., 19, 15—22.
+
+Cibulskis,K. et al. (2013) Sensitive detection of somatic point mutations in im-
+pure and heterogeneous cancer samples. Nature, 31, 213—219.
+
+Cressie,N. and Read,T.R. ( 1984) Multinomial goodness-of—ﬁt tests. ]. R. Stat.
+Soc. B, 46, 440—464.
+
+Cushing,A. et al. (2013) Rvd: a command-line program for ultrasensitive rare
+single nucleotide variant detection using targeted next-generation DNA
+resequencing. BMC Res. Notes, 6, 206.
+
+DePristo,M.A. et al. (2011) A framework for variation discovery and genotyp-
+ing using next-generation DNA sequencing data. Nat. Genet., 43, 491—498.
+
+Efron,B. (2010) Large-Scale Inference: Empirical Bayes Methods for
+Estimation, Testing, and Prediction, vol. 1. Cambridge University Press,
+Cambridge, MA.
+
+Fan,H.C. et al. (2008) Noninvasive diagnosis of fetal aneuploidy by shotgun
+sequencing DNA from maternal blood. PNAS, 105, 16266—16271.
+
+Fisher,S.R.A. et al. (1970) Statistical Methods for Research Workers, vol. 14.
+Oliver and Boyd Edinburgh, Provo, UT.
+
+Flaherty,P. et al. (2011) Ultrasensitive detection of rare mutations using next-
+generation targeted resequencing. Nucleic Acids Res., 40, e2.
+
+Ghedin,E. et al. (2010) Deep sequencing reveals mixed infection with 2009
+pandemic inﬂuenza A (H1N1) virus strains and the emergence of oseltamivir
+resistance. ]. Infect. Dis., 203, 168—174.
+
+Howarth,K. et al. (2007) Array painting reveals a high frequency of balanced
+translocations in breast cancer cell lines that break in cancer-relevant genes.
+Oncogene, 27, 3345—3359.
+
+Howarth,K.D. et al. (2011) Large duplications at reciprocal translocation
+breakpoints that might be the counterpart of large deletions and could arise
+from stalled replication bubbles. Genome Res., 21, 525—5 34.
+
+Jordan,M.I. (2004). Graphical models. Stat. Sci., 19, 140—155.
+
+Kitzman,].O. et al. (2012) Noninvasive whole-genome sequencing of a human
+fetus. Sci. Transl. Med., 4, 137ra76—137ra76.
+
+Koboldt,D.C. et al. (2012) VarScan 2: somatic mutation and copy number
+alteration discovery in cancer by exome sequencing. Genome Res., 22, 5 6 8—
+576.
+
+Koboldt,D.C. et al. (2013) The next-generation sequencing revolution and its
+impact on genomics. Cell, 155, 27—38.
+
+Laird,P.W. (2010) Principles and challenges of genomewide DNA methylation
+analysis. Nat. Rev. Genet., 11, 191—203.
+
+Li,H. (2011) A statistical framework for SNP calling, mutation discovery, as-
+sociation mapping and population genetical parameter estimation from
+sequencing data. Bioinformatics, 27, 2987—2993.
+
+McKenna,A. et al. (2010) The genome analysis toolkit: a MapReduce frame-
+work for analyzing next-generation DNA sequencing data. Genome Res.,
+20, 1297—1303.
+
+Navin,N. et al. (2010) Inferring tumor progression from genomic heterogen-
+eity. Genome Res., 20, 6 8—80.
+
+Newman,S. et al. (2013) The relative timing of mutations in a breast cancer
+genome. PLoS One, 8, e64991.
+
+Ouyang,Z. et al. (2009) ChIP-Seq of transcription factors predicts absolute
+and differential gene expression in embryonic stem cells. PNAS, 106,
+21521—21526.
+
+Quail,M.A. et al. (2012) A tale of three next generation sequencingplatforms:
+comparison of Ion Torrent, PaciﬁcBiosciences and Illumina MiSeq sequen-
+cers. BMC Genomics, 13, 1—1.
+
+112 [3.10811211an[p.IOJXO'SODBIIHOJIIIOIQ/ﬂ(11111 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+Ultra-sensitive variant detection model
+
+2793
+
+ 
+
+Raczy,C. et al. (2013) Isaac: ultra-fast whole genome secondary analysis on
+illumina sequencing platforms. Bioinformatics, 29, 2041—2043.
+
+Rivera,C.M. and Ren,B. (2013) Mapping human epigenomes. Cell, 155 , 39—55.
+
+Robasky,K. et al. (2013) The role of replicates for error mitigation in next-
+generation sequencing. Nat. Rev. Genet., 15, 5 6—62.
+
+Saunders,C.T. et al. (2012) Strelka: accurate somatic small-variant calling
+from sequenced tumor-normal sample pairs. Bioinformatics, 28, 1811—
+1817.
+
+Spencer,D.H. et al. (2013) Performance of common analysis methods for de-
+tecting low-frequency single nucleotide variants in targeted next-generation
+sequence data. ]. Mol. Diagn., 16, 75—88.
+
+Stead,L.F. et al. (2013) Accurately identifying low-allelic fraction variants in
+single samples with next-generation sequencing: applications in tumor sub-
+clone resolution. Hum. Mutat., 34, 1432—1438.
+
+The Human Microbiome Project Consortium (2013) A framework for human
+microbiome research. Nature, 486, 215—221.
+
+Yau,C. et al. (2010) A statistical approach for detecting genomic aberrations
+in heterogeneous tumor samples from single nucleotide polymorphism geno-
+typing data. Genome Biol., 11, R92—R92.
+
+Zagordi,O. et al. (2010) Error correction of next-generation sequencing data
+and reliable estimation of HIV quasispecies. Nucleic Acids Res., 38, 7400—
+7409.
+
+112 [3.10811211an[p.IOJXO'SODBIIHOJIIIOIQ/ﬂ(11111 111011 pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+

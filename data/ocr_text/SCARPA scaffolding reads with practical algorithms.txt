@@ -1,0 +1,897 @@
+ORIGINAL PAPER
+
+Vol. 29 no. 4 2013, pages 428-434
+doi: 10. 1093/bioinformatics/bts716
+
+ 
+
+Genome analysis
+
+Advance Access publication December 29, 2012
+
+SCARPA: scaffolding reads with practical algorithms
+
+Nilgun Donmez” and Michael Brudnol’Z’3
+
+1Department of Computer Science, 2Donnelly Centre for Cellular and Biomolecular Research, University of Toronto,
+Toronto, ON, Canada M5S 3E1 and 3Centre for Computational Medicine, Hospital for Sick Children, Toronto, ON,
+
+Canada M56 1 L7
+
+Associate Editor: Alex Bateman
+
+ 
+
+ABSTRACT
+
+Motivation: Scaffolding is the process of ordering and orienting con-
+tigs produced during genome assembly. Accurate scaffolding is es-
+sential for finishing draft assemblies, as it facilitates the costly and
+laborious procedures needed to fill in the gaps between contigs.
+Conventional formulations of the scaffolding problem are intractable,
+and most scaffolding programs rely on heuristic or approximate solu-
+tions, with potentially exponential running time.
+
+Results: We present SCARPA, a novel scaffolder, which combines
+fixed-parameter tractable and bounded algorithms with Linear Pro-
+gramming to produce near-optimal scaffolds. We test SCARPA on
+real datasets in addition to a simulated diploid genome and compare
+its performance with several state-of—the—art scaffolders. We show that
+SCARPA produces longer or similar length scaffolds that are highly
+accurate compared with other scaffolders. SCARPA is also capable of
+detecting misassembled contigs and reports them during scaffolding.
+Availability: SCARPA is open source and available from http://comp-
+bio.cs.toronto.edu/scarpa.
+
+Contact: nild@cs.toronto.edu
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on October 1, 2012; revised on December 13, 2012;
+accepted on December 18, 2012
+
+1 INTRODUCTION
+
+While assemblers developed for high-throughput sequencing
+(HTS) platforms can produce high-quality draft assemblies for
+the genomes of bacteria and viruses, de novo assemblies of more
+complex genomes using short reads are typically fragmented.
+This fragmentation can be partially alleviated through scaffold-
+ing: the process of linking contigs into longer sequences (possibly
+with gaps) using paired read information. Scaffolding not only
+improves the contiguity of the initial assembly, but is also helpful
+for designing experiments for ﬁnishing of the genome through
+additional sequencing of selected regions with lower-throughput
+technology, such as Sanger.
+
+Although many genome assemblers produce scaffolds using
+paired reads during the assembly process (Li et al., 2009;
+Simpson et al., 2009; Zerbino et al., 2009), the problems of build-
+ing contigs and scaffolding them are distinct. A scaffolder takes as
+input a set of assembled contigs and a set of paired reads. The
+relative orientation of two paired reads and the approximate
+distance between them are known. Thus, if the two reads can be
+
+ 
+
+*To whom correspondence should be addressed.
+
+unambiguously mapped to different contigs, we can identify the
+relative ordering and the distance between these contigs. Owing to
+errors in the read pair data (e. g. chimeric pairs) and in the assem-
+bly (e.g. misassembled contigs), the ordering achieved from dif-
+ferent read pairs can be contradictory. Consequently, the
+scaffolding problem is often deﬁned as ﬁnding an ordering on
+the contigs that maximizes the number of supporting read pairs.
+Computationally, this formulation is NP—hard (Huson et al.,
+2002), leading most scaffolding approaches to use heuristic algo-
+rithms with no provable guarantees.
+
+Some scaffolders greedily link contigs by considering them in
+order of strongest paired read support (Pop et al., 2004) or largest
+contig length (Boetzer et al., 2011), while rejecting links that
+contradict those already chosen. Alternatively, the scaffolding
+problem is often represented as a graph, where nodes denote con-
+tigs and edges denote paired read links. SOPRA (Dayarian et al.,
+2010) partitions this graph into smaller parts and solves the scaf-
+folding problem in each subgraph using statistical optimization.
+MIP Scaffolder (Salmela et al., 2011) partitions the graph in a
+similar way; however, it solves the problem for each subgraph
+exactly using Mixed Integer Programming. To keep the algo-
+rithms tractable, both of these scaffolders limit the sizes of the
+subgraphs. Opera (Gao et al., 2011) applies an alternate partition-
+ing scheme using a graph contraction procedure and solves the
+scaffolding problem with a ﬁxed-parameter tractable algorithm
+based on a graph-bandwidth formulation. These approaches to
+scaffolding attempt to maximize the number of paired reads that
+are satisﬁed, implicitly assuming that paired read links are noisy
+and the contigs are error-free. However, in larger and more com-
+plex genomes, the assembled contigs may well have misassemblies.
+
+In this article, we present a novel method that combines sev-
+eral practical algorithms for the scaffolding problem. Our ap-
+proach assumes that both erroneous read pairs and contigs are
+possible, allowing us to detect misassembled contigs and remove
+these from the scaffolds. This formulation of the problem allows
+for an algorithm with practical time and memory requirements,
+while providing an exact solution of bounded error. This algo-
+rithm is implemented within SCARPA, a stand-alone scaffolder
+for HTS data. We have tested SCARPA on real datasets as well
+as on a simulated diploid genome, and show that it builds highly
+accurate and longer scaffolds compared with several state-of-
+the-art scaffolders.
+
+2 METHODS
+
+We implement our methods in a stand-alone scaffolder named SCARPA.
+As input, SCARPA takes a FASTA ﬁle containing a set of contigs and a
+
+ 
+
+428 © The Author 2012. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com
+
+112 ﬂJO'slcumo[pJOJXO'sopchoguioiq/ﬁd11q IIIOJJ pepcolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+SCARPA Genome Scaffolder
+
+ 
+
+SAM ﬁle containing the mapping positions of one or more paired read
+libraries. These ﬁles can be generated by any software of choice. As a
+preprocessing step, SCARPA ﬁlters ambiguously mapping reads and es-
+timates the mean and standard deviation of the insert size for each li-
+brary. SCARPA then assigns an orientation to each contig discarding a
+minimal set of contradictory contigs and paired read links. In the next
+step, contigs are given a pairwise-consistent order, and ﬁnally the exact
+order of the contigs is determined using a Linear Programming (LP)
+framework. We explain these steps in detail below.
+
+2.1 Preprocessing
+
+The ﬁrst step of SCARPA is to ﬁlter and analyze the read mappings. Like
+other scaffolders, SCARPA discards a read pair if either of the reads
+maps ambiguously (i.e. has more than one optimal hit). Next,
+SCARPA analyzes the read mappings to estimate the mean and standard
+deviation of the insert size for each library. While for most sequencing
+projects initial estimates of these are available, inaccurate values will
+cause gap sizes between the contigs to be incorrectly estimated.
+SCARPA re-estimates the insert size distribution using paired reads
+that map to the same contig. To make sure this estimation is reliable,
+we only use contigs that are longer than the contig N50 (see Section 3.2
+for a deﬁnition of N50). If the calculated mean is more than half of the
+contig N50, we use the provided library statistics instead.
+
+After the library statistics are ﬁnalized, we build a scaffolding graph
+where nodes are contigs and edges are paired read links between the
+contigs. If there are multiple links between a pair of contigs, we bundle
+them provided that they suggest the same relative orientation. Each edge
+is weighted by the number of paired reads supporting the link, and edges
+with support lower than a threshold are discarded. By default this thresh-
+old is 2; however, it can be set during program execution. In addition,
+each edge has an associated estimate for the distance between the contigs
+it connects. This distance, denoted with 05,-], is computed using the formula
+below:
+
+1 n
+“ij =—Zml (1)
+"1:1
+
+where m, is the estimated distance between the contigs i and j based on
+the paired read link I, and n is the number of paired read links between
+these two contigs. Here ml is calculated by subtracting the distance be-
+tween the mapped positions and the end of the contigs from the mean
+insert size. Note that it is possible for this value to be negative because the
+end of the contigs may overlap.
+
+2.2 Contig orientation as odd cycle transversal
+
+Each assembled contig is arbitrarily oriented; it could be mapped to either
+strand of the genome. The orientation stage of scaffolding attempts to
+orient the contigs based on the read pairs so that within each scaffold all
+of the contigs lie on the same strand. This is illustrated in Figure 1. With
+error-free data this problem has a feasible solution, easily identiﬁed via a
+greedy algorithm. In the presence of errors, such as chimeric read pairs,
+mismapped reads and incorrectly assembled contigs, the problem may be
+infeasible unless we remove some constraints.
+
+The orientation problem is usually formulated as follows: assign an
+orientation for each contig so that the maximum number of paired reads
+is satisﬁed. This formulation, adapted by most scaffolders GDayarian
+et al., 2010; Pop et al., 2004; Salmela et al., 2011), is motivated by the
+assumption that the majority of incorrect links are due to chimeric pairs
+or mismapped reads. However, contradictory links may also be due to
+misassembled contigs (see Fig. 2). In such cases, it might be desirable to
+remove contigs instead of links. Furthermore, links that are due to chi-
+meric pairs tend to have low support—such errors are expected to occur
+independently—and can often be identiﬁed during preprocessing.
+
+—|--' —I-'
+—)- —)~ —)~
+1- 1+ 2- 2+ 3- 3+
+_...- ‘—
+——). (— —)»
+1- 1+ 2+ 2- 3- 3+
+
+Fig. 1. Contig orientation. The relative orientation of contigs with respect
+to each other is identiﬁed via paired read links. Here, we assume the
+correct orientation of a read pair is forward-reverse (i.e. paired-end orien-
+tation). If the orientation of the library is otherwise, reads are reverse
+complemented to match this orientation before scaffolding. Above, we
+reverse complement the middle contig to satisfy the orientation of the
+paired reads
+
+1&1“:-  '-.;:. 
+A
+
+E i: D A
+
+E F G A
+
+E G D A G E F
+
+Fig. 2. An example of a misassembled contig. Top: A genome divided
+into several regions depicted with letters A—G. The repeat region A has
+three copies in the genome, one of which is inverted. Bottom: Five
+assembled contigs and a set of paired reads mapped to these contigs.
+The third contig is misassembled because of overcollapsing of the
+repeat region A. Here, we have to discard two paired read links so that
+the contig orientation problem has a feasible solution. Moreover, remov-
+ing the wrong links will cause further errors in scaffolds
+
+Instead, we adopt an approach that allows removal of contigs as well
+as paired read links. We will ﬁrst illustrate how to optimize the number of
+contigs that are removed, and then generalize the approach to paired read
+links. First, we build an undirected graph G, where each contig c is rep-
+resented by two nodes 6‘ and 6+ corresponding to the 5’ - and 3’ -ends of
+the contig, respectively. For each contig c, we add an edge between c—
+and c+. For each read pair r1 and r2 mapping to contigs x and y, re-
+spectively, we add an edge between (in practice, we bundle the paired
+reads that suggest the same orientation and represent them as a single
+edge):
+
+0 x+ and y‘, if r1 maps to x on the forward strand and r2 maps to y on
+the reverse strand.
+
+0 x‘ and y+, if r1 maps to x on the reverse strand and r2 maps to y on
+the forward strand.
+
+0 x+ and y+, if both r1 and r2 map on the forward strands.
+o x‘ and y‘, if both r1 and r2 map on the reverse strands.
+Note that the contig orientation problem has a feasible solution if and
+
+only if G has no cycles containing an odd number of nodes. We thus
+attempt to ﬁnd the smallest set of nodes that can be removed from the
+
+ 
+
+429
+
+112 ﬂJO'smumo[pJOJXO'soi1BmJOJuioiw/2d11q IIIOJJ pepcolumoq
+
+910K ‘09 lsnﬁnV no :2
+
+N.Donmez and M.Brudno
+
+ 
+
+graph to allow for a feasible solution. In graph theory, this is known as
+ﬁnding a minimum odd cycle transversal, and while this problem is
+NP-hard in general, it can be solved efﬁciently if the number of nodes
+to be removed is small. Reed et al. (2004) developed a ﬁxed-parameter
+tractable algorithm, which identiﬁes a set X of nodes with |X| 5 k, for
+any ﬁxed k, such that G — X has no odd cycles or asserts that no such set
+exists. This algorithm runs in time 0(3kkmn) (Lokshtanov et al., 2009).
+The value of k, i.e. the maximum number of nodes to remove, is ﬁrst set
+to 0 and then iteratively increased until a feasible solution is found.
+
+2.2.1 Removing paired read links in addition to contigs
+
+The algorithm we describe above is based on removal of nodes (con-
+tigs). To allow removal of edges (paired read links) in addition to nodes,
+we build another graph G’, which is derived from G by inserting auxiliary
+nodes. Brieﬂy, we insert two nodes for each edge that connects two contig
+nodes (but not for an edge that connects the two ends of the same contig).
+Figure 3 illustrates this process. It is easy to see that this transformation
+does not alter the parity of existing cycles or create new cycles.
+
+If there is a tie between discarding a contig node versus discarding an
+auxiliary node representing a paired read link, we would like the algo-
+rithm to remove the auxiliary node. To encourage the algorithm to
+remove paired read links before removing contigs, we order the nodes
+of G’ such that the auxiliary nodes are considered before any contig node.
+Note that the algorithm will never choose to discard both auxiliary nodes
+representing the same paired read link, as this would contradict the op-
+timality of the algorithm.
+
+2.2.2 Assigning the orientation of the contigs Once the graph
+G is free of odd cycles, we transform it into a directed graph T, while
+simultaneously assigning each contig an orientation. To perform this
+task, we start with an arbitrary contig x. Without loss of generality, we
+assign the orientation of this contig as ‘forward’. This assignment is re-
+ﬂected in the graph T by setting the direction of the edge (x‘, x+) as
+x‘ —> x+. This also means that all other edges incident to x+ must be
+outgoing edges. Similarly, all other edges incident to x‘ must be incoming
+
+_-__ t." *— —a-+
+1- 1+ 2+ 2- 3+ 3-
+[El
+1- ——— 1+ 2+ ——— 2. 3+ ———— 3—
+(h)
+1-  1+ 2+ —-- 2- 3+ ---- 3-
+
+Fig. 3. Formulation of the contig orientation problem as an odd cycle
+transversal problem. (a) We create two nodes for each contig correspond-
+ing to the two ends of the contig and connect these nodes with an edge.
+Then the paired read links are used to connect the ends of the contigs.
+Conﬂicting links create odd length cycles in the resulting graph. (b) To
+allow removal of paired read links in addition to contigs, we modify the
+graph by creating two auxiliary nodes on each edge induced by
+these links. This modiﬁcation preserves the parity of the cycles of
+the original graph
+
+edges. This information is propagated to the rest of the graph via a
+breadth-ﬁrst search. For example, if there is an edge (x‘, y‘), the direc-
+tion of this edge is set to y‘ —> x‘. In turn, the direction of the edge
+(y‘, y+) is set to y+ —> y‘ and therefore the orientation of contig y is
+assigned as ‘reverse’. This process is illustrated in Figure 4.
+
+2.2.3 A note on the relation of bidirected graphs and the odd
+cycle transversal problem The scaffolding problem is sometimes
+represented as a bidirected graph (Salmela et al., 2011). It is easy to see
+that the initial undirected graph G we construct above is equivalent to a
+bidirected graph. For interested readers, we hereby note that this section
+also provides a general algorithm to convert an arbitrary bidirected graph
+into a directed graph by removing a minimal set of nodes and edges.
+
+2.3 Ordering
+
+Although the orientation step removes all odd cycles from G, the directed
+graph T may still have cycles (see Fig. 4). To place the contigs into a
+linear order, we need to eliminate all directed cycles from T. The problem
+of ﬁnding a minimal set of edges whose removal makes a directed graph
+acyclic is known as the feedback are set problem. For arbitrary graphs,
+this problem is NP-hard (Karp, 1972). We use a heuristic algorithm,
+which runs in 0(m) time, where m is the number of edges and guarantees
+an asymptotically optimal error bound for sparse graphs (Eades et al.,
+1993).
+
+2.4 Spacing
+
+During the ordering stage, T is transformed into a directed acyclic graph
+and is now guaranteed to have an ordering of the contigs so that the
+remaining links are satisﬁed. In other words, each connected component
+of T admits a topological ordering. Yet, this ordering may not be unique.
+In the last stage of scaffolding, we try to ﬁnd a placement of contigs
+within each scaffold such that the distances between the contigs agree
+best with the size of the gaps as suggested by the paired read links. This
+task can be formulated as an LP problem as follows. For each contig
+1 5 i 5 N, where N is the number of contigs, we have a real valued free
+variable x,- that represents the 5’ -end of the contig. Without loss of gen-
+erality, we set x1 to 0. For each paired read link, we introduce the fol-
+lowing constraints:
+
+Xj — Xi —  S  —  
+
+where dij is the distance between the 5’ -ends of the contigs i and j sug-
+gested by the paired read link. 8,-1- is a real valued slack variable in the
+range [0, 1]. C is a large constant set to the sum of all the contig lengths.
+Subject to the set of constraints as constructed above, we maximize 2 8,7.
+
+Note that the LP formulation is designed to place the contigs so that
+the paired read links are satisﬁed best; however, it may allow two contigs
+to occupy the same coordinates. In practice, we do not use the coordin-
+ates returned by the LP solver; rather, we use these coordinates to order
+the contigs in linear paths as follows. If a contig i is followed by a contig j
+according to the coordinates returned by the solver and i and j are already
+connected by an edge in T, we keep this edge. If the two nodes are not
+connected by an edge, we compute the shortest path between i and j in T.
+If the length of this path is less than a small threshold, we create an edge
+between i and j. The length of the gap between these contigs is computed
+using the coordinates returned by the solver. If the shortest path between i
+and j is longer than the threshold, we infer that these contigs are not
+supposed to be adjacent. In this case, the contigs following j are con-
+sidered in order until one of them passes these criteria. If such a contig is
+found, then it follows i in the path and a new path is created for j. The
+resulting linear paths are output as scaffolds. If the estimated length of
+the gap between two adjacent contigs is negative, we align the ends of
+
+ 
+
+430
+
+112 ﬁlm'spaumo[pJOJXO'soi1emJOJutoiw/2d11q IIIOJJ pepeolumoq
+
+910K ‘09 lsnﬁnV no 22
+
+SCARPA Genome Scaffolder
+
+ 
+
+1“)  """"""""""  (b) .r --------------  (c) 
+2 ———. 2. 3+ --- 3. 2+ --+ 2- 3+ --+ 3- M2) "13)
+'._ ,e “a '.1L f.
+III II.- * ff "L 1 .‘f
+1— ——+- 1+ 4+ "m d:— 1- --¢+ 1+ 4+ Tu" j" l‘ 4
+
+_.- I.-.
+
+Fig. 4. Assigning orientations. (a) An undirected scaffolding graph G after odd cycles are removed. (b) The edges are given directions in a greedy manner
+starting from an arbitrary contig (in this example, from contig 1). (c) Once the directions of the edges are assigned, we merge the nodes corresponding to
+the ends of the same contig into a single node. The contigs labeled with rc(.) are reverse complemented
+
+these contigs to see whether an overlap is present. If a high identity
+overlap is present, we merge these contigs. Otherwise, a ﬁxed gap
+length of 10bp is assigned.
+
+2.5 Components
+
+Trivially, all the steps we describe above can be solved separately for each
+connected component of the relevant graph. To keep the running time of
+SCARPA within practical limits (for orientation) and to improve accur-
+acy (for ordering and spacing), we further divide the graph into bicon-
+nected components. The biconnected components of an arbitrary graph
+can be computed in linear time using the classical algorithm by Hopcroft
+and Tarjan (1973). This algorithm works by ﬁnding a set of nodes, called
+the articulation points, whose removal from the graph increases the
+number of connected components. For the orientation and ordering
+steps, we have to ensure that each biconnected component can be
+solved independently without violating the correctness of the algorithms.
+To accomplish this, we only use those articulation points with in and out
+degrees equal to 1. Such nodes can never form cycles, hence their removal
+does not violate the correctness of the odd cycle transversal and the
+feedback are set algorithms.
+
+Note that highly connected graphs may not admit any articulation
+points. These graphs often contain several repeat contigs that act as
+hubs. To avoid this scenario, we limit the maximum number of links a
+contig can make. If a contig exceeds the threshold, it is disconnected from
+the graph. This threshold is adjusted automatically depending on the
+component sizes.
+
+2.6 Multiple libraries
+
+In the presence of two or more libraries, SCARPA starts with the library
+of the smallest insert size. Remaining libraries are processed in order of
+increasing insert size, where scaffolds from the previous stages are treated
+as contigs.
+
+3 RESULTS
+3.1 Datasets
+
+In our ﬁrst set of experiments, we compare SCARPA with other
+state-of-the-art scaffolders on two real Illumina datasets sampled
+from the bacterium Escherichia coli (strain K—12 substrain
+MG1655) and the fungus Grosmannia clavigera. For E.coli, we
+evaluate the scaffolders using the high-quality ﬁnished sequence
+available from NCBI (accession code: NC_000913.2). A ﬁnished
+reference sequence for G.clavigera is not available, so we evaluate
+the scaffolders on the draft sequence assembled using Sanger,
+Roche/454 and Illumina data as described by DiGuistini et al.
+(2009). For both genomes, we use two Illumina paired-end
+libraries downloaded from the NCBI Short Read Archive.
+
+To estimate the performance of SCARPA on a larger dataset,
+we also test the scaffolders using a simulated paired-end library
+taken from the ﬁrst Assemblathon experiment (Dent et al., 2011).
+This library consists of 100 bp long reads with 300 bp insert size
+sampled from an artiﬁcially evolved diploid genome. Reads are
+simulated with sequencing errors and correspond to 40x cover-
+age. The characteristics of the diploid reference and the simula-
+tion process are described in detail by Dent et al. (2011). The
+statistics of all datasets are given in Table 1.
+
+For the E. coli and G.clavigera datasets, we assemble the reads
+into contigs using Velvet (Zerbino et al., 2009) and report the
+contigs with the kmer size that achieves the highest N50 value (29
+and 27, respectively). For these datasets, we set the expected
+coverage and coverage cutoff to automatic, and only report con-
+tigs that are 100 bp or longer. For the Assemblathonl dataset, we
+assemble the reads using Hapsembler (Donmez and Brudno,
+2011), which has support for diploid datasets. Because the
+reads are longer, we set the minimum contig size to 200 bp.
+For this dataset, we also discard read pairs that map to the
+E.coli genome before assembly and scaffolding to remove con-
+tamination. The total number of pairs removed by this process is
+864 758 corresponding to ~1.5x reduction in coverage.
+
+3.2 Evaluation
+
+We compare SCARPA with three other scaffolders: SSPACE
+(Boetzer et al., 2011), MIP Scaffolder (Salmela et al., 2011)
+and SOPRA (Dayarian et al., 2010). We also report the scaffolds
+produced by Velvet on the E.coli and G.clavigera datasets. The
+standard deviation for each library is set to 10% of the mean
+insert size. For MIP Scaffolder, the minimum and maximum
+insert size values are set to 3 SD below and above the mean,
+respectively. The other parameters are left at default values. We
+let SCARPA adjust all parameters automatically for each data-
+set. For all scaffolders, the reads are mapped with Bowtie using
+the same options (Langmead et al., 2009). For all evaluations
+reported in this section, the mapping of scaffolds is performed
+using the nucmer and delta-ﬁlter utilities of the MUMmer pack-
+age (Version 3.22) (Kurtz et al., 2004).
+
+The scaffold length statistics are summarized in Tables 2—4.
+N50 is calculated as the largest scaffold length such that the sum
+of scaffolds at least as long is greater than half the total scaffold
+size. The coverage is measured by mapping the scaffolds to
+the reference sequence and includes gaps. Statistics regarding
+the number of contigs merged in scaffolds are included in the
+Supplementary Material.
+
+ 
+
+431
+
+112 ﬁlm'spaumo[pJOJXO'soiiemJOJutoiw/2dnq I110in pepeommoq
+
+910K ‘09 lsnﬁnV no 22
+
+N.Donmez and M.Brudno
+
+ 
+
+For the E.coli dataset, we additionally report the number of
+multi-contig scaffolds that contain breakpoints in the mappings.
+Note that we can not compute these numbers reliably in the
+G.clavigera and Assemblathonl datasets. In the former case, a
+ﬁnished reference sequence is not available: the draft assembly
+we use for evaluation consists of 289 scaffolds. In the latter, the
+presence of two haplotypes implies that there may be haplotype
+switches within the contigs as well as the scaffolds, making it
+difﬁcult to estimate the real number of breakpoints.
+
+To estimate the accuracy of the scaffolds in the other datasets,
+we use a method similar to the one used by Salmela et al. (2011).
+Brieﬂy, this method works by extracting pairs of sequences sepa-
+rated by a certain distance from the scaffolds. These pairs are then
+mapped to the reference, and the proportion of pairs that map
+with the correct orientation and within 10% of the correct distance
+is reported. In our experiments, we use a tiling of 1000 bp long
+sequences separated by a distance of 3000 bp. Figure 5 shows the
+accuracy versus the N50 measure for each dataset. We also report
+the number of inversion type errors in Table 5. An inversion error
+is said to occur when one of the tiling pairs map to the forward
+strand of the reference, while the other maps to the reverse strand.
+
+SCARPA produces highly accurate scaffolds that are at least
+as long or longer than the other tools. We also ﬁnd that for the
+
+Table 1. Datasets used for evaluation
+
+E.coli dataset, out of the three contigs with lengths 282, 426 and
+428 bp removed by SCARPA during scaffolding, two of them
+(with lengths 282 and 428 bp) do not map to the reference se-
+quence. For the other datasets, SCARPA only removed paired
+read links.
+
+The running times of the scaffolders on a server with 20 cores
+operating at 2.67 GHz and 80 GB memory are given in Table 6.
+On these datasets, SSPACE is the fastest, followed by SCARPA
+and MIP Scaffolder, while SOPRA is the slowest. Note that
+SSPACE actually takes less time than Bowtie, probably owing
+to the fact that it runs Bowtie internally avoiding the extra time
+needed to process the read mappings.
+
+4 CONCLUSION
+
+Scaffolding improves the contiguity of an assembly and facili-
+tates the ﬁnishing of a genome by establishing an order and
+orientation of contigs. In this article, we have presented
+SCARPA, a novel scaffolder for HTS data that combines
+graph algorithms with LP. Using simulated and real datasets,
+we show that SCARPA produces as long or longer scaffolds
+than the current state-of-the-art tools, while at the same time
+achieving high accuracy.
+
+ 
+
+ 
+
+Organism Genome Accession Number of Sequence Spanning Read Insert
+size (mb) code reads (m) coverage coverage length (bp) size (bp)
+E.coli 4.6 SRR001665 2 x 10.4 162x 452x 36 200
+SRR001666 2 x 7.0 109x 760x 36 500
+G.clavigera 29.7 SRR018008 2 x 10.2 28 x 68 x 42 200
+SRR018012 2 x 12.0 40x 282x 50 700
+Assemblathonl 1 12.5 — 2 x 22.5 40 x 60 x 100 300
+
+ 
+
+Note: For G.clavigera, the size of the available draft sequence is given in place of the genome size. For the Assemblathonl dataset, the genome size is given as an average of the
+
+haploid reference sequences.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+E. coli 6‘. clavigera Assam blathon 1
+199 299 m
+199
+i is. 249 99 x a
+120 290 PE 50 
+199
+30 K 199 * ¢ 49
+1
+60 I 129 99
+40 i 99 29
+29 49 3'": 19
+D r F I I l D p l I | I a | I | I
+99.9 99.9 99.2 99.5 99.9 99.9 99 99-2 99-9 99.9 99-9 99 99.4 99.9
+H SCARPA ‘SSF'RCE ){MIP 'l SOPRA iir‘lui’EIlifEt
+
+Fig. 5. Scaffold N50 (kb) versus accuracy (%) for each dataset. For the Assemblathonl dataset, we map the pairs to both haplomes (i.e. haploid copy of
+
+the genome) and consider a pair correct if it maps to either haplome with the correct orientation and within 10% of the expected distance. We perform all
+
+mappings using MUMmer (version 3.22) (Kurtz et al., 2004)
+
+ 
+
+432
+
+112 ﬁlm'spaumo[pJOJXO'soiiemJOJutoiw/2dnq I110in pepeommoq
+
+910K ‘09 lsnﬁnV no 22
+
+SCARPA Genome Scaffolder
+
+ 
+
+Table 2. Scaffolding statistics for the E.coli dataset
+
+ 
+
+ 
+
+Method Number of scaffolds Coverage (%) Largest (kb) N50 (kb) Total (mb) Number of breaks
+Contigs 489 97.89 103 24 4.54 —
+Velvet 138 98.37 312 132 4.56 —
+SCARPA 156 98.06 268 136 4.55 5 (56)
+SSPACE 81 98.36 275 132 4.55 9 (57)
+MIP 85 98.47 226 95 4.55 10 (63)
+SOPRA 294 97.98 188 50 4.55 1 (73)
+
+ 
+
+Note: The last column denotes the number of multi-contig scaffolds that contain breakpoints (i.e. scaffolds that do not admit a co-linear mapping to the reference). The
+
+numbers in parenthesis denote the total number of multi-contig scaffolds.
+
+Table 3. Scaffolding statistics for the G.clavigera dataset
+
+ 
+
+ 
+
+Method Number Coverage Largest N50 Total
+
+of scaffolds (%) (kb) (kb) (mb)
+Contigs 5298 89.09 109 18 26.59
+Velvet 2084 89 .65 1068 164 27.03
+SCARPA 1691 89.24 863 234 26.74
+SSPACE 1570 89.20 817 169 26.84
+MIP 1839 89.21 367 53 26.75
+SOPRA 2305 89.16 855 194 26.70
+
+ 
+
+Table 4. Scaffolding statistics for the Assemblathonl dataset
+
+ 
+
+ 
+
+Method Number Coverage Largest N50 Total
+of scaffolds (%) (kb) (kb) (mb)
+Contigs 13364 99.19 85 18 114.53
+SCARPA 5620 99.30 324 54 114.14
+SSPACE 7936 99.25 144 34 114.55
+MIP 5193 99.28 325 58 114.01
+SOPRA 6258 99.28 280 48 114.55
+
+ 
+
+Table 5. Number of inversion type errors computed using the same
+sampling of sequence pairs as in accuracy
+
+ 
+
+ 
+
+Dataset SCARPA SSPACE MIP SOPRA Velvet
+E.coli 0 6 5 0 1
+G.clavigera 3 4 28 1 3
+Assemblathonl 38 27 53 43 —
+
+ 
+
+A novel feature of SCARPA is the ability to detect
+misassembled contigs. Although this procedure may produce
+false positives, SCARPA reports only a few such contigs
+per dataset, which can be manually investigated if necessary.
+For instance, SCARPA discards no contigs in the G.clavigera
+and Assemblathonl datasets and only three contigs in
+the E.coli dataset, two of which are indeed found to
+be erroneous.
+
+Table 6. Wall-clock running times of the scaffolders in minutes
+
+ 
+
+ 
+
+Dataset Bowtie SCARPA SSPACE MIP SOPRA
+E .coli 3 12 3 29 97
+G.clavigera 9 15 5 51 172
+Assemblathonl 1 8 27 15 90 51 5
+
+ 
+
+Note: Mapping is performed using Bowtie with 16 threads, and mapping time is
+included for all scaffolders. For information, the total wall-clock time taken by
+Bowtie to index the reference and write read mappings in SAM format is also
+reported.
+
+We also show that SCARPA has favorable running time on
+these datasets, although it is slightly slower than SSPACE. In
+addition, SCARPA has a small memory footprint, requiring
+<2 GB on the Assemblathonl dataset.
+
+Within SCARPA, the most time-consuming step is the contig
+orientation task. While we believe our method typically produces
+more accurate scaffolds compared with greedy- or heuristic-
+based approach and has the advantage of detecting misassem-
+blies, it can be computationally expensive for large and complex
+genomes. On the other hand, the ﬁxed-parameter tractable algo-
+rithm we use is suitable for parallel computation. Although our
+current implementation is single-threaded, we plan to explore
+this direction in a future version.
+
+ACKNOWLEDGEMENT
+
+The authors would like to thank members of the Computational
+Biology Lab at the University of Toronto for assistance with this
+manuscript.
+
+Funding: Natural Sciences and Engineering Research Council of
+Canada (NSERC) Discovery Grant, and Canadian Institutes of
+Health Research (CIHR) Catalyst Grant to M.B.
+
+Conflict of Interest: none declared.
+
+REFERENCES
+
+Boetzer,M. et al. (2011) Scaffolding pre-assembled contigs using SSPACE.
+Bioinformatics, 27, 578—579.
+
+Dayarian,A. et al. (2010) SOPRA: scaffolding algorithm for paired reads via stat-
+istical optimization. BM C Bioinformatics, 11, 345.
+
+ 
+
+433
+
+112 ﬂJO's112umo[p101x0'soi112u1101u101qﬂ2d11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV no 22
+
+N.Donmez and M.Brudno
+
+ 
+
+Dent,D. et al. (2011) Assemblathon 1: a competitive assessment of de novo short
+read assembly methods. Genome Res., 21, 2224—2241.
+
+DiGuistini,S. et al. (2009) De novo genome sequence assembly of a ﬁlamentous
+fungus using sanger, 454 and illumina sequence data. Genome Biol., 10, R94.
+
+Donmez,N. and Brudno,M. (2011) Hapsembler: an assembler for highly poly-
+morphic genomes. In: Bafna,V. and Sahinalp,S. (eds) Research in
+Computational Molecular Biology. Vol. 6577 of Lecture Notes in Computer
+Science. Springer, Berlin/Heidelberg, pp. 38—52.
+
+Eades,P. et al. (1993) A fast effective heuristic for the feedback are set problem. Inf.
+Process. Lett., 47, 319—323.
+
+Gao,S. et al. (2011) Opera: reconstructing optimal genomic scaffolds with
+high-throughput paired-end sequences. In: Bafna,V. and Sahinalp,S. (eds)
+Research in Computational Molecular Biology. Vol. 6577 of Lecture Notes in
+Computer Science. Springer, Berlin/Heidelberg, pp. 437—451.
+
+Hopcroft,J. and Tarjan,R. (1973) Algorithm 447: efﬁcient algorithms for graph
+manipulation. Commun. ACM, 16, 372—378.
+
+Huson,D.H. et al. (2002) The greedy path merging algorithm for contig scaffolding.
+J. ACM, 49, 6003—6015.
+
+Karp,R.M. (1972) Reducibility among combinatorial problems. In: Miller,R.E. and
+Thatcher,J.W. (eds) Complexity of computer computations. Plenum, New York,
+pp. 85—103.
+
+Kurtz,S. et al. (2004) Versatile and open software for comparing large genomes.
+Genome Biol, 5, R12.
+
+Langmead,B. et al. (2009) Ultrafast and memory-efﬁcient alignment of short DNA
+sequences to the human genome. Genome Biol., 10, R25.
+
+Li,R. et al. (2009) De novo assembly of human genomes with massively parallel
+short read sequencing. Gemome Res., 20, 265—272.
+
+Lokshtanov,D. et al. (2009) Simpler parameterized algorithm for OCT. In:
+Fiala,J. et al. (ed.) Combinatorial Algorithms. Springer, Berlin/Heidelberg,
+pp. 380—384.
+
+Pop,M. et al. (2004) Hierarchical scaffolding with bambus. Genome Res., 14,
+149—159.
+
+Reed,B. et al. (2004) Finding odd cycle transversals. Oper. Res. Lett., 32, 299—301.
+
+Salmela,L. et al. (2011) Fast scaffolding with small independent mixed integer pro-
+grams. Bioinformatics, 27, 3259—3265.
+
+Simpson,J.T. et al. (2009) ABySS: a parallel assembler for short read sequence data.
+Genome Res., 19, 1117—1123.
+
+Zerbino,D.R. et al. (2009) Pebble and rock band: heuristic resolution of
+repeats and scaffolding in the velvet short-read de novo assembler. PLoS One,
+4, e8407.
+
+ 
+
+434
+
+112 ﬂJO's112umo[p101x0'soi112u1101u101qﬂ2d11q 111011 pep1201umoq
+
+910K ‘09 lsnﬁnV no 22
+
