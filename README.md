@@ -18,9 +18,8 @@ data/pdf2tiff: intermediate files produced when using TessaractOCR to parse the 
 data/old: original parsed_label_text and xml_data
 
 
-==================
-Source code files: 
-==================
+
+# Source code files: 
 
 src/keypar.py: keyword-based sentence extraction
 
