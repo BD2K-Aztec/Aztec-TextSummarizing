@@ -1,0 +1,800 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 /home/joey/Project/grobid/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<encodingDesc>
+			<appInfo>
+				<application version="0.4.2-SNAPSHOT" ident="GROBID" when="2017-08-10T23:45+0000">
+					<ref target="https://github.com/kermitt2/grobid">GROBID - A machine learning software for extracting information from scholarly documents</ref>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Minimap and miniasm: fast mapping and de novo assembly for noisy long sequences</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName>
+								<forename type="first">Heng</forename>
+								<surname>Li</surname>
+							</persName>
+							<affiliation key="aff0">
+								<orgName type="department">Medical Population Genetics</orgName>
+								<orgName type="institution">Broad Institute</orgName>
+								<address>
+									<postCode>02142</postCode>
+									<settlement>Cambridge</settlement>
+									<region>MA</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Minimap and miniasm: fast mapping and de novo assembly for noisy long sequences</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="DOI">10.1093/bioinformatics/btw152</idno>
+					<note type="submission">Received on December 6, 2015; revised on March 14, 2016; accepted on March 14, 2016</note>
+					<note>Sequence analysis Associate Editor: Inanc Birol Supplementary information: Supplementary data are available at Bioinformatics online.</note>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<profileDesc>
+			<abstract>
+				<p>Motivation: Single Molecule Real-Time (SMRT) sequencing technology and Oxford Nanopore technologies (ONT) produce reads over 10 kb in length, which have enabled high-quality genome assembly at an affordable cost. However, at present, long reads have an error rate as high as 10– 15%. Complex and computationally intensive pipelines are required to assemble such reads. Results: We present a new mapper, minimap and a de novo assembler, miniasm, for efficiently mapping and assembling SMRT and ONT reads without an error correction stage. They can often assemble a sequencing run of bacterial data into a single contig in a few minutes, and assemble 45-fold Caenorhabditis elegans data in 9 min, orders of magnitude faster than the existing pipelines , though the consensus sequence error rate is as high as raw reads. We also introduce a pair-wise read mapping format and a graphical fragment assembly format, and demonstrate the inter-operability between ours and current tools. Availability and implementation:</p>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>High-throughput short-read sequencing technologies, such as Illumina, have empowered a variety of biological researches and clinical applications that would not be practical with the older Sanger sequencing. However, the short read length (typically a few hundred basepairs) has posed a great challenge to de novo assembly as many repetitive sequences and segmental duplications are longer than the read length and can hardly be resolved by short reads even with paired-end data (<ref type="bibr" target="#b0">Alkan et al., 2011</ref>). Although with increased read length and improved algorithms we are now able to produce much better short-read assemblies than a few years ago, the contiguity and completeness of the assemblies are still not as good as Sanger assemblies (<ref type="bibr" target="#b7">Chaisson et al., 2015</ref>). The PacBio's SMRT technology were developed partly as an answer to the problem with short-read de novo assembly. However, due to the high per-base error rate, around 15%, these reads were only used as a complement to short reads initially (<ref type="bibr" target="#b2">Bashir et al., 2012;</ref><ref type="bibr" target="#b11">Koren et al., 2012;</ref><ref type="bibr" target="#b20">Ribeiro et al., 2012</ref>), until<ref type="bibr" target="#b8">Chin et al. (2013) and</ref><ref type="bibr" target="#b12">Koren et al. (2013)</ref>demonstrated the feasibility of SMRT-only assembly. Since then, SMRT is becoming the preferred technology for finishing small genomes and producing high-quality Eukaryotic genomes (<ref type="bibr" target="#b3">Berlin et al., 2015</ref>). Oxford Nanopore Technologies (ONT) has recently offered another long-read sequencing technology. Although the per-base error rate was high at the early access phase (<ref type="bibr" target="#b19">Quick et al., 2014</ref>), the latest data quality has been greatly improved.<ref type="bibr" target="#b14">Loman et al. (2015)</ref>confirmed that we can achieve high-quality bacterial assembly with ONT data alone. Published long-read assembly pipelines all include four stages:</p><p>(i) all-vs-all raw read mapping, (ii) raw read error correction, (iii) assembly of error corrected reads and (iv) contig consensus polish. Stage (iii) may involve all-vs-all read mapping again, but as the error rate is much reduced at this step, it is easier and faster than stage (i).<ref type="figure" target="#tab_1">Table 1</ref>shows the tools used for each stage. Notably, our tool minimap is a raw read overlapper and miniasm is an assembler. We do not correct sequencing errors, but instead directly produce unpolished and uncorrected contig sequences from raw read overlaps. The idea of correction-free assembly was inspired by talks given by Gene<ref type="figure" target="#tab_1">Table 1</ref>, each stage can be achieved with multiple tools. Although we have successfully combined tools into different pipelines, we need to change or convert the input/output formats to make them work together. Another contribution of this article is the proposal of concise mapping and assembly formats, which will hopefully encourage modular design of assemblers and the associated tools.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Methods</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.1">General notations</head><p>Let R ¼ fA; C; G; Tg be the alphabet of nucleotides. For a symbol a 2 R; a is the Watson-Crick complement of a. A string s ¼ a 1 a 2 Á Á Á a n over R is also called a DNA sequence. Its length is jsj ¼ n; its reverse complement is s ¼ a 1 a 2 Á Á Á a n ¼ a n a nÀ1 Á Á Á a 1. For convenience, we define strand function p : R Ã Â f0; 1g ! R Ã such that pðs; 0Þ ¼ s and pðs; 1Þ ¼ s. Here R Ã is the set of all DNA sequences. By convention, we call a k-long DNA sequence as a k-mer. We use the notation s k i ¼ a i Á Á Á a iþkÀ1 to denote a k-long substring of s starting at i. R k is the set of all k-mers.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.2">Minimap</head><p>2.2.1 Overview of k-mer based sequence similarity search BLAST (<ref type="bibr" target="#b1">Altschul et al., 1997</ref>) and BLAT (<ref type="bibr" target="#b10">Kent, 2002</ref>) are among the most popular sequence similarity search tools. They use one kmer hash function / : R k ! Z to hash k-mers at the positions 1; w þ1; 2w þ 1;. .. of a target sequence and keep the hash values in a hash table. Upon query, they use the same hash function on every kmer of the query sequence and look up the hash table for potential matches. If there are one or multiple k-mer matches in a small window, these aligners extend the matches with dynamic programming to construct the final alignment. DALIGNER (<ref type="bibr" target="#b17">Myers, 2014</ref>) does not use a hash table. It instead identifies k-mer matches between two sets of reads by sorting kmers and merging the sorted lists. DALIGNER is fast primarily because sorting and merging are highly cache efficient. MHAP (<ref type="bibr" target="#b3">Berlin et al., 2015</ref>) differs from others in the use of MinHash sketch (<ref type="bibr" target="#b5">Broder, 1997</ref>). Briefly, given a read sequence s and m k-mer hash functions f/ j g 1 j m , MHAP computes h j ¼ minf/ j ð s k i Þ : 1 i jsj À k þ 1g with each hash function / j , and takes list ðh j Þ 1 j m , which is called the sketch of s, as a reduced representation of s. Suppose ðh j Þ j and ðh 0 j Þ j are the sketches of two reads, respectively. When the two reads are similar to each other or have significant overlaps, there are likely to exist multiple j such that h j ¼ h 0 j. Potential matches can thus be identified. A limitation of MinHash sketch is that it always selects a fixed number of hash values regardless of the length of the sequences. This may waste space or hurt sensitivity when input sequences vary greatly in lengths. Minimap is heavily influenced by all these works. It adopts the idea of sketch like MHAP but takes minimizers (<ref type="bibr" target="#b21">Roberts et al., 2004;</ref><ref type="bibr" target="#b22">Schleimer et al., 2003</ref>) as a reduced representation instead; it stores k-mers in a hash table like BLAT and MHAP but also uses sorting extensively like DALIGNER. In addition, minimap is designed not only as a read overlapper but also as a read-to-genome and genome-to-genome mapper. It has more potential applications.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.2.2">Computing minimizers</head><p>Loosely speaking, a (w, k)-minimizer of a string is the smallest kmer in a surrounding window of w consecutive k-mers. Formally, let / : R k ! Z be a k-mer hash function. A double-strand ðw; k; /Þminimizer, or simply a minimizer, of a string s, jsj ! w þ k À 1, is a triple (h, i, r) such that there exists maxð1; i À w þ 1Þ j minði; j sj À w À k þ 1Þ which renders h ¼ /ðpðs k i ; rÞÞ ¼ minf/ðpðs k jþp ; r 0 ÞÞ : 0 p &lt; w; r 0 2 f0; 1gg Let MðsÞ be the set of minimizers of s. Algorithm 1 gives the pseudocode to compute MðsÞ in Oðw Á jsjÞ time. Our actual implementation is close to OðjsjÞ in average case. It uses a queue to cache the previous minimals and avoids the loops at line 1 and 2 most of time. In practice, time spent on collecting minimizers is insignificant. A natural choice of hash function / is to let /ðAÞ ¼ 0, /ðCÞ ¼ 1; /ðGÞ ¼ 2 and /ðTÞ ¼ 3 and for a k-mer s ¼ a 1 Á Á Á a k , defineThis hash function always maps a k-mer to a distinct 2k-bit integer. A problem with this / is that poly-A, which is often highlyenriched in genomes, always gets zero, the smallest value. We may oversample these non-informative poly-A and hurt practical performance. To alleviate this issue, we use function / 0 ¼ h / instead, where h is an invertible integer hash function on ½0; 4 k Þ (Algorithm 2; http://bit.ly/invihgi). The invertibility of h is not essential, but as such / 0 never maps two distinct k-mers to the same 2k-bit integer, it helps to reduce hash collisions. Note that in a window of w consecutive k-mers, there may be more than one minimizers. Algorithm 1 keeps them all with the loop at line 2. This way, a minimizer of s always corresponds to a minimizer of s. For read overlapping, we use k ¼ 15 and w ¼ 5 to find minimizers.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.2.3">Indexing</head><p>Algorithm 3 describes indexing target sequences. It keeps minimizers of all target sequences in a hash table where the key is the minimizer hash and the value is a set of target sequence index, the position of the minimizer and the strand (packed into one 64-bit integer). In implementation, we do not directly insert minimizers to the hash table. Instead, we append minimizers to an array of two 64-bit integers (one for minimizer sequence and one for position) and sort the array after collecting all minimizers. The hash table keeps the intervals on the sorted array. This procedure dramatically reduces heap allocations and cache misses, and is supposedly faster than direct hash table insertion.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.2.4">Mapping</head><p>Given two sequences s and s 0 , we say we find a minimizer hit ðh; x; i; i 0 Þ if there exist ðh; i; rÞ 2 MðsÞ and ðh; i 0 ; r 0 Þ 2 Mðs 0 Þ with x ¼ rr 0 ( is the XOR operator). Here h is the minimizer hash value, x indicates the relative strand and i and i 0 are the positions on the two sequences, respectively. We say two minimizer hits ðh 1 ; x; i 1 ; i 0 1 Þ and ðh 2 ; x; i 2 ; i 0 2 Þ are-away if 1) x ¼ 0 and jði 1 À i 0 1 Þ À ði 2 À i 0 2 Þj &lt; or 2) x ¼ 1 and jði 1 þ i 0 1 Þ À ði 2 þ i 0 2 Þj &lt;. Intuitively,-away hits are approximately colinear within a band of width (500bp by default). Given a set of minimizer hits fðh; x; i; i 0 Þg, we can cluster i À i 0 for x ¼ 0 or i þ i 0 for x ¼ 1 to identify long colinear matches. This procedure is inspired by Hough Transformation mentioned by<ref type="bibr" target="#b23">Sovic et al. (2015)</ref>. Algorithm 4 gives the details of the mapping algorithm. The loop at line 1 collects minimizer hits between the query and all the target sequences. The loop at line 2 performs a single-linkage clustering to group approximately colinear hits. Some hits in a cluster may not be colinear because two minimizer hits within distance are alwaysaway. To fix this issue, we find the maximal colinear subset of hits by solving a longest increasing sequencing problem (line 3). This subset is the final mapping result. In practical implementation, we set thresholds on the size of the subset (4 by default) and the number of matching bases in the subset to filter poor mappings (100 for read overlapping).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.3">Assembly graph</head><p>Two strings v and w may be mapped to each other based on their sequence similarity. If v can be mapped to a substring of w, we say w contains v. If a suffix of v and a prefix of w can be mapped to each other, we say v overlaps w, written as v ! w. If we regard strings v and w as vertices, the overlap relationship defines a directed edge Long-read mapping and assemblybetween them. The length of v ! w equals the length of v's prefix that is not in the prefix–suffix match. Let G ¼ ðV; E; 'Þ be a graph without multi-edges, where V is a set of DNA sequences (vertices), E a set of overlaps between them (edges) and ' : E ! &lt; þ is the edge length function. G is said to be Watson-Crick complete if (i) 8v 2 V; v 2 V and (ii) 8v ! w 2 E; w ! v 2 E. G is said to be containment-free if any sequence v is not contained in other sequences in V. If G is both Watson–Crick complete and containment-free, it is an assembly graph. By definition, any vertex v has a complement vertex v in the graph and any edge v ! w has a complement edge w ! v. Let deg þ ðvÞ be the outdegree of v and deg À ðvÞ be the indegree. It follows that deg À ðvÞ ¼ deg þ ð vÞ. An assembly graph has the same topology as a string graph (<ref type="bibr" target="#b15">Myers, 2005</ref>), though the interpretation of the vertex set V is different. In a string graph, V is the set of the two ends of sequences, not the set of forward and reverse-complemented sequences. De Bruijn graph can be regarded as a special case of overlap graph. It is also an assembly graph. In an assembly graph, an edge v ! w is transitive if there exist v ! u and u ! w. Removing a transitive edge does not affect the connectivity of the graph. A vertex v is a tip if deg þ ðvÞ ¼ 0 and deg À ðvÞ &gt; 0. The majority of tips are caused by artifacts or missing overlaps. A bubble is a directed acyclic subgraph with a single source v and a single sink w having at least two paths between v and w, and without connecting the rest of the graph. The bubble is tight if deg þ ðvÞ &gt; 1 and deg À ðwÞ &gt; 1. A bubble may be caused by missing overlaps or by variants between haplotypes in multi-ploidy samples or paralogs. It is preferred to collapse bubbles for high contiguity, though this introduces loss of information.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.4">Miniasm</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.4.1">Trimming reads</head><p>Raw read sequences may contain artifacts such as untrimmed adapters and chimaera. The first step of assembly to reduce such artifacts by examining read-to-read mappings. For each read, miniasm computes per-base coverage based on good mappings against other reads (longer than 2000 bp with at least 100 bp non-redundant bases on matching minimizers). It then identifies the longest region having coverage three or more, and trims bases outside this region.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.4.2">Generating assembly graph</head><p>For each trimmed mapping, miniasm applies Algorithm 5 to classify the mapping (see also<ref type="figure">Fig. 1</ref>for the explanation of input variables). It ignores internal matches, drops contained reads and adds overlaps to the assembly graph. For a pair of reads, miniasm uses the longest overlap only to avoid multi-edges.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.4.3">Graph cleaning</head><p>After constructing the assembly graph, miniasm removes transitive edges (<ref type="bibr" target="#b15">Myers, 2005</ref>), trims tipping unitigs composed of few reads (4 by default) and pops small bubbles (<ref type="bibr" target="#b24">Zerbino and Birney, 2008</ref>). Algorithm 6 detects bubbles where the longest path is shorter than d (50 kb by default). It is adapted from Kahn's topological sorting algorithm (<ref type="bibr" target="#b9">Kahn, 1962</ref>). It starts from the potential source and visits a vertex when all its incoming edges are visited before. Algorithm 6 only detects bubbles. We can keep track of the optimal parent vertex at line 1 and then backtrack to collapse bubbles to a single path. Fermi (<ref type="bibr">Li, 2012</ref>) uses a similar algorithm except that it keeps two optimal paths through the bubble.<ref type="bibr" target="#b18">Onodera et al. (2013) and</ref><ref type="bibr" target="#b4">Brankovic et al. (2015)</ref>have also independently found similar algorithms. In addition, if</p><formula>v ! w 1 and v ! w 2 exist and 'ðv ! w 1 Þ &lt; 'ðv ! w 2 Þ, miniasm removes v ! w 2 if ½jvj À 'ðv ! w 2 Þ=½jvj À 'ðv ! w 1</formula><p>Þ is small enough (70% by default). When there are longer overlaps, shorter overlaps after transitive reduction may be due to repeats. However, non-repetitive overlaps may also be removed at a small chance, which leads to missing overlaps and misassemblies.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.4.4">Generating unitig sequences</head><p>If there are no multi-edges in the assembly graph, we can use v 1 ! v 2 ! Á Á Á ! v k to represent a path consisting of k vertices. The sequence spelled from this path is the concatenation of vertex substrings:</p><formula>v 1 ½1; 'ðv 1 ! v 2 Þ v 2 ½1; 'ðv 2 ! v 3 Þ Á Á Á v kÀ1 ½1; 'ðv kÀ1 ; v k Þ v k ,</formula><p>where v½i; j is the substring between i and j inclusive, and is the string concatenation operator. In a transitively reduced graph, a unitig (<ref type="bibr" target="#b16">Myers et al., 2000</ref>) is a</p><formula>path v 1 ! v 2 ! Á Á Á ! v k such that deg þ ðv i Þ ¼ deg À ðv iþ1 Þ ¼ 1 and (i) v 1 ¼ v k or (ii) deg À ðv 1 Þ ¼ 1</formula><p>and deg þ ðv k Þ ¼ 1. Its sequence is the sequence spelled from the path. Intuitively, a unitig is a maximal path on which adjacent vertices can be 'unambiguously merged' without affecting the connectivity of the original assembly graph.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>mapped region</head><p>Overhang region b<ref type="bibr">[1]</ref>e<ref type="bibr">[1]</ref>b<ref type="bibr">[2]</ref>e<ref type="bibr">[2]</ref>l<ref type="bibr">[1]</ref>l<ref type="bibr">[2]</ref>v w<ref type="figure">Fig. 1</ref>. Mapping between two reads. b½1 and e½1 are the 0-based starting and ending mapping coordinates of the first read v, respectively. b½2 and e½2 are the mapping coordinates of read w. Lightgray areas indicate overhang regions that should be mapped together if the overlap is real. If the overhang regions are small enough, the figure implies an edge v ! w with approximate length 'ðv ! w Þ ¼ b½1 À b½2 and its complement edge w ! v with 'ð w ! v Þ ¼ ðl½2 À e½2Þ À ðl½1 À e½1Þ 2106 H.Li</p><p>As miniasm does not correct sequencing errors, the error rate of unitig sequence is the same as the error rate of the raw input reads. It is in theory possible to derive a better unitig sequence by taking the advantage of read overlaps. We have not implemented such a consensus tool yet.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.5">Formats</head><p>: pairwise read mapping format and graphical fragment assembly format 2.5.1 Pairing mapping format Pairwise read mapping format (PAF) is a lightweight format keeping the key mapping information (<ref type="figure" target="#tab_2">Table 2</ref>). Minimap outputs mappings in PAF, which are taken by miniasm as input for assembly. We also provide scripts to convert DALIGNER, MHAP and SAM formats to PAF.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.5.2">Graphical fragment assembly format</head><p>Graphical fragment assembly format (GFA) is a concise assembly format (<ref type="figure" target="#tab_3">Table 3</ref>; http://bit.ly/gfaspec) initially proposed by us prior to miniasm and later improved by community (Melsted et al., personal communication). GFA has an explicit relationship to an assembly graph—an 'S' line in the GFA corresponds to a vertex and its complement in the graph; an 'L' line corresponds to an edge and its complement. GFA is able to represent graphs produced at all the stages of an assembly pipeline, from initial read overlaps to the unitig relationship in the final assembly. FASTG (http://bit.ly/fastgfmt) is another assembly format prior to GFA. It uses different terminologies. A vertex in an assembly graph is called an edge in FASTG, and an edge is called an adjacency. In FASTG, subgraphs can be nested, though no tools work with nested graphs due to technical complications. In addition, with nesting, one assembly graph can be represented in distinct ways, which we regard as a limitation of FASTG.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.6">Evaluating the layout accuracy</head><p>Miniasm outputs the approximate positions of trimmed reads on the resulting unitigs. We extract these reads, map to the true assembly with minimap (option: '-L100-m0-w5') and select the best mapping for each read. For a read i, let utg i be the unitig name and rank i be its index on utg i (i.e. read i is the rank i th read on the unitig). If two reads i and j are mapped adjacently on the true assembly, we say the adjacency is w-consistent, if (i) utg i ¼ utg j and jrank i À rank j j &lt; w, or (ii) both read i and j are the first or the last w reads of some unitigs. We use w ¼ 5 to detect large structural misassemblies.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">Results</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.1">The accuracy of minimap</head><p>We mapped a human PacBio run 'm130928_232712_42213_*.1.*' (http://bit.ly/chm1p5c3) with minimap and BWA-MEM (<ref type="bibr">Li, 2013</ref>) against GRCh37 plus decoy sequences (http://bit.ly/GRCh37d5). We started from 23 235 reads (131 Mb), filtered out 7593 reads (10 Mb) without !2 kb BWA-MEM alignments, and further dropped 815 reads (11 Mb) with two or more !2 kb chimeric alignments and 598 reads (4 Mb) with mapping quality below 10. Of the remaining reads, we found only 2.0% not overlapping the best minimap mapping of the same read. The majority of them hit to the decoy sequence where defining the true alignment is challenging as decoy is enriched with incomplete segments of centromeric repeats. If we exclude hits to the decoy, the percentage drops to 0.7%. On this input, minimap is 50 times faster than BWA-MEM, while finding similar best mapping positions. This experiment evaluates both the sensitivity and the specificity of minimap: if minimap had low sensitivity, it would miss the BWA-MEM mapping completely; if minimap had low specificity, its best mapping would often be a wrong mapping. To test the sensitivity for read overlapping, we aligned all reads from PBcR-PB-ec (<ref type="figure" target="#tab_4">Table 4</ref>) against the reference genome with BWAMEM, extracted reads with mapping quality !10, and identified !2kb overlaps between the extracted reads based on their positions on the reference genome. Minimap finds 93% of these overlaps. It is more sensitive than MHAP in its sensitive mode (78%) but less than DALIGNER (98%).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.2">Assembling bacterial genomes</head><p>We evaluated the performance of miniasm on 17 bacterial datasets (<ref type="figure" target="#tab_4">Table 4</ref>) with command line 'minimap-Sw5-L100-m0 reads.fa reads.fa j miniasm-f reads.fa-'. Miniasm is able to derive a single contig per chromosome/plasmid for all but four datasets: 3 extra &gt;50 kb contigs for ERS554120, and 1 extra contig for ERS605484, PBcR-ONT-ec and MAP-006-pcr-1 each. In the dotter plot between the assembly and the reference genome (similar to<ref type="figure">Fig. 2</ref>), no largescale misassemblies are observed. We also applied the method in Section 2.6. Except ERS473430, the miniasm layouts are 5-consistent with the reference assemblies. For ERS473430, the NCTC project page claimed the sample has a plasmid. Miniasm gives two contigs, but the NCTC assembly has one contig only. The difference in layout may be an error in the NCTC assembly.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Long-read mapping and assembly</head><p>We have also run the PBcR pipeline (<ref type="bibr" target="#b3">Berlin et al., 2015</ref>). PBcR requires a spec file. We took 'pacbio.spec' from the PBcR-PB-ec example and 'oxford.spec' from PBcR-ONT-ec, and applied them to all datasets based on their data types. MAP* datasets only provide FASTA sequences for download. We assigned quality 9 to all bases as PBcR requires base quality. PBcR assembled all PacBio datasets without extra contigs longer than 50 kb—better than miniasm. However, on the ONT datasets, PBcR produced more fragmented assemblies for MAP-006-2, MAP-006-pcr-1 and MAP-006-pcr-2; the PBcR-ONT-ec assembly is 300 kb shorter. With four CPU cores, it took miniasm 14 s to assemble the 30fold PBcR-PB-ec dataset and 2 minutes to assemble the 160-fold PBecoli dataset. PBcR, with four CPU cores, too, is about 700 times slower on PBcR-PB-ecoli and 60 times slower on PB-ecoli. It is slower on low-coverage data because PBcR automatically switches to the slower sensitive mode. Here we should remind readers that without an error correction stage, the contig sequences generated by miniasm are of much lower accuracy in comparison to PBcR. Nonetheless, miniasm is still tens of times faster than PBcR excluding the time spent on error correction.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.3">Assembling a Caenorhabditis elegans genome</head><p>We assembled a 45-fold C.elegans dataset (<ref type="figure" target="#tab_4">Table 4</ref>). With 16 CPU cores, miniasm assembled the data in 9 min, achieving an N50 size 2.8 Mb. From the dotter plot (<ref type="figure">Fig. 2</ref>), we observed three structural misassemblies (readers are advised to zoom into the vector graph to see the details). PacBio has assembled the same dataset with HGAP3 (<ref type="bibr" target="#b8">Chin et al., 2013</ref>). HGAP3 produces shorter contigs (N50 ¼ 1.6 Mb), but does not incur large-scale misassemblies visible from the dotter plot between the C.elegans reference genome and the contigs. When we take the C.elegans reference genome as the truth, the method in Section 2.6 also identifies the three structural misassemblies. The method additionally finds eight intra-unitig and one interunitig inconsistencies. In all cases, miniasm agrees with HGAP3, suggesting these inconsistencies may be true structural variations between the reference strain and the sequenced strain. We have also tried PBcR on this dataset. Based on the intermediate progress report, we estimated that with 16 CPU cores, it would take a week or so to finish the assembly in the automatically chosen 'sensitive' mode. For this dataset, minimap takes 27 GB RAM at the peak. As minimap loads 4 Gbp bases to index, the peak RAM will be capped around 27 GB. The memory used by miniasm is proportional to the number of overlaps. Although it only takes 1.3 GB RAM here, it will become the limiting factor for larger datasets.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.4">Switching read overlappers</head><p>Miniasm also works with other overlappers when we convert their output format to PAF. On the 30-fold PBcR-PB-ec dataset, we arePAF is TAB-delimited text format with each line consisting of the above fixed fields. When the alignment is available, column 11 equals the total number of sequence matches, mismatches and gaps in the alignment. Column 10 divided by column 11 gives the alignment identity. If the detailed alignment is not available, column 10 and 11 can be approximate. PAF may optionally have additional fields in the SAM-like typed key-value format (<ref type="bibr" target="#b13">Li et al., 2009</ref>).GFA is a line-based TAB-delimited format. Each line starts with a single letter determining the interpretation of the following TAB-delimited fields. In GFA, segment refers to a read or a unitig. A line start with 'S' gives the name and sequence of a segment. When the sequence is not available, it can be a star '*'. Overlaps between segments are represented in lines starting with 'L', giving the names and orientations of the two segments in an overlap. The last field 'CIGAR' on an 'L'-line describes the detailed alignment of the overlap if available. In addition to the types of lines in the table, GFA may contain other line types starting with different letters. Each line may optionally have additional SAM-like typed key-value pairs.Evaluation dataset name, species, reference genome size, theoretical sequencing coverage and the N50 read length. Names starting with 'MAP' are unpublished recent ONT data provided by the Loman lab (http://bit.ly/ loman006). Names starting with 'ERS' are accession numbers of unpublished PacBio data from the NCTC project (http://bit.ly/nctc3k). PB-ecoli and PB-ce40X are PacBio public datasets sequenced with the P6/C4 chemistry (http:// bit.ly/pbpubdat; retrieved on 11/03/2015). PBcR-PB-ec is the PacBio sample data (P5/C3 chemistry) used in the tutorial of the PBcR pipeline; PBcR-ONTec is the ONT example originally used by<ref type="bibr" target="#b14">Loman et al. (2015)</ref>. 'pls2fasta – trimByRegion' was applied to ERS* and PB-ecoli datasets as they do not provide read sequences in the FASTQ format. able to produce a single contig with DALIGNER (option-k15–h50), MHAP (option –pacbio-sensitive) and GraphMap (option-w owler). DALIGNER is the fastest, taking 65 s with four CPUs. Minimap is five times as fast on this dataset and is 18 times as fast on PB-ecoli at 160-fold. Minimap is faster on larger datasets possibly because without staging all possible hits in RAM, minimap is able to process more reads in a batch while a large batch usually helps performance. We should note that DALIGNER generates alignments while minimap does not. Minimap would probably have a similar performance if it included an alignment step.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4">Discussions</head><p>Miniasm implements the 'O' and 'L' steps in the Overlap-LayoutConsensus (OLC) assembly paradigm. It confirms long noisy reads can be assembled without an error correction stage, and without this stage, the assembly process can be greatly accelerated and simplified, while achieving comparable contiguity and large-scale accuracy to existing pipelines, at least for genomes without excessive repetitive sequences. Although without the 'C' step, miniasm cannot produce high-quality consensus for many analyses, it opens the door to ultrafast assembly if we can develop a fast consensus tool matching the speed of minimap and miniasm. In addition, MinION has a 'read-until' mode, allowing users to pause sequencing and reload samples. Fast layout by miniasm could already help to decide if enough data have been collected. Our main concern with miniasm is that when we look at a lowidentity match between two noisy reads, it is difficult to tell whether the low identity is caused by the stochastically higher base error rate on reads, or because reads come from two recent segmental duplications. In comparison, error correction takes the advantage of multiple reads and in theory has more power to distinguish high error rate from duplications/repeats. Bacteria and C.elegans evaluated in this article are repeat sparse. We are yet to know the performance of miniasm given repeat-rich genomes. In addition, miniasm has not been optimized for large repeat-rich genomes. It reads all hits into RAM, which may not be practical when there are too many. We need to filter repetitive hits, introduce disk-based algorithms (e.g. for sorting) or stream hits before removing contained reads. Working with large complex genomes will be an important future direction. Oxford Nanopore is working on PromethION and PacBio will ship PacBio Sequel later this year. Both sequencers promise significantly reduced sequencing cost and increased throughput, which may stimulate the adoption of long-read sequencing and subsequently the development of long-read mappers and assemblers. We hope in this process, the community could standardize the input and output formats of various tools, so that a developer could focus on a component he or she understands best. Such a modular approach has been proved to be fruitful in the development of short-read tools—in fact, the best short-read pipelines all consist of components developed by different groups—and will be equally beneficial to the future development of long-read mappers and assemblers. with single-molecule sequencing. Genome Biol., 14, R101. Li,H. (2012) Exploring single-sample SNP and INDEL calling with whole-genome de novo assembly. Bioinformatics, 28, 1838–1844.</p><formula>I I I I I I I V V X Miniasm contigs</formula><p>C. elegans reference genome WS250<ref type="figure">Fig. 2</ref>. Dotter plot comparing the miniasm assembly and the C.elegans reference genome. Thin gray lines mark the contig or chromosome boundaries. The three arrows indicate large-scale misassemblies visible from the plot. The mapping is done with 'minimap-L500'</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0" validated="false"><figDesc>V C The Author 2016. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 2103 Bioinformatics, 32(14), 2016, 2103–2110 doi: 10.1093/bioinformatics/btw152 Advance Access Publication Date: 19 March 2016 Original Paper</figDesc><table>Myers. Sikic et al. (personal communication) are also independently 
+exploring such an approach. 
+As we can see from </table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1" validated="true"><figDesc>Table 1. Tools for noisy long-read assembly</figDesc><table>Functionality 
+Program 
+Reference 
+
+Raw read overlap 
+BLASR 
+Chaisson and Tesler (2012) 
+DALIGNER 
+Myers (2014) 
+MHAP 
+Berlin et al. (2015) 
+GraphMap 
+Sovic et al. (2015) 
+minimap 
+this article 
+Error correction 
+pbdagcon 
+http://bit.ly/pbdagcon 
+falcon_sense 
+http://bit.ly/pbfcasm 
+nanocorrect 
+Loman et al. (2015) 
+Assembly 
+wgs-assembler 
+Myers et al. (2000) 
+Falcon 
+http://bit.ly/pbfcasm 
+ra-integrate 
+http://bit.ly/raitgasm 
+miniasm 
+this article 
+Consensus polish 
+Quiver 
+http://bit.ly/pbquiver 
+nanopolish 
+Loman et al. (2015) </table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2" validated="true"><figDesc>Table 2. Pairwise mapping format (PAF)</figDesc><table>Col 
+Type 
+Description 
+
+1 
+string 
+Query sequence name 
+2 
+int 
+Query sequence length 
+3 
+int 
+Query start coordinate (BED-like) 
+4 
+int 
+Query end coordinate (BED-like) 
+5 
+char 
+'þ' if query and target on the same strand; '–' 
+if opposite 
+6 
+string 
+Target sequence name 
+7 
+int 
+Target sequence length 
+8 
+int 
+Target start coordinate on the original strand 
+9 
+int 
+Target end coordinate on the original strand 
+10 
+int 
+Number of matching bases in the mapping 
+11 
+int 
+Number bases, including gaps, in the mapping 
+12 
+int 
+Mapping quality (0–255 with 255 for missing) 
+
+</table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3" validated="true"><figDesc>Table 3. Graphical fragment assembly format (GFA)</figDesc><table>Line 
+Comment 
+Fixed fields 
+
+H 
+Header 
+N/A 
+S 
+Segment 
+segName,segSeq 
+L 
+Overlap 
+segName1, segOri1, 
+segName2, segOri2, 
+CIGAR 
+
+</table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4" validated="true"><figDesc>Table 4. Evaluation datasets</figDesc><table>Name 
+Species 
+Size 
+Cov. N50 
+
+PB-ce-40X 
+Caenorhabditis elegans 
+104M 45 
+16 572 
+ERS473430 
+Citrobacter koseri 
+4.9M 106 
+7543 
+ERS544009 
+Yersinia pseudotuberculosis 4.7M 147 
+9002 
+ERS554120 
+Pseudomonas aeruginosa 
+6.4M 90 
+7106 
+ERS605484 
+Vibrio vulnificus 
+5.0M 155 
+5091 
+ERS617393 
+Acinetobacter baumannii 
+4.0M 237 
+7911 
+ERS646601 
+Haemophilus influenzae 
+1.9M 258 
+4081 
+ERS659581 
+Klebsiella sp. 
+5.1M 129 
+8031 
+ERS670327 
+Shimwellia blattae 
+4.2M 155 
+6765 
+ERS685285 
+Streptococcus sanguinis 
+2.4M 224 
+5791 
+ERS743109 
+Salmonella enterica 
+4.8M 188 
+6051 
+PB-ecoli 
+Escherichia coli 
+4.6M 160 
+13 976 
+PBcR-PB-ec 
+Escherichia coli 
+4.6M 30 
+11 757 
+PBcR-ONT-ec 
+Escherichia coli 
+4.6M 29 
+9356 
+MAP-006-1 
+Escherichia coli 
+4.6M 54 
+10 892 
+MAP-006-2 
+Escherichia coli 
+4.6M 30 
+10 794 
+MAP-006-pcr-1 Escherichia coli 
+4.6M 30 
+8080 
+MAP-006-pcr-2 Escherichia coli 
+4.6M 60 
+8064 
+
+</table></figure>
+
+			<note place="foot">at University of California, Los Angeles on August 30, 2016 http://bioinformatics.oxfordjournals.org/ Downloaded from</note>
+
+			<note place="foot">H.Li at University of California, Los Angeles on August 30, 2016 http://bioinformatics.oxfordjournals.org/ Downloaded from</note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Acknowledgements</head><p>We thank P all Melsted for maintaining the GFA spec and are grateful to Gene Myers, Jason Chin, Adam Phillippy, Jared Simpson, Zamin Iqbal, Nick Loman and Ivan Sovic for their presentations, talks, comments on social media and unpublished works which have greatly influenced and helped the development of minimap and miniasm.</p></div>
+			</div>
+
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct   xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Limitations of next-generation genome sequence assembly</title>
+		<author>
+			<persName>
+				<forename type="first">C</forename>
+				<surname>Alkan</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat. Methods</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="page" from="61" to="65" />
+			<date type="published" when="2011" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Gapped BLAST and PSI-BLAST: a new generation of protein database search programs</title>
+		<author>
+			<persName>
+				<forename type="first">S</forename>
+				<forename type="middle">F</forename>
+				<surname>Altschul</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nucleic Acids Res</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="page" from="3389" to="3402" />
+			<date type="published" when="1997" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b2">
+	<analytic>
+		<title level="a" type="main">A hybrid approach for the automated finishing of bacterial genomes</title>
+		<author>
+			<persName>
+				<forename type="first">A</forename>
+				<surname>Bashir</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat. Biotechnol</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page">701</biblScope>
+			<date type="published" when="2012" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Assembling large genomes with single-molecule sequencing and locality-sensitive hashing</title>
+		<author>
+			<persName>
+				<forename type="first">K</forename>
+				<surname>Berlin</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat. Biotechnol</title>
+		<imprint>
+			<biblScope unit="volume">33</biblScope>
+			<biblScope unit="page" from="623" to="630" />
+			<date type="published" when="2015" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Linear-time superbubble identification algorithm for genome assembly</title>
+		<author>
+			<persName>
+				<forename type="first">L</forename>
+				<surname>Brankovic</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Theor. Comput. Sci</title>
+		<imprint>
+			<biblScope unit="volume">609</biblScope>
+			<biblScope unit="page" from="374" to="383" />
+			<date type="published" when="2015" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b5">
+	<analytic>
+		<title level="a" type="main">On the resemblance and containment of documents</title>
+		<author>
+			<persName>
+				<forename type="first">A</forename>
+				<forename type="middle">Z</forename>
+				<surname>Broder</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Compression and Complexity of Sequences</title>
+		<imprint>
+			<date type="published" when="1997" />
+			<biblScope unit="page" from="21" to="29" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Mapping single molecule sequencing reads using basic local alignment with successive refinement (blasr): application and theory</title>
+		<author>
+			<persName>
+				<forename type="first">M</forename>
+				<forename type="middle">J</forename>
+				<surname>Chaisson</surname>
+			</persName>
+		</author>
+		<author>
+			<persName>
+				<forename type="first">G</forename>
+				<surname>Tesler</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">BMC Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">13</biblScope>
+			<biblScope unit="page">238</biblScope>
+			<date type="published" when="2012" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Genetic variation and the de novo assembly of human genomes</title>
+		<author>
+			<persName>
+				<forename type="first">M</forename>
+				<forename type="middle">J P</forename>
+				<surname>Chaisson</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat. Rev. Genet</title>
+		<imprint>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="page" from="627" to="640" />
+			<date type="published" when="2015" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Nonhybrid, finished microbial genome assemblies from long-read smrt sequencing data</title>
+		<author>
+			<persName>
+				<forename type="first">C</forename>
+				<forename type="middle">S</forename>
+				<surname>Chin</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat. Methods</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page" from="563" to="569" />
+			<date type="published" when="2013" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Topological sorting of large networks</title>
+		<author>
+			<persName>
+				<forename type="first">A</forename>
+				<forename type="middle">B</forename>
+				<surname>Kahn</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Commun. ACM</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="page" from="558" to="562" />
+			<date type="published" when="1962" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b10">
+	<analytic>
+		<title level="a" type="main">BLAT–the BLAST-like alignment tool</title>
+		<author>
+			<persName>
+				<forename type="first">W</forename>
+				<forename type="middle">J</forename>
+				<surname>Kent</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Genome Res</title>
+		<imprint>
+			<biblScope unit="volume">12</biblScope>
+			<biblScope unit="page" from="656" to="664" />
+			<date type="published" when="2002" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Hybrid error correction and de novo assembly of singlemolecule sequencing reads</title>
+		<author>
+			<persName>
+				<forename type="first">S</forename>
+				<surname>Koren</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat. Biotechnol</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page" from="693" to="700" />
+			<date type="published" when="2012" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Reducing assembly complexity of microbial genomes Li Aligning sequence reads, clone sequences and assembly contigs with bwa-mem</title>
+		<author>
+			<persName>
+				<forename type="first">S</forename>
+				<surname>Koren</surname>
+			</persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b13">
+	<analytic>
+		<title level="a" type="main">The sequence alignment/map format and samtools</title>
+		<author>
+			<persName>
+				<forename type="first">H</forename>
+				<surname>Li</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="page" from="2078" to="2079" />
+			<date type="published" when="2009" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b14">
+	<analytic>
+		<title level="a" type="main">A complete bacterial genome assembled de novo using only nanopore sequencing data</title>
+		<author>
+			<persName>
+				<forename type="first">N</forename>
+				<forename type="middle">J</forename>
+				<surname>Loman</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat. Methods</title>
+		<imprint>
+			<biblScope unit="volume">12</biblScope>
+			<biblScope unit="page" from="733" to="735" />
+			<date type="published" when="2015" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b15">
+	<analytic>
+		<title level="a" type="main">The fragment assembly string graph</title>
+		<author>
+			<persName>
+				<forename type="first">E</forename>
+				<forename type="middle">W</forename>
+				<surname>Myers</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">21</biblScope>
+			<biblScope unit="page" from="79" to="85" />
+			<date type="published" when="2005" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b16">
+	<analytic>
+		<title level="a" type="main">A whole-genome assembly of Drosophila</title>
+		<author>
+			<persName>
+				<forename type="first">E</forename>
+				<forename type="middle">W</forename>
+				<surname>Myers</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Science</title>
+		<imprint>
+			<biblScope unit="volume">287</biblScope>
+			<biblScope unit="page" from="2196" to="2204" />
+			<date type="published" when="2000" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Efficient local alignment discovery amongst noisy long reads</title>
+		<author>
+			<persName>
+				<forename type="first">G</forename>
+				<surname>Myers</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings Algorithms in Bioinformatics – 14th International Workshop, WABI 2014</title>
+		<editor>Brown,D. G. and Morgenstern,B.</editor>
+		<meeting>Algorithms in Bioinformatics – 14th International Workshop, WABI 2014<address><addrLine>Wroclaw, Poland</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2014-09-08" />
+			<biblScope unit="page" from="52" to="67" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Detecting superbubbles in assembly graphs</title>
+		<author>
+			<persName>
+				<forename type="first">T</forename>
+				<surname>Onodera</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Lecture Notes in Computer Science</title>
+		<editor>Darling,A.E. and Stoye,J.</editor>
+		<imprint>
+			<publisher>WABI Springer</publisher>
+			<biblScope unit="volume">8126</biblScope>
+			<biblScope unit="page" from="338" to="348" />
+			<date type="published" when="2013" />
+			<publisher>WABI Springer</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b19">
+	<analytic>
+		<title level="a" type="main">A reference bacterial genome dataset generated on the minionTM portable single-molecule nanopore sequencer</title>
+		<author>
+			<persName>
+				<forename type="first">J</forename>
+				<surname>Quick</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Gigascience</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="page">22</biblScope>
+			<date type="published" when="2014" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Finished bacterial genomes from shotgun sequence data</title>
+		<author>
+			<persName>
+				<forename type="first">F</forename>
+				<forename type="middle">J</forename>
+				<surname>Ribeiro</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Genome Res</title>
+		<imprint>
+			<biblScope unit="volume">22</biblScope>
+			<biblScope unit="page" from="2270" to="2277" />
+			<date type="published" when="2012" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Reducing storage requirements for biological sequence comparison</title>
+		<author>
+			<persName>
+				<forename type="first">M</forename>
+				<surname>Roberts</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="page" from="3363" to="3369" />
+			<date type="published" when="2004" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Winnowing: Local algorithms for document fingerprinting</title>
+		<author>
+			<persName>
+				<forename type="first">S</forename>
+				<surname>Schleimer</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2003 ACM SIGMOD International Conference on Management of Data</title>
+		<editor>Halevy,A.Y., Ives,Z.G., and Doan,A.</editor>
+		<meeting>the 2003 ACM SIGMOD International Conference on Management of Data<address><addrLine>San Diego, California, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2003-06-09" />
+			<biblScope unit="page" from="76" to="85" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Fast and sensitive mapping of error-prone nanopore sequencing reads with graphmap</title>
+		<author>
+			<persName>
+				<forename type="first">I</forename>
+				<surname>Sovic</surname>
+			</persName>
+		</author>
+		<imprint>
+			<date type="published" when="2015" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Velvet: algorithms for de novo short read assembly using de Bruijn graphs</title>
+		<author>
+			<persName>
+				<forename type="first">D</forename>
+				<forename type="middle">R</forename>
+				<surname>Zerbino</surname>
+			</persName>
+		</author>
+		<author>
+			<persName>
+				<forename type="first">E</forename>
+				<surname>Birney</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Genome Res</title>
+		<imprint>
+			<biblScope unit="volume">18</biblScope>
+			<biblScope unit="page" from="821" to="829" />
+			<date type="published" when="2008" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

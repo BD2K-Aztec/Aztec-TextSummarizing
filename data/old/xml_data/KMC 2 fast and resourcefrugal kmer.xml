@@ -1,0 +1,1135 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 /home/joey/Project/grobid/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<encodingDesc>
+			<appInfo>
+				<application version="0.4.2-SNAPSHOT" ident="GROBID" when="2017-08-10T23:52+0000">
+					<ref target="https://github.com/kermitt2/grobid">GROBID - A machine learning software for extracting information from scholarly documents</ref>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Sequence analysis KMC 2: fast and resource-frugal k-mer counting</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName>
+								<forename type="first">Sebastian</forename>
+								<surname>Deorowicz</surname>
+							</persName>
+							<affiliation key="aff0">
+								<orgName type="department">Institute of Informatics</orgName>
+								<orgName type="institution">Silesian University of Technology</orgName>
+								<address>
+									<addrLine>Akademicka 16</addrLine>
+									<postCode>44-100</postCode>
+									<settlement>Gliwice</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName>
+								<forename type="first">Marek</forename>
+								<surname>Kokot</surname>
+							</persName>
+							<affiliation key="aff0">
+								<orgName type="department">Institute of Informatics</orgName>
+								<orgName type="institution">Silesian University of Technology</orgName>
+								<address>
+									<addrLine>Akademicka 16</addrLine>
+									<postCode>44-100</postCode>
+									<settlement>Gliwice</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName>
+								<forename type="first">Szymon</forename>
+								<surname>Grabowski</surname>
+							</persName>
+							<affiliation key="aff1">
+								<orgName type="department">Institute of Applied Computer Science</orgName>
+								<orgName type="institution">Lodz University of Technology</orgName>
+								<address>
+									<addrLine>Al. Politechniki 11</addrLine>
+									<postCode>90-924</postCode>
+									<settlement>Łódz</settlement>
+									<country key="PL">Poland</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName>
+								<forename type="first">Agnieszka</forename>
+								<surname>Debudaj-Grabysz</surname>
+							</persName>
+							<affiliation key="aff0">
+								<orgName type="department">Institute of Informatics</orgName>
+								<orgName type="institution">Silesian University of Technology</orgName>
+								<address>
+									<addrLine>Akademicka 16</addrLine>
+									<postCode>44-100</postCode>
+									<settlement>Gliwice</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Sequence analysis KMC 2: fast and resource-frugal k-mer counting</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="DOI">10.1093/bioinformatics/btv022</idno>
+					<note type="submission">Received on July 8, 2014; revised on January 10, 2015; accepted on January 12, 2015</note>
+					<note>*To whom correspondence should be addressed. Associate Editor: John Hancock Contact: sebastian.deorowicz@polsl.pl Supplementary information: Supplementary data are available at Bioinformatics online.</note>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<profileDesc>
+			<abstract>
+				<p>Motivation: Building the histogram of occurrences of every k-symbol long substring of nucleotide data is a standard step in many bioinformatics applications, known under the name of k-mer counting. Its applications include developing de Bruijn graph genome assemblers, fast multiple sequence alignment and repeat detection. The tremendous amounts of NGS data require fast algorithms for k-mer counting, preferably using moderate amounts of memory. Results: We present a novel method for k-mer counting, on large datasets about twice faster than the strongest competitors (Jellyfish 2, KMC 1), using about 12 GB (or less) of RAM. Our disk-based method bears some resemblance to MSPKmerCounter, yet replacing the original minimizers with signatures (a carefully selected subset of all minimizers) and using (k, x)-mers allows to significantly reduce the I/O and a highly parallel overall architecture allows to achieve unprecedented processing speeds. For example, KMC 2 counts the 28-mers of a human reads collection with 44-fold coverage (106 GB of compressed size) in about 20 min, on a 6-core Intel i7 PC with an solid-state disk. Availability and implementation: KMC 2 is freely available at http://sun.aei.polsl.pl/kmc.</p>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>One of common preliminary steps in many bioinformatics algorithms is the procedure of k-mer counting. This primitive consists in counting the frequencies of all k-long strings in the given collection of sequencing reads, where k is usually more than 20 and has applications in de novo assembly using de Bruijn graphs, correcting reads and repeat detection, to name a few areas. More applications can be found, e.g. in<ref type="bibr">Marçais and Kingsford (2011)</ref>, with references therein. K-mer counting is arguably one of the simplest (both conceptually and programmatically) tasks in computational biology, if we do not care about efficiency. The number of existing papers on this problem suggests, however, that efficient execution of this task, with reasonable memory use, is far from trivial. The most successful of early approaches was Jellyfish (<ref type="bibr">Marçais and Kingsford, 2011</ref>), maintaining a compact hash table (HT) and using lock-free operations to allow parallel updates. The original Jellyfish version [as presented in Marçais and<ref type="bibr" target="#b5">Kingsford (2011)</ref>] required more than 100 GB of memory to handle human genome data with 30-fold coverage. BFCounter (<ref type="bibr" target="#b6">Melsted and Pritchard, 2011</ref>) employs the classic compact data structure, Bloom filter (BF), to reduce the memory requirements due to preventing most single-occurrence k-mers (which are usually results of sequencing errors and for most applications can be discarded) from being added to an HT. Although BF is a probabilistic mechanism, BFCounter applies it in a smart way, which does not produce counting errors. DSK (<ref type="bibr" target="#b8">Rizk et al., 2013</ref>) and KMC (<ref type="bibr" target="#b2">Deorowicz et al., 2013</ref>) are two disk-based algorithms. On a high level, they are similar and partition the set of k-mers into disk buckets, which are then separately processed. DSK is more memory frugal and may process human genome data in as little as 1.1 GB of RAM (<ref type="bibr" target="#b1">Chikhi et al., 2014</ref>), whereas KMC is faster but typically uses about 11–16 GB of RAM. Turtle (<ref type="bibr" target="#b11">Roy et al., 2014</ref>bears some similarities to BFCounter. The standard BF is there replaced with its cache-friendly variant (<ref type="bibr" target="#b7">Putze et al., 2009</ref>) and the HT is replaced with a sorting and compaction algorithm (which, accidentally, resembles a component of KMC), apart from adding parallelism and a few smaller modifications. Finally, MSPKmerCounter (<ref type="bibr" target="#b5">Li and Yan, 2014</ref>) is another disk-based algorithm, based on the concept of minimizers, described in detail in the next section. In this article, we present a new version of KMC, one of the fastest and most memory efficient programs. The new release borrows from the efficient architecture of KMC 1 but reduces the disk usage several times (sometimes about 10 times) and improves the speed usually about twice. In consequence, our tests show that KMC 2 is the fastest (by a far margin) algorithm for counting k-mers, with even smaller memory consumption than its predecessor. There are two main ideas behind these improvements. The first is the use of signatures of k-mers that are a generalization of the idea of minimizers (<ref type="bibr">Roberts et al., 2004a, b</ref>). Signatures allow significant reduction of temporary disk space. The minimizers were used for the first time for the k-mer counting in MSPKmerCounter, but our modification significantly reduces the main memory requirements (up to 3–5 times) and disk space (about 5 times) when compared with MSPKmerCounter. The second main novelty is the use of (k, x)-mers (x &gt; 0) for reduction of the amount of data to sort. Simply, instead of sorting some amount of k-mers, we sort a much smaller portion of (k þ x)-mers and then obtain the statistics for k-mers in the post-processing phase.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Methods</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.1">Minimizers of k-mers</head><p>Most k-mer counting algorithms start in the same way: they process each read from left to right and extract all k-mers from them, one by one. Although the destination for k-mers (HT in Jellyfish, BF in BFCounter, disk in DSK and KMC 1) and other details differ in particular solutions, the first step remains essentially the same. There is high redundancy in such approach as consecutive k-mers share k – 1 symbols. An obvious idea of reducing the redundancy is to store (in some way) a number of consecutive k-mers (ideally even a complete read) in one place. Unfortunately, to collect the statistics, we need to find all copies of each unique k-mer, which is not an easy task when the copies are stored in many places. A clever solution to these problems is based on the concept of minimizers (<ref type="bibr">Roberts et al., 2004a, b</ref>). A minimizer of a k-mer is such of its m-mers (m &lt; k) that no other lexicographically smaller m-mer can be found. The crucial observation is that usually many consecutive k-mers have the same minimizer, so in memory or in a file on disk they can be represented as one sequence of more than k symbols, significantly reducing the redundancy. The idea of minimizers was adopted recently for k-mer counting (<ref type="bibr" target="#b5">Li and Yan, 2014</ref>). Since in genomic data the read direction is rarely known, k-mer counters usually do not distinguish between direct k-mers and their reverse complements and collect statistics for canonical k-mers. The canonical k-mer is lexicographically smaller of the pair: the k-mer and its reverse complement. Therefore, Li and Yan in their MSPKmerCounter use canonical minimizers, i.e. the minima of all canonical m-mers from the k-mer. They process the reads one by one and look for contiguous areas containing k-mers having the same canonical minimizer; they dub these areas as 'super k-mers'. Then, the resulting super k-mers are distributed into one of several bins (disk files) according to the related canonical minimizer (more precisely, according to its hash value; in this way, the number of resulting bins is kept within reasonable limits). In the second stage, each bin is loaded into main memory (one by one), all k-mers are extracted from the super k-mers and then counted using a HT; after processing a bin, the entries from the HT are dumped to disk and the HT memory reclaimed. Since each bin contains only a small fraction of all k-mers present in the input data, the amount of memory necessary to process the bin is much smaller than that in the case of whole input data. This elegant idea allows to significantly reduce the disk space compared with storing each k-mer separately (as KMC 1 and DSK do). Unfortunately, it has the following drawbacks: 1. The distribution of bin sizes is far from uniform. In particular, the bin associated with the minimizer AA. .. A is usually huge. Other minimizers with a few As in their prefix also tend to produce large bins. 2. When a minimizer starts with a few As, then it often implies several new super k-mers spanning a single k-mer only. To given an example, with m ¼ 7 and AAAAAAC as the minimizer: when the minimizer falls off the sliding window, so the current k-mer starts with AAAAAC, then AAAAACX (for some X) will likely be the new minimizer; but unfortunately for yet another window AAAACXY (for some Y) also has a fair chance to be a minimizer, etc.</p><p>As the amount of main memory needed by MSPKmerCounter is directly related to the number of k-mers in the largest bin, especially the former issue is important. It will be shown in the experimental section that the file corresponding to the minimizer AA. .. A can be really large.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.2">From minimizers to signatures</head><p>To overcome the aforementioned problems, we resign from 'pure' minimizers and prefer to use the term of signatures of k-mers. Essentially, a signature can be any m-mer of k-mer, but in this article, we are interested in such signatures that solve both of the problems mentioned above. Namely, good signatures of length m should satisfy the following conditions: 1. The size of the largest bin should be as small as possible. 2. The number of bins should be neither too large nor too small. 3. The sum of bin sizes should be as small as possible.</p><p>Point 1 is obvious as it limits the maximum amount of needed memory. Point 2 protects from costly operations on a large number of files (open, close, append, etc.) in case of too many bins but also from load balancing difficulties on a multi-core system when the number of bins is small. The last point refers to the disk space, so minimizing it reduces the total I/O. Obtaining optimal signatures, i.e. such that cannot be improved in any of the listed aspects, seems hard, so a compromise must be found. Since the origin of both problems are runs of As (especially as signature prefixes), we propose to use canonical minimizers as signatures, but only such that do not start with AAA, neither start with ACA, neither contain AA anywhere except at their beginning. We note that in earlier works on minimizers (<ref type="bibr">Roberts et al., 2004a, b;</ref><ref type="bibr" target="#b14">Wood and Salzberg, 2014</ref>), similar problems were spotted (in different applications) and somewhat different solutions were presented.<ref type="bibr">Roberts et al. (2004a, b</ref>) suggest remapping the ACGT alphabet to integers 1, 0, 3 and 2 for odd-numbered bases of k-mers and reverse the ordering for even-numbered bases. As they note that the letters C and G often occur less frequently than A and T, the proposed reordering tends to start minimizers with the valuable (in the sense of the significance of a match) letters C and G and the minimum k-mer is CGCGCG. .. In<ref type="bibr" target="#b9">Roberts et al. (2004a)</ref>, they also consider only the minimizers with total counts in the read collection below some threshold, e.g. 75 occurrences. Wood and Salzberg (2014) note that using standard minimizers in their metagenomic sequence classification would result in over-representation of lowcomplexity minimizer strings, implying longer search times. To prevent it and thus obtain a more even distribution of minimizers, they use the XOR operation to toggle half of the bits of each m-mer's canonical representation prior to comparing the m-mers to each other using lexicographical ordering. Coming back to our minimizers' variant, as the experiments show (cf. experimental section 3 of the paper), the mentioned modification significantly reduces the size of the largest bin and also reduces the total number of super k-mers, therefore both the main memory and temporary disk use is much smaller compared with using just canonical minimizers.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.3">(k, x)-mers</head><p>In the memory-frugal k-mer counters (DSK, KMC 1, MSPKmerCounter), all the input k-mers are split into parts to reduce the amount of RAM necessary to store all the k-mers in explicit form. Then, the k-mers are either sorted or inserted into a HT or BF. Nevertheless, often the size of the largest part (bin) can be a problem, i.e. affects the peak RAM use. Also, there is a need to explicitly process (sort, insert into some data structure) each single k-mer. Below we show that it is possible to reduce the amount of memory necessary for collecting the statistics even more and also speed up the sorting process by processing a significant part of k-mers implicitly. To this end, we need to introduce (k, x)-mers that are ðk þ x 0 Þ-mers in the canonical form, for some 0 x 0 x, such that all the k-mers in their span are in the canonical form. The idea is that instead of breaking super k-mers into k-mers (for sorting purposes), we break them into as few (k, x)-mers as possible in such way that the canonical form of each k-mer present in a super k-mer belongs to exactly one (k, x)-mer. As preliminary experiments on real data show, with setting x ¼ 3, the number of (k, x)-mers becomes about twice smaller than the number of k-mers. This means that the main memory is reduced almost twice. At the same time, the sorting speed is improved.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.4">Sketch of the algorithm</head><p>Similarly to its predecessor, KMC 2 has two phases: distribution and sorting. In the distribution phase, the reads are read from FASTQ/FASTA files. Each read is scanned to find (partially overlapping) regions (super k-mers) sharing the same signature (<ref type="figure">Fig. 1</ref>). These super k-mers are sent to bins (disk files) related to signatures. The number of possible signatures, 4 m , can be, however, quite large, e.g. 16 384 for typical value m ¼ 7. Thus, to reduce the number of bins to at most 2000 (512 by default), some signatures are merged (i.e. the corresponding sequences are sent to the same bin). To decide which signatures to merge, in a pre-processing stage, KMC 2 reads a small fraction of the input data, builds a histogram of found signatures and finally merges the least frequent signatures (more details are given in the Supplementary Material). In the sorting phase, KMC 2 reads a file, extracts the (k, x)-mers from super k-mers and performs radix sort algorithm on them. Then, it calculates the statistics for canonical k-mers. In real implementation, x can be 0, 1, 2 or 3, but for presentation clarity, we will describe how to collect the statistics of canonical k-mers from (k,1)mers. It is important to notice where in the sorted array of (k,1)-mers some canonical k-mer can be found. There are six possibilities: 1 it can be a (k,1)-mer of length k, 2–5 it can be a suffix of a (k þ 1)-mer preceded by A, C, G or T, 6 it can be a prefix of some (k þ 1)-mer. Therefore, we conceptually split the array of (k,1)-mers into five non-overlapping, sorted subarrays: one (R 0 ) containing (k þ 0)-mers and four (R A , R C , R G , R T ) containing (k þ 1)-mers starting with A, C, G, T. There is also one extra subarray (R 1 ) containing all (k þ 1)mers, i.e. a concatenation of R A , R C , R G and R T (<ref type="figure">Fig. 2</ref>). Now to collect the statistics of k-mers, we scan these six subarrays in parallel considering suffixes in case of R A , R C , R G , R T and prefixes in case of R 1. So, we have six pointers somewhere in R * We compare the pointed elements, find the lexicographically smallest canonical k-mer among them and store it in the resulting array of statistics of canonical k-mers P if it is different than the recently added k-mer to P. Otherwise, we just increase the counter related to this canonical k-mer in P. Since, we scan the arrays R * in a linear fashion, the time complexity of this 'merging' subphase is linear. The overall KMC 2 algorithm is presented in<ref type="figure">Figure 3</ref>. Several FASTQ readers send input data chunks into a queue, handled then<ref type="figure">Fig. 1</ref>. A toy example of splitting a read into super k-mers. The assumed parameters are: k ¼ 8, m ¼ 4<ref type="figure">Fig. 2</ref>. Splitting a super k-mer into (k,1)-mers followed by sorting them. The assumed parameters are: k ¼ 15, m ¼ 4. The range R T is empty (thus not shown). Note that the (k,1)-mers from the subarray R 0 are k-mers, the (k,1)mer from the subarray R A are (k þ 1)-mers with the starting symbol A, etc.; the concatenation of R A , R C , R G and R T forms the (conceptual) subarray R 1 by splitters which dispatch super k-mers with the same signature to the same bin chunk. The queue of these chunks is in turn processed with a disk writer, which dumps the bin to disk. In the next phase, the bins, read from disk to a queue in the memory, are sorted and compacted by multiple sorter threads. Finally, the completer stores the sorted bins in the output database on disk. The final database of k-mers is stored in compact binary form. The KMC 2 package contains the k-mer counter, dump program that allows to produce the textual list of k-mers together with their counters, Cþþ API designed to allow to use the database directly in various applications. The k-mer counter allows to specify various parameters, e.g. the threshold below which the k-mer is discarded (e.g. in some applications the k-mers appearing only once are treated as erroneous), the maximal amount of memory used in the processing. More details on the API, the database format and the search algorithm in the database are given in the Supplementary Material.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.5">Additional features</head><p>KMC 2, like its former version, allows to refrain from counting too rare or too frequent k-mers. It is done during 'merging' substage, in which the total number of occurrences of each k-mer is known. The software also supports quality-aware counters, compatible with the popular error-correction package Quake (<ref type="bibr" target="#b3">Kelley et al., 2010</ref>). In this mode, the counter for the k-mer is incremented by the probability that all symbols of the k-mer are correct (calculated according to the base quality values). To allow this, the qualities must be stored in temporary disk files for each base of a super k-mer. To our knowledge, the only other k-mer counters with this functionality are KMC 1 and Jellyfish 1 (but not the current version 2). KMC 2 handles not only sequencing reads (FASTQ) but also genomes (FASTA). Finally, we note that KMC 2 can work in in-memory mode in which the bins are simply stored in the main memory, which may be convenient for large datacenters. The standard KMC 2 memory usage setting works only as a suggestion and not a strict limit. If a single bin needs more memory, KMC 2 will break the given limit (which can be observed in the experimental results). Nevertheless, KMC 2 can be run in the strict memory mode in which the given limit (no less, however, than 1 GB) cannot be exceeded. In this mode, larger bins are split into smaller ones, sorted one by one and dumped to disk. Finally, their sorted parts are collected from disk, merged and again written to disk. This increases the overall I/O, but the total disk usage is usually unchanged since the temporary files for sorting the large bins are created when most of bin files are already removed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">Results</head><p>The implementation of KMC 2 was compared against the best, in terms of speed and memory efficiency, competitors: Jellyfish 2 [which is significantly more efficient than the version described in (<ref type="bibr">Marçais and Kingsford, 2011</ref>)], DSK (<ref type="bibr" target="#b8">Rizk et al., 2013</ref>), Turtle (<ref type="bibr" target="#b11">Roy et al., 2014</ref>), MSPCounter (<ref type="bibr" target="#b5">Li and Yan, 2014</ref>), KAnalyze (<ref type="bibr" target="#b0">Audano and Vannberg, 2014</ref>) and KMC 1 (<ref type="bibr" target="#b2">Deorowicz et al., 2013</ref>). Each program was tested for two values of k (28 and 55) and in two hardware configurations: using conventional hard disks (HDD) and using a solid-state disk (SSD). We used several datasets (<ref type="figure" target="#tab_1">Table 1</ref>) of varying size; two of them are human data with large coverage. The experiments were run on a machine equipped with an Intel i7 4930 CPU (6 cores clocked at 3.4 GHz), 64 GB RAM and 2 HDDs (3 TB each) in RAID 0 and single SSD (1 TB). Some of the experiments were also run on a single HDD (5 TB). The programs were run with the number of threads equal to the number of virtual cores (6 Â 2 ¼ 12), to achieve maximum speed. In the experiments, we count only k-mers with counts at least 2, since the k-mers with a single occurrence in a read collection most likely contain erroneous base(s). As in some applications, all k-mers may be needed, we ran a preliminary KMC 2 test in such setting, with a SSD. We found out that the overhead in computation time is only up to 3% (mainly caused by increased I/O). The comparison, presented in Tables 2–4 and Supplementary Tables S1 and S2, includes total computation time (in seconds), maximum RAM use and maximum disk use. RAM and disk use are given in GBs (1GB ¼ 10 9 B). Time is wall-clock time in seconds. A test running longer than 10 h was interrupted. Other reasons for not finishing a test were excessive memory consumption (limited by the total RAM, i.e. 64 GB) or excessive disk use (over 650 GB, chosen for our 1 TB SSD disk; note that the largest input dataset, Homo sapiens 2, occupies 312.9 GB on the same disk). Jellyfish 2 was tested twice, in the default and the BF-based mode with exact counts. Unfortunately, in the latter experiments, the amount of memory in our machine was often not enough, and this is why Jellyfish 2-BF results are shown only for two datasets. Several conclusions can easily be drawn from the presentedthe slowest; for this reason, KAnalyze was tested only on the SSD. KAnalyze also uses a large amount of temporary disk space, which was the reason we stopped its execution on the two human datasets (for k ¼ 28 only, as KAnalyze does not support large values of k). MSPKC, on the other hand, theoretically allows the parameter k to exceed 32, but in none of our datasets, it finished its work for k ¼ 55; for the smallest dataset (F.vesca), it failed probably because of variable-length reads, on the other datasets, we stopped it after more than 10 h of processing. The only asset of KAnalyze and MSPKC we have found is their moderate memory use. DSK is not very fast either. Still, it consistently uses the smallest amount of memory (6 GB was always reported) and is quite robust, as it passed all the tests. Jellyfish 2 in its default mode is not very frugal in memory use, and this is the reason on our machine it passed the test for k ¼ 55 only for two datasets (F.vesca and M.balbisiana). Still, for k ¼ 28, it passed all the tests, being one of the fastest programs, often outperforming KMC 1. Turtle is rather fast as well (slower than Jellyfish though), but even more memory hungry; we could not have run it on the two largest datasets. Turtle and Jellyfish are memory-only algorithms, all the other ones are disk based. This is the reason why changing HDD to a much faster SSD does not affect the performance of these two counters significantly (yet it is non-zero due to faster input reading from the SSD). KMC 2 on the SSD was tested three times for each k: with standard memory use (12 GB) and with memory use reduced to 6 GB ('suggested' limit) and to 4 GB (strict limit). We note that reducing the memory even to 4 GB only moderately increases the processing time. It is worth to note that both KMC 2 and DSK can be run with even lower memory limits, i.e. about 1 GB but it comes at a price of speed drop. For experiments we, however, chose larger settings, as 4-6 GB of RAM seems to fit even low-end machines. KMC 2 with its standard memory use is a clear winner in processing time, on the human datasets being about twice faster than Jellyfish 2 or KMC 1. These speed differences concern the SSD experiments, as on the HDD the gap diminishes (but is still significant). This can be explained by I/O (especially reading the input data) being the bottleneck in several phases of KMC 2 processing. It is worth examining how switching a conventional disk to a SSD affects the performance of disk-based software. It might seem natural that the biggest time reduction (in absolute time, not percentage gain) should be seen in those programs which use more disk space. To some degree it is true (e.g. KMC 1 gains more than KMC 2), but DSK is a 'counter-example': e.g. on H.sapiens 2, it gains as much as 13 006 s, which is almost seven times the reduction for KMC 1, seemingly surprising as DSK uses less disk space. Yet, a probable explanation is that DSK works in several passes, so its total I/O is actually quite large for large datasets.Interestingly, for disk-based algorithms, the disk use of KMC 2 is typically reduced when switching from k ¼ 28 to k ¼ 55. This can be explained by a smaller number of k-mers per read, and in case of KMC 2 also by a smaller number of super k-mers per read. To check if the SSD disk, with about 500 MB/s read/write performance, may still be a bottleneck, we ran KMC 2 also in the inmemory mode<ref type="bibr">[rows '(in-mem)' in Tables 2 and 3]</ref>. The memory consumption then grows to about the sum of memory and disk use in the standard setting, yet the processing time improves, by about 20% for G.gallus and 3% for M.balbisiana. This shows that even with the SSD disk, the performance is (somewhat) hampered by I/O operations. We also measured how the input format (raw, gzipped) and media (one or two HDDs in RAID 0, SSD) affects the performance of our solution on the largest dataset, H.sapiens 2 (<ref type="figure" target="#tab_5">Table 5</ref>). As expected, using the SSD reduces the time by 25–40% and reading the input from compressed form also has a visible positive impact. We note in passing that replacing gzip with, e.g. bzip2 (results not shown here) would not be a wise choice, since the improvement in compression cannot offset much slower bzip2's decompression.<ref type="figure" target="#tab_6">Table 6</ref>compares signatures with minimizers on G.gallus. We can see that using our signatures diminishes the average number of super k-mers in a read by about 10–15 percent. Also the number of k-mers in the largest (disk) bin is significantly reduced, sometimes more than twice. These achievements directly translate to smaller RAM and disk space consumption. How (k, x)-mers affect bin processing is shown in<ref type="figure" target="#tab_7">Table 7</ref>for two datasets. It is easy to see that the number of strings to sort is more than halved for x ¼ 3, yet the speedup is more moderate, due to the extra split phase [i.e. extracting (k, x)-mers from super kmers] and sorting over longer strings. Still, (k,3)-mers versus plain kmers reduce the total time by more than 20% (and even 38% for H.sapiens 2 and k ¼ 55). The impact of k on processing time and disk space is presented in Figures 4 and 5, respectively. Longer k-mers result in even longer super k-mers, which minimizes I/O, but makes the sorting phase longer. For this reason, the disk space consumption shrinks smoothly with growing k (<ref type="figure" target="#fig_1">Fig. 5</ref>), but the effect on processing time (<ref type="figure" target="#fig_0">Fig. 4</ref>) is not so clear. Still, counting k-mers for k ! 32 is generally slower than for smaller values of k. From<ref type="figure">Figure 6</ref>, we can see that using more memory accelerates KMC 2, but the effect is mediocre (only about 10% speedup when raising the memory consumption from 16 to 40 GB). The reasons behind the speedup are basically 2-fold: (i) the extra RAM allows to use a larger number of sorter threads (which is more efficient than few sorters with more internal threads per sorter) and (ii) occasional large bins disallow to run other sorters at the same time if memory is limited. Finally, we analyze the scalability and CPU load of our software (<ref type="figure" target="#fig_3">Fig. 7</ref>). As expected, the highest speed is achieved when the number of threads matches the number of (virtual) CPU cores (12). Still, the time reduction between 1 and 12 threads is only by factor 3 or less, when the input data are in non-compressed FASTQ. Using the'Avg. in read' is the average number of super k-mers per read. 'No. k-mers largest bin' is the number (in millions) of k-mers in the largest bin. 'Min. memory' is the amount of memory (in Gbytes) necessary to process the k-mers in the largest bin, i.e. the lower bound of the memory requirements. The size of temporary disk space is determined by the average number of minimizers/signatures in a read. For example, the disk space requirements for minimizer/signature length 7 are 25.4 GB (signatures, k ¼ 28) and 28.6 GB (minimizers, k ¼ 28).A 12-GB RAM set, gzipped input. 'Sorted fraction' is the ratio of the number of (k, x)-mers to the number of k-mers. For H.sapiens 2, the largest bin was too large to fit the assumed amount of RAM in two cases, and the RAM consumption of KMC 2 was 25 GB for (55, 0)-mers, 18 GB for (55, 1)-mers, 15 GB for (55, 2)-mers and 13 GB for (55, 3)-mers. compressed input broadens the gap to factor 6.4 for k ¼ 28 and 4.9 for k ¼ 55. The corresponding gaps between 1 and 6 threads (i.e. equal to the number of physical cores) are 2.3 and 2.5 (k ¼ 28 and k ¼ 55) with non-compressed input and 4.9 and 3.9 (k ¼ 28 and k ¼ 55) with gzipped input. The latter experiment tells more about the scalability of our tool, since the performance boost from Intel hyper-threading technology can be hard to predict, varying from less than 10% (<ref type="bibr" target="#b12">Schuepbach et al., 2013</ref>,<ref type="figure" target="#tab_1">Table 1</ref>) to about 60% (<ref type="bibr">Sebastião et al., 2012, Table 2</ref>) in real code.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4">Conclusion</head><p>Although the dominating trend in IT solutions nowadays is the cloud, the progress in bioinformatic algorithms shows that even home computers, equipped with multi-core CPUs, several gigabytes of RAM and a few fast hard disks (or one SSD disk) get powerful enough to be applied for real 'omics' tasks, if their resources are loaded appropriately. The presented KMC 2 algorithm is currently the fastest k-mer counter, with modest resource (memory and disk) requirements. Although the used approach is similar to the one from MSPKmerCounter, we obtain an order of magnitude faster processing, due to the following KMC features: replacing the original minimizers with signatures (a carefully selected subset of all minimizers), using (k, x)-mers and a highly parallel overall architecture. As opposed to most competitors, KMC 2 worked stably across a large range of datasets and test settings. In real numbers, we show that it is possible to count the 28-mers of a human reads collection with 44-fold coverage (106 GB of compressed size) in about 20 min, on a 6-core Intel Core i7 PC with an SSD. With enough amounts of available RAM, it is also possible to run KMC 2 in memory only. In our preliminary tests, it gave rather little compared with an SSD (about 5–10% speedup) but may be an option in datacenters, with plenty of RAM but possibly using network HDDs with relatively low transfer. In this scenario, a memory-only mode should be attractive. After our work was ready, we learned about an interesting possibility of using frequency-based minimizers (<ref type="bibr" target="#b1">Chikhi et al., 2014</ref>). The idea is to select the (globally) least frequent m-mer in a given k-mer and it dramatically reduces the memory use in the application of enumerating the maximal simple paths of a de Bruijn graph. In our preliminary experiments freq-based minimizers reduce the memoryTime<ref type="bibr">[s]</ref>k = 28 k = 55<ref type="figure">Fig. 6</ref>. Dependence of KMC 2 processing time on maximal available RAM and type of disk for H.sapiens 2 dataset. There are 4 results for k ¼ 55 and 13 GB RAM. These results are for set 6 GB, 8 GB, 10 GB, 12 GB as maximal RAM usage. However, the largest bin enforced to spend at least 13 GB of RAM</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig.4.</head><figDesc>Fig. 4. Dependence of KMC 2 processing time on k for H.sapiens 2 dataset (k ¼ 22,25,28,32,40,50,60,70)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig.5.</head><figDesc>Fig. 5. Dependence of KMC 2 temporary disk usage on k for H.sapiens 2 dataset</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig.7.</head><figDesc>Fig. 7. Dependence of KMC 2 processing time and CPU usage on the set number of threads for G.gallus dataset</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0" validated="false"><figDesc>) V C The Author 2015. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 1569 Bioinformatics, 31(10), 2015, 1569–1576 doi: 10.1093/bioinformatics/btv022 Advance Access Publication Date: 20 January 2015 Original Paper</figDesc><table></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1" validated="false"><figDesc>tables. Two of the competitors, KAnalyze and MSPKC, are clearly</figDesc><table>FASTQ reader 
+FASTQ reader 
+
+FASTQ parts queue 
+
+Splitter 
+Splitter 
+
+Bin chunks queue 
+
+Disk writer 
+
+Disk 
+
+Bin reader 
+
+Bins queue 
+
+Sorter 
+Sorter 
+
+Sorted and compacted 
+bins queue 
+
+Completer 
+
+Fig. 3. A scheme of the parallel KMC algorithm 
+
+</table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2" validated="false"><figDesc>Table 1.</figDesc><table>Characteristics of the datasets used in the experiments 
+
+Organism 
+Genome 
+length 
+
+No. 
+bases 
+
+FASTQ 
+file size 
+
+No. 
+files 
+
+Gzipped 
+size 
+
+Average 
+read length 
+
+F.vesca 
+210 
+4.5 
+10.3 
+11 
+3.5 
+353 
+G.gallus 
+1040 
+34.7 115.9 
+15 
+25.9 
+100 
+M.balbisiana 
+472 
+56.9 197.1 
+2 
+49.1 
+101 
+H.sapiens 1 
+3093 
+86.0 223.3 
+6 
+70.8 
+100 
+H.sapiens 2 
+3093 
+135.3 312.9 
+48 
+105.8 
+101 
+
+Number of bases are in Gbases. File sizes are in Gbytes (1 Gbyte ¼ 10 9 
+bytes). Approximate genome lengths are in Mbases according to http:// 
+www.ncbi.nlm.nih.gov/genome/. </table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3" validated="true"><figDesc>Table 2. k-mers counting results for G.gallus</figDesc><table>Algorithm 
+k ¼ 28 
+k ¼ 55 
+
+RAM Disk Time 
+RAM 
+Disk 
+Time 
+
+SSD 
+Jellyfish 2 
+33 
+0 
+880 
+Out of memory 
+Jellyfish 2-BF 
+35 
+19 
+2237 
+57 
+19 
+2180 
+KAnalyze 
+9 
+270 11 071 
+Unsupported k 
+DSK 
+6 
+101 
+1325 
+6 
+94 
+1836 
+Turtle 
+48 
+0 
+1004 
+Out of memory 
+MSPKC 
+17 
+114 
+3382 
+Out of time (&gt;10 h) 
+KMC 1 
+13 
+101 
+868 
+12 
+173 
+1792 
+KMC 2 (12 GB) 
+12 
+25 
+408 
+12 
+18 
+503 
+KMC 2 (6 GB) 
+6 
+25 
+431 
+6 
+18 
+562 
+KMC 2 (4 GB) 
+4 
+25 
+523 
+4 
+18 
+681 
+KMC 2 (in-mem) 
+33 
+0 
+343 
+27 
+0 
+466 
+HDD 
+Jellyfish 2 
+33 
+0 
+915 
+Out of memory 
+DSK 
+6 
+101 
+3600 
+6 
+94 
+4206 
+Turtle 
+48 
+0 
+1058 
+Out of memory 
+MSPKC 
+17 
+114 
+4853 
+Out of time (&gt;10 h) 
+KMC 1 
+11 
+101 
+1320 
+12 
+173 
+2036 
+KMC 2 (12 GB) 
+12 
+25 
+587 
+12 
+18 
+656 
+KMC 2 (4 GB) 
+4 
+25 
+651 
+4 
+18 
+854 
+
+Timings in seconds and RAM/disk consumption in GB. 
+
+</table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4" validated="false"><figDesc>Table 3.</figDesc><table>k-mers counting results for M.balbisiana 
+
+Algorithm 
+k ¼ 28 
+k ¼ 55 
+
+RAM Disk Time 
+RAM 
+Disk 
+Time 
+
+SSD 
+Jellyfish 2 
+17 
+0 
+1080 
+26 
+0 
+853 
+Jellyfish 2-BF 
+Out of memory 
+56 
+30 
+2865 
+KAnalyze 
+9 
+354 
+8249 
+— 
+— 
+— 
+DSK 
+6 
+164 
+2356 
+6 
+138 
+2962 
+Turtle 
+46 
+0 
+1484 
+Out of memory 
+MSPKC 
+10 
+185 
+8729 
+Out of time (&gt;10 h) 
+KMC 1 
+13 
+165 
+1229 
+15 
+279 
+2622 
+KMC 2 (12 GB) 
+12 
+41 
+755 
+12 
+29 
+834 
+KMC 2 (6 GB) 
+6 
+41 
+685 
+6 
+29 
+895 
+KMC 2 (4 GB) 
+4 
+41 
+833 
+4 
+29 
+896 
+KMC 2 (in-mem) 
+49 
+0 
+663 
+38 
+0 
+780 
+HDD 
+Jellyfish 2 
+17 
+0 
+1115 
+26 
+0 
+881 
+DSK 
+6 
+164 
+6216 
+6 
+138 
+7228 
+Turtle 
+46 
+0 
+1498 
+Out of memory 
+MSPKC 
+10 
+185 12 152 
+Out of time (&gt;10 h) 
+KMC 1 
+13 
+165 
+2194 
+15 
+279 
+3367 
+KMC 2 (12 GB) 
+12 
+41 
+960 
+12 
+29 
+1041 
+KMC 2 (4 GB) 
+4 
+41 
+1051 
+4 
+29 
+1207 
+
+Timings in seconds and RAM/disk consumption in GB. 
+
+</table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5" validated="true"><figDesc>Table 4. k-mers counting results for H.sapiens 2</figDesc><table>Algorithm 
+k ¼ 28 
+k ¼ 55 
+
+RAM Disk Time 
+RAM Disk Time 
+
+SSD 
+Jellyfish 2 
+62 
+0 
+3212 
+Out of memory 
+KAnalyze 
+Out of disk ( &gt; 650 GB) 
+Unsupported k 
+DSK 
+6 
+263 
+5487 
+6 
+256 
+7732 
+Turtle 
+Out of memory 
+Out of memory 
+MSPKC 
+Out of time ( &gt; 10 h) 
+Out of time ( &gt; 10 h) 
+KMC 1 
+17 
+396 
+2998 Out of disk ( &gt; 650 GB) 
+KMC 2 (12 GB) 
+12 
+101 
+1615 
+13 
+70 
+2038 
+KMC 2 (6 GB) 
+6 
+101 
+1706 
+13 
+70 
+2446 
+KMC 2 (4 GB) 
+4 
+101 
+1843 
+4 
+70 
+2802 
+HDD 
+Jellyfish 2 
+62 
+0 
+3231 
+Out of memory 
+DSK 
+6 
+263 
+18 493 
+6 
+256 
+22 432 
+KMC 1 
+17 
+396 
+4898 Out of disk ( &gt; 650 GB) 
+KMC 2 (12 GB) 
+12 
+101 
+2259 
+13 
+70 
+2640 
+KMC 2 (4 GB) 
+4 
+101 
+2707 
+4 
+70 
+3471 
+
+Timings in seconds and RAM/disk consumption in GB. </table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_6" validated="true"><figDesc>Table 5. Influence of input data format and no./type of drives on the k-mers counting times of KMC 2 for H.sapiens 2</figDesc><table>Drives 
+k ¼ 28 
+k ¼ 55 
+
+RAM Disk Time RAM Disk Time 
+
+Non-gzipped input files 
+2 HDDs in RAID 0 
+12 
+101 2259 
+13 
+70 
+2640 
+2 HDDs in RAID 0 
+4 
+101 2707 
+4 
+70 
+3471 
+1 HDD 
+12 
+101 2793 
+13 
+70 
+3155 
+1 HDD 
+4 
+101 3274 
+4 
+70 
+3976 
+1 SSD 
+12 
+101 1615 
+13 
+70 
+2038 
+1 SSD 
+6 
+101 1706 
+13 
+70 
+2446 
+1 SSD 
+4 
+101 1843 
+4 
+70 
+2802 
+Gzipped input files 
+2 HDDs in RAID 0 
+12 
+101 1868 
+13 
+70 
+2421 
+2 HDDs in RAID 0 
+4 
+101 2237 
+4 
+70 
+3200 
+1 HDD 
+12 
+101 1665 
+13 
+70 
+2112 
+1 HDD 
+4 
+101 2090 
+4 
+70 
+2892 
+1 SSD 
+12 
+101 1217 
+13 
+70 
+1607 
+1 SSD 
+7 
+101 1495 
+13 
+70 
+1909 
+1 SSD 
+4 
+101 1400 
+4 
+70 
+2353 
+
+Timings in seconds and RAM/disk consumption in GB. 
+
+</table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_7" validated="false"><figDesc>Table 6.</figDesc><table>Comparison of signatures and minimizers for G.gallus 
+dataset 
+
+Length 
+Minimizers 
+Signatures 
+
+Avg. 
+in read 
+
+No. k-mers 
+largest bin 
+
+Min. 
+memory 
+
+Avg. 
+in read 
+
+No. k-mers 
+largest bin 
+
+Min. 
+memory 
+
+k ¼ 28 
+5 
+6.935 
+3361 
+26.5 
+6.045 
+1904 
+18.1 
+6 
+7.519 
+1231 
+10.9 
+6.385 
+625 
+5.9 
+7 
+7.919 
+641 
+5.5 
+6.728 
+283 
+2.6 
+8 
+8.304 
+371 
+3.1 
+7.143 
+328 
+3.0 
+k ¼ 55 
+5 
+2.669 
+3940 
+62.0 
+2.477 
+2257 
+38.3 
+6 
+2.915 
+1513 
+24.7 
+2.591 
+819 
+13.9 
+7 
+3.038 
+801 
+12.8 
+2.642 
+280 
+5.5 
+8 
+3.117 
+467 
+7.3 
+2.678 
+330 
+6.4 
+
+</table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_8" validated="true"><figDesc>Table 7. Impact of (k, x)-mers on bin processing and overall KMC 2 processing, for G.gallus and H.sapiens 2</figDesc><table>x 
+k ¼ 28 
+k ¼ 55 
+
+Split 
+time 
+
+Sort 
+time 
+
+Total 
+time 
+
+Sorted 
+fraction 
+
+Split 
+time 
+
+Sort 
+time 
+
+Total 
+time 
+
+Sorted 
+fraction 
+
+G.gallus 
+0 
+102 159 
+261 1.000 
+98 
+381 479 1.000 
+1 
+127 131 
+258 0.646 104 
+284 388 0.639 
+2 
+127 119 
+246 0.539 104 
+265 369 0.527 
+3 
+127 112 
+239 0.491 106 
+240 346 0.479 
+H.sapiens 2 
+0 
+672 867 1539 1.000 399 2188 2587 1.000 
+1 
+664 669 1333 0.648 448 1480 1928 0.638 
+2 
+644 614 1258 0.541 455 1176 1630 0.526 
+3 
+644 573 1217 0.495 439 1168 1607 0.478 
+
+</table></figure>
+
+			<note place="foot">at :: on August 30, 2016 http://bioinformatics.oxfordjournals.org/ Downloaded from</note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct   xml:id="b0">
+	<analytic>
+		<title level="a" type="main">KAnalyze: a fast versatile pipelined K-mer toolkit</title>
+		<author>
+			<persName>
+				<forename type="first">P</forename>
+				<surname>Audano</surname>
+			</persName>
+		</author>
+		<author>
+			<persName>
+				<forename type="first">F</forename>
+				<surname>Vannberg</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page" from="2070" to="2072" />
+			<date type="published" when="2014" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b1">
+	<analytic>
+		<title level="a" type="main">On the representation of de Bruijn graphs</title>
+		<author>
+			<persName>
+				<forename type="first">R</forename>
+				<surname>Chikhi</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">In: Research in Computational Molecular Biology Lecture Notes in Computer Science</title>
+		<imprint>
+			<publisher>Springer International Publishing, Switzerland</publisher>
+			<biblScope unit="volume">8394</biblScope>
+			<biblScope unit="page" from="35" to="55" />
+			<date type="published" when="2014" />
+			<publisher>Springer International Publishing, Switzerland</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Disk-based k-mer counting on a PC</title>
+		<author>
+			<persName>
+				<forename type="first">S</forename>
+				<surname>Deorowicz</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">BMC Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">14</biblScope>
+			<biblScope unit="page">160</biblScope>
+			<date type="published" when="2013" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Quake: quality-aware detection and correction of sequencing errors</title>
+		<author>
+			<persName>
+				<forename type="first">D</forename>
+				<forename type="middle">R</forename>
+				<surname>Kelley</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Genome Biol</title>
+		<imprint>
+			<biblScope unit="volume">11</biblScope>
+			<biblScope unit="page">116</biblScope>
+			<date type="published" when="2010" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b4">
+	<analytic>
+		<title level="a" type="main">A new method to compute K-mer frequencies and its application to annotate large repetitive plant genomes</title>
+		<author>
+			<persName>
+				<forename type="first">S</forename>
+				<surname>Kurtz</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">BMC Genomics</title>
+		<imprint>
+			<biblScope unit="volume">9</biblScope>
+			<biblScope unit="page">517</biblScope>
+			<date type="published" when="2008" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b5">
+	<analytic>
+		<title level="a" type="main">MSPKmerCounter: a fast and memory efficient approach for k-mer counting A fast, lock-free approach for efficient parallel counting of occurrences of k-mers</title>
+		<author>
+			<persName>
+				<forename type="first">Y</forename>
+				<surname>Li</surname>
+			</persName>
+		</author>
+		<author>
+			<persName>
+				<forename type="first">X</forename>
+				<forename type="middle">G</forename>
+				<surname>Yan</surname>
+			</persName>
+		</author>
+		<author>
+			<persName>
+				<forename type="first">C</forename>
+				<surname>Kingsford</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">27</biblScope>
+			<biblScope unit="page" from="764" to="770" />
+			<date type="published" when="2011" />
+		</imprint>
+	</monogr>
+	<note>cs.ucsb.edu/~yangli/paper/ bio14_li.pdf Marçais,</note>
+</biblStruct>
+
+<biblStruct   xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Efficient counting of k-mers in DNA sequences using a bloom filter</title>
+		<author>
+			<persName>
+				<forename type="first">P</forename>
+				<surname>Melsted</surname>
+			</persName>
+		</author>
+		<author>
+			<persName>
+				<forename type="first">J</forename>
+				<forename type="middle">K</forename>
+				<surname>Pritchard</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">BMC Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">12</biblScope>
+			<biblScope unit="page">333</biblScope>
+			<date type="published" when="2011" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Cache-, hash-and space-efficient Bloom filters</title>
+		<author>
+			<persName>
+				<forename type="first">F</forename>
+				<surname>Putze</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM J. Exp. Algor</title>
+		<imprint>
+			<biblScope unit="volume">14</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<date type="published" when="2009" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b8">
+	<analytic>
+		<title level="a" type="main">DSK: k-mer counting with very low memory usage</title>
+		<author>
+			<persName>
+				<forename type="first">G</forename>
+				<surname>Rizk</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="page" from="652" to="653" />
+			<date type="published" when="2013" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Reducing storage requirements for biological sequence comparison</title>
+		<author>
+			<persName>
+				<forename type="first">M</forename>
+				<surname>Roberts</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="page" from="3363" to="3369" />
+			<date type="published" when="2004" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b10">
+	<analytic>
+		<title level="a" type="main">A preprocessor for shotgun assembly of large genomes</title>
+		<author>
+			<persName>
+				<forename type="first">M</forename>
+				<surname>Roberts</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Comput. Biol</title>
+		<imprint>
+			<biblScope unit="volume">11</biblScope>
+			<biblScope unit="page" from="734" to="752" />
+			<date type="published" when="2004" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Turtle: identifying frequent k-mers with cache-efficient algorithms</title>
+		<author>
+			<persName>
+				<forename type="first">R</forename>
+				<forename type="middle">S</forename>
+				<surname>Roy</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page" from="1950" to="1957" />
+			<date type="published" when="2014" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b12">
+	<analytic>
+		<title level="a" type="main">pfsearchV3: a code acceleration and heuristic to search PROSITE profiles</title>
+		<author>
+			<persName>
+				<forename type="first">T</forename>
+				<surname>Schuepbach</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bioinformatics</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="page" from="1215" to="1217" />
+			<date type="published" when="2013" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Implementation and performance analysis of efficient index structures for DNA search algorithms in parallel platforms</title>
+		<author>
+			<persName>
+				<forename type="first">N</forename>
+				<surname>Sebastiã O</surname>
+			</persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012" />
+			<publisher>Concurrency Comput. Pract. Exp</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct   xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Kraken: ultrafast metagenomic sequence classification using exact alignments</title>
+		<author>
+			<persName>
+				<forename type="first">D</forename>
+				<forename type="middle">E</forename>
+				<surname>Wood</surname>
+			</persName>
+		</author>
+		<author>
+			<persName>
+				<forename type="first">S</forename>
+				<forename type="middle">L</forename>
+				<surname>Salzberg</surname>
+			</persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Genome Biol</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="page">46</biblScope>
+			<date type="published" when="2014" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>
