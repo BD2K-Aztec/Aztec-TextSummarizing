@@ -1,0 +1,1394 @@
+ORIGINAL PAPER
+
+Vol. 28 no. 20 2012, pages 2592-2599
+doi: 10. 1 093/bioinformatics/bt55 05
+
+ 
+
+Sequence analysis
+
+Advance Access publication August 24, 2012
+
+RazerS 3: Faster, fully sensitive read mapping
+
+David Weese*, Manuel Holtgrewe and Knut Reinert
+Department of Mathematics and Computer Science, Freie Universitat Berlin, Takustr. 9, 14195 Berlin, Germany
+
+Associate Editor: Michael Brudno
+
+ 
+
+ABSTRACT
+
+Motivation: During the past years, next-generation sequencing has
+become a key technology for many applications in the biomedical
+sciences. Throughput continues to increase and new protocols pro-
+vide longer reads than currently available. In almost all applications,
+read mapping is a first step. Hence, it is crucial to have algorithms and
+implementations that perform fast, with high sensitivity, and are able to
+deal with long reads and a large absolute number of insertions and
+deletions.
+
+Results: RazerS is a read mapping program with adjustable sensitivity
+based on counting q-grams. In this work, we propose the successor
+RazerS 3, which now supports shared-memory parallelism, an add-
+itional seed-based filter with adjustable sensitivity, a much faster,
+banded version of the Myers’ bit-vector algorithm for verification,
+memory-saving measures and support for the SAM output format.
+This leads to a much improved performance for mapping reads, in
+particular, long reads with many errors. We extensively compare
+RazerS 3 with other popular read mappers and show that its results
+are often superior to them in terms of sensitivity while exhibiting prac-
+tical and often competitive run times. In addition, RazerS 3 works
+without a pre—computed index.
+
+Availability and Implementation: Source code and binaries are freely
+available for download at http://www.seqan.de/projects/razers.
+RazerS 3 is implemented in C++ and OpenMP under a GPL license
+using the Squn library and supports Linux, Mac OS X and Windows.
+Contact: david.weese@fu-berlin.de
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on March 3, 2012; revised on August 6, 2012; accepted on
+August 9, 2012
+
+1 INTRODUCTION
+
+Next-generation sequencing allows researches to produce billions
+of base pairs (bp) within days in the form of reads of length
+100 bp and more. It has become an invaluable technology for a
+multitude of applications, e.g. the detection of single-nucleotide
+polymorphisms (SNPs) and large structural genome variations,
+targeted or de novo genome or transcriptome assembly,
+isoform prediction and quantiﬁcation, identification of transcrip-
+tion factor binding sites or methylation patterns. In many of
+these applications, mapping sequenced reads to their potential
+genomic origin is the ﬁrst fundamental step for subsequent
+analyses.
+
+A variety of tools have been designed speciﬁcally for the pur-
+pose of mapping short reads. In a recent publication, Li and
+
+ 
+
+*To whom correspondence should be addressed.
+
+Homer (2010) give a survey and categorize the existing tools
+into approaches using a q—gram index for a seed-and-extend
+strategy (e.g. Ahmadi et al., 2011; Alkan et al., 2009; Bauer
+et al., 2010; David et al., 2011; Weese et al., 2009) or recursively
+descending a sufﬁx tree (Hoffmann et al., 2009) or preﬁx tree
+(Langmead et al., 2009; Langmead and Salzberg, 2012; Li et al.,
+2009; Li and Durbin, 2009) of the reference genome.
+
+Recursive approaches are usually designed for the fast search
+of one or a few locations where reads map with low error rates.
+These search algorithms are mostly based on heuristics and opti-
+mized for speed instead of enumerating all possible locations.
+Conversely, approaches based on the seed-and-extend strategy
+allow such an (often approximate) enumeration. The ﬁrst class
+of approaches aims at directly finding the ‘best’ location for
+mapping a read (best-mappers), whereas the second class aims
+at enumerating a comprehensive set of locations (all-mappers).
+
+RazerS (W eese et al., 2009) is an all-mapper that uses q-gram
+counting for read mapping with controllable sensitivity. This
+means it can guarantee to ﬁnd all locations a read maps to in
+a reference sequence. At the same time, it works with practicable
+performance.
+
+Since the original publication in 2009, sequencing technology
+has advanced to produce longer reads. The increasing length
+leads to a larger absolute number of errors to be considered, a
+problem that is aggravated by new technologies that have a
+higher error rate (e. g. PacBio). Older read mappers have difﬁcul-
+ties mapping long reads with high number of errors with a high
+sensitivity.
+
+In this article, we address this problem and propose a new read
+mapper RazerS 3, which is able to map reads of arbitrary length
+with a large number of insertions and deletion (indel) errors. Our
+novel contributions are as follows: (1) The use of OpenMP to
+provide a shared-memory parallelization with dynamic load bal-
+ancing. (2) In addition to the q—gram counting filter used in
+RazerS, we implemented a pigeonhole-based filter with control-
+lable sensitivity, since it proved to be superior for low error rates.
+(3) An implementation of a banded version of Myers’ bit-vector
+algorithm, which we use for the verification, similar to Hyyro
+(2003), which is up to four times faster than the previous,
+unbanded version.
+
+These algorithmic improvements lead to a running time that is
+an order of magnitude faster than RazerS while keeping the
+guarantee for full sensitivity. Various extensive benchmarks
+show higher sensitivity when compared with other approaches,
+especially best-mappers. Furthermore, the running time is super-
+ior to the considered all-mappers and competitive or superior to
+best-mappers on medium-sized genomes. On large genomes, the
+running time is still practical and only about three times slower
+than that of BWA while being more sensitive. RazerS 3 does not
+
+ 
+
+2592 © The Author 2012. Published by Oxford University Press. All rights reserved. For Permissions, please e—mail: journals.permissions@oup.com
+
+112 /310's112u1n0[p10}x0"sotJBuiJOJutotq/ﬁduq 11101} papaolumoq
+
+9103 ‘Og isnﬁnV uo ::
+
+RazerS 3
+
+ 
+
+rely on a pre-computed index like the tree-based tools and is in
+this respect more ﬂexible.
+
+2 METHODS
+
+The RazerS algorithm consists of a ﬁltration and a veriﬁcation part. In
+the ﬁltration part, the genome is scanned for regions that possibly contain
+read matches. The results from the ﬁltration are then subjected to a
+verification algorithm.
+
+Formally, we consider the read mapping problem: the input is a ref-
+erence sequence S, a set of reads R, a distance function 8 and a maximal
+distance k. The solution of the problem is the set of all locations
+(matches) in S where the read r is found with distance 5 k under 8 for
+each read r.
+
+Common distance measures are Hamming and edit distance. The
+Hamming distance counts the minimal number of replacements, whereas
+the edit distance allows indels. Under edit distance, matches can be am-
+biguous. The authors explained how to treat such ambiguities and how to
+derive a gold standard benchmark for read mapping in Holtgrewe et a].
+(2011). This is summarized in Section 2.3.
+
+RazerS 3 supports both Hamming and edit distance read mapping.
+Both modes can be run with full or user-deﬁnable sensitivity on multiple
+CPU cores, which allows for time-sensitivity trade-off.
+
+2.1 Filtration
+
+To make RazerS 3 applicable to a broad spectrum of use cases, we im-
+plemented two fast ﬁltration algorithms, which differ in ﬁltration speci-
+ﬁcity and processing speed. In Section 3.1, we analyze which ﬁlter
+performs best under different typical read mapping scenarios. The ﬁrst
+ﬁlter, based on the SWIFT algorithm, was already used in RazerS and is
+hence only shortly described here. It is still operational in RazerS 3 since
+it is superior to the second ﬁlter for high error rates.
+
+2.1.] SWIFT The ﬁrst ﬁlter is a modiﬁed SWIFT algorithm
+(Rasmussen et al., 2006), which divides the dot plot between genome
+and reads into overlapping parallelograms. In a linear scan over the ref-
+erence sequence, the number of common exact q-grams between read and
+the reference subsequence is counted for each parallelogram.
+Parallelograms that contain a sufﬁcient number of common exact 11-
+grams are considered as candidate regions of semi-global alignments be-
+tween reads and reference sequences with a tolerated number of errors.
+For more details, we refer the reader to Weese et a]. (2009).
+
+2.1.2 Pigeonhole principle The second ﬁlter is new and is based on
+the pigeonhole principle which states that if a read is cut into k + 1 pieces,
+then in every approximate match of the read with at most k errors occurs
+at least one piece without error (Baeza-Yates and Navarro, 1999). If all
+reads have the same length m, they are cut into Lam + 1] pieces of length
+(1 = Lm/ Lam + 1]], where a is the tolerated error rate. For reads of ar-
+bitrary length, the minimal (1 is chosen to build a q-gram index over the
+pieces of the reads. These pieces are then searched in a linear scan of the
+reference sequence. For every exact match, the dot plot parallelogram,
+consisting of the diagonals that are at most k diagonals apart of the
+matching piece, is considered as a candidate region for a match within
+the tolerated edit distance. In Hamming distance mode, only the diag-
+onals that cover matching pieces are considered as candidate regions.
+The candidate parallelograms of all matching pieces are recorded and
+verified in the subsequent verification step. Compared with the SWIFT
+ﬁlter, this ﬁlter requires less processing time and, due to non-overlapping
+seeds, less indexed q-grams at the expense of less ﬁltration speciﬁcity
+and more veriﬁcations (more results can be found in Supplementary
+Table S1).
+
+2.2 Lossy ﬁltration and prediction of sensitivity
+
+Both ﬁlters are fully sensitive if parameterized as described above, i.e.
+every occurrence of a read within the tolerated edit or Hamming distance
+will be detected as a candidate region and positively veriﬁed in the veri-
+ﬁcation step. In our previous work, the use of a lossy ﬁlter could improve
+the overall running time by an order of magnitude while still detecting
+99% of all matches (see Weese et al., 2009). Our approach is based on
+given positional error probabilities pi, i.e. the probability that in a ran-
+domly chosen true match of any read there is an error at position i. As
+errors we consider base miscalls and mutations, and before mapping
+compute the error proﬁle [7,- based on base-call quality values and a
+user-speciﬁc mutation rate. Given the error proﬁle and speciﬁc ﬁltration
+parameters, we propose how to estimate the probability to miss a random
+match and vice versa how to choose more efﬁcient ﬁltration parameters
+that guarantee a speciﬁc minimal sensitivity. We sketch the procedure
+shortly for the SWIFT ﬁlter and then elaborate the method for the
+pigeonhole ﬁlter.
+
+2.2.] Predicting SWIFT sensitivity The SWIFT ﬁlter has two
+parameters, the q-gram shape Q and the threshold t. The shape is a set
+of relative positions of the (1 considered characters. For example, ##-#
+corresponds to a 3-gram with shape Q = {0, 1, 3} and the two 3-grams
+with shape Q in the string GTTCA are GTC and TTA. Of all overlapping
+q-grams with shape Q contained in a read, the threshold t is the minimal
+number of q-grams occurring without error in the reference a candidate
+region must have. By increasing (1 or t, the number of candidate regions
+and also the overall running time can be reduced at the expense of ﬁltra-
+tion sensitivity.
+
+To decide whether an arbitrary Hamming distance match is detected as
+a candidate region, it sufﬁces to consider the positions of replacements
+between read and reference instead of whole sequences and count the
+number of q-grams without a replacement. Assuming the independence
+of errors, the occurrence probability of this match can be computed by
+the given positional error probabilities. In Weese et a]. (2009), we devised
+an algorithm to efﬁciently compute the sensitivity using dynamic pro-
+gramming instead of exhaustive search for both Hamming and edit
+distance.
+
+2.2.2 Predicting pigeonhole sensitivity A lossless pigeonhole ﬁlter
+divides a read into at least k+1 fragments and uses them as seeds to
+detect all k-error matches. As fragments we use the ﬁrst k+1
+non-overlapping read q-grams where q is chosen as large as possible.
+In expectation, every read q-gram has n/4’1 occurrences in a genome of
+length n. To reduce the number of random candidates and to reduce
+the overall running time, we increase (1 and allow the seeds to overlap.
+However, with overlapping seeds, some of the mismatch patterns will be
+missed by the ﬁlter, e.g. if every odd seed overlap contains an error.
+With a (q, A)-seed filter, we denote a ﬁlter that uses all q-grams starting
+at multiples of A in the read as seeds, with 11/2 5 A 5 (1, such that ad-
+jacent q-grams overlap by q — A characters. To compute the sensitivity of
+such a ﬁlter, we consider mismatch patterns between a read of length
+m and all of its true matches. (A mismatch pattern is a binary string,
+with 0’s at matching and 1’s at mismatching positions.) The sensitivity
+for matches with e = 0,1, ...,k errors is the sum of occurrence
+probabilities of e-error mismatch patterns that are detected by the ﬁlter
+divided by the probability that an e-error mismatch patterns occurs.
+Instead of enumerating all possible e-error mismatch patterns, we
+devised a DP (dynamic programming) algorithm that virtually split
+the mismatch pattern into segments at q-gram boundaries
+A,q, 2A, A + q, ...,(k +1)A,kA + q and denote the ﬁrst 2(k+ 1) seg-
+ments from left to right as x0,y0, x1,y1 . . . , xk,yk (see Fig. 1). Our ap-
+proach is analogously applicable to edit distance as insertions or deletions
+behave like mismatches in relation to destroyed seeds.
+
+ 
+
+2593
+
+112 /310's112u1n0fp10}x0"soiJBMJOJuioiq//:d11q 11101} papnolumoq
+
+9103 ‘Og isnﬁnV uo ::
+
+D. Weese et al.
+
+ 
+
+ 
+
+Fig. 1. A (q, A)-seed ﬁlter, with q = 8 and A = 6, for searching matches
+with up to k = 3 errors (seed i consists of segments yH, x,- and y,-, except
+for i = 0)
+
+The probability P(||M[i..j) || 1 = e) that a random mismatch pattern
+M contains e errors in a segment from position i to j — 1 can be computed
+as follows using positional error probabilities pi:
+
+. . 1, ife = 0
+P(||M[l--l)||1= 6) =
+0, else.
+1 —Pi, ife = 0
+P(llMIi--i+1)ll1= e) = pi. ife =1
+0, else.
+
+P(llM[i--j)ll1— e)=(1—pj,1)>P(iiMit.J—1)ii1= e)
++ P171>P(||M[i--j-1)||1= e — 1).
+
+We deﬁne b(i, e, y) to be the probability of the event that the ﬁrst i + 1
+seeds contain overall e errors, each at least one error, and y,- contains
+y errors. Let X ,- and Y,- be random variables for the number of errors in
+the segments x,- and y,-, then L can recursively be computed as follows:
+
+L“) )_ 0, fore=0
+’e’y _ P(X0=e—y)>P(Yo=y), else.
+
+6 siy
+
+Lope.» = Z) 2L0 — Le —s+y’.y’) I P(X.- = s —y —y’)> P(Y,-=y).
+s:1y/:0
+
+The probability that all seeds are destroyed with overall e errors is
+
+Lake) = Z ZLUW — m) I P(||M[kA + q--n)ll1 = x).
+
+(1:0 x:0
+
+and consequently the sensitivity of the (q, A)-seed ﬁlter for matches with
+at most k errors is
+
+Lall(e)
+
+k
+s<q.A,k)=1-Zm'
+
+6:0
+Before starting the mapping, RazerS 3 estimates the sensitivities of
+different ﬁlter settings and maximizes the seed length (1 as it has the
+greatest inﬂuence on the overall running time. Beginning with the lossless
+setting (1 = A = Lm/(k + 1)] , it step-wise increases (1 as long as the esti-
+mated sensitivity is higher than required, q does not exceed the maximal
+seed length of 31 and not more than two seeds overlap (q 5 2A). The
+corresponding step sizes A = [(m — q)/kJ are chosen such that each read
+contains k + 1 overlapping seeds.
+
+2.3 Veriﬁcation
+
+The result of the above described ﬁltration part is a set of candidate
+regions and reads potentially matching there. A candidate region is a
+parallelogram in the dot plot that might contain the alignment trace of
+a match and hence has to be veriﬁed by the veriﬁcation part explained in
+the following.
+
+2.3.] Hamming distance verification In Hamming mode, a match
+covers solely one dot plot diagonal. Hence, the candidate parallelogram
+can be veriﬁed by scanning each diagonal while counting the number of
+
+mismatches between read and reference sequence. A diagonal can be
+skipped as soon as the counter exceeds the number of tolerated errors.
+Otherwise, a match has been found.
+
+2.3.2 Edit distance verification For edit distance veriﬁcation, we
+implemented a banded version of Myers (1999) bit-vector algorithm as it
+was proposed in Hyyr6 (2003) with small adaptions. The original algo-
+rithm by Myers can be used to search a read with at most k edit errors in
+the reference sequence. The underlying idea is the same as in Needleman
+and Wunsch (1970) but the implementation is much more efﬁcient as it
+encodes a whole DP column in two bit-vectors and computes the adjacent
+column in a constant number of 12 logical and 3 arithmetical operations.
+For reads up to length 64 bp, CPU registers can be used directly. For
+longer reads, bit-vectors and operations must be emulated using multiple
+words where only words affecting a possible match needs to be updated
+(Ukkonen, 1985). However, the additional processing overhead results in
+a performance drop for reads of length 65 bp and longer. The variant
+proposed by Hyyré') computes a banded semi-global alignment between
+read and reference, i.e. it only computes DP cells that are covered by a
+parallelogram. Hence, only the columns of the parallelogram need to be
+encoded by bit-vectors which makes it applicable to parallelograms of
+width up to 63 without the need for bit-vector emulation. However, the
+banded variant proposed in Hyyré') (2003) requires bitmasks consisting of
+multiple words for each read as preprocessing information. We imple-
+mented a banded variant of Myers’ algorithm that requires no prepro-
+cessing information at all as we update the ﬁve single-word bitmasks
+(we consider the alphabet Z = {A, C , G , T , N}) during each veriﬁcation.
+This strategy is faster than that of Hyyré') and saves memory. Further
+improvements like the support of clipped parallelograms are explained in
+Supplementary Section S1.
+
+In contrast to Hamming distance veriﬁcation, where the difference
+between begin and end position of every match equals the read length,
+Myers’ algorithm outputs only the end of a match. More precisely, it
+determines the minimal number of errors for a ﬁxed end position and a
+free begin position. To determine a corresponding begin position, we
+search the read backwards with a ﬁxed end position. As edit distance
+scores mismatches and indels equally, there can be multiple best match
+beginnings. We choose the largest best match to optionally shrink it later
+using an alignment algorithm for afﬁne gap costs (Gotoh, 1982) where we
+penalize gaps slightly more than mismatches and penalize an opened gap
+more than an extended a gap. More implementation details of our
+banded variant of Myers’ algorithm can be found in Supplementary
+Section S1.
+
+2.3.3 Island criterion Another improvement in RazerS 3 addresses
+the problem of deﬁning the term match for read mapping. This is dis-
+cussed in detail by Holtgrewe et a]. (2011) when deﬁning the Rabema
+benchmark. We will give a summary of this here.
+
+Read alignments under edit distance can be ambiguous if more than
+one error is allowed. Say, for example, a read aligns perfectly except for
+the ﬁrst base where we observe a mismatch. Let the beginning of the read
+be ACT. . . and align with the genome stretch. . .ACCT. . .. Then, there
+may be two optimal alignments where the read starts with either
+ACT . . .01‘ A-CT. . ..
+
+Such and other ambiguities lead to possibly several local minima
+(in terms of edit distance) around a match. The model for matches
+deﬁned in Holtgrewe et a]. (2011) describes a relaxation of the naive
+requirement to enumerate all edit distance alignments. RazerS 3 uses
+this model and writes out at least one result record for each Rabema
+match.
+
+2.4. Parallelization
+
+2.4.] Match management The overlapping parallelograms of the
+SWIFT ﬁlter or the multiple seeds the pigeonhole ﬁlter may ﬁnd in a
+
+ 
+
+2594
+
+112 /310's1cu1nofp101x0"soiicuiJOJHioiq/ﬁduq 111011 pap1201umoq
+
+9103 ‘0g isnﬁnV uo ::
+
+RazerS 3
+
+ 
+
+single match result in multiple identical or nearly identical matches found
+in the veriﬁcation step. To ﬁlter these duplicates, we regularly search for
+matches of the same read that have an identical begin or end position and
+keep only those with a minimal number of errors. In addition, we use a
+heuristic in the pigeonhole ﬁlter, that for multiple seeds on the same
+diagonal only one candidate region is generated.
+
+If the user speciﬁes a maximal number M of matches per read, we sort
+all matches ascendingly by the number of errors and remove all but the
+ﬁrst M matches of each read. For a read, the number of errors e in the
+M-th match is used to dynamically adjust the ﬁlter and verifier in order to
+search only for matches with less than e errors. If e equals 0, the read can
+be disabled completely.
+
+2.4.2 Processing in window and batches RazerS 3 collects all can-
+didates from windows of a conﬁgured size (default: 500 kb). The resulting
+candidates are split into work packages of a conﬁgured size (default: 100)
+or a larger size if a conﬁgured number of packages is exceeded for a
+window (default: 100 packages). Each package is then veriﬁed by a
+single thread.
+
+Thus, the ﬁltration is performed in a window-based fashion and veri-
+ﬁcation is performed in batches. Locks for shared data structures only
+have to be obtained once for each window or batch. This way, lock
+contention and overhead are kept small while still allowing for ﬁne-
+granular load balancing.
+
+2.4.3 Load balancing scheme We implemented a mixture of static
+and dynamic load balancing: for ﬁltration, reads are statically assigned to
+threads in subsets of equal size. Each thread has a filter for its owned
+reads as well as a veriﬁer, shown as large green/blue rectangles in
+Figure 2. Filtration results (green squares) are written to a global work
+queue.
+
+After thread T,- completes the ﬁltration in its current window, it takes
+candidate packages from the global queue until empty and verifies it.
+Thus, the veriﬁcation work is distributed over threads and dynamically
+load balanced.
+
+Each thread has a queue for each other thread and itself (labeled with
+the thread id) acting as a post box. Thread T,- then writes the veriﬁcation
+results (blue square) to the post box for the owner of its current work
+package. It then writes the longest consecutive stretch of globally avail-
+able veriﬁcation results addressed to itself back into its local result con-
+tainer. (The arrays of matches are subdivided into work packages, of
+which each has an index. A consecutive sequence of packages is a
+sequence of packages whose indices are consecutive.) Matches are
+masked when written back. At the end of the program run, each
+thread performs a global compaction step on its result. A detailed ana-
+lysis of inﬂuence of the chosen ﬁlter on load balancing is given in
+Supplementary Section S2.
+
+collect window mask on
+matches writeback
+
+..|\ 453/}
+ep
+vl/WAIs a a;
+
+Fig. 2. Overview of RazerS 3. Large green/blue rectangles represent the
+ﬁlter/veriﬁcation states (in the ﬁgure with two threads T1 and T2). Small
+green/blue squares represent ﬁltration/veriﬁcation work packages. Gray/
+green funnels represent the masking/compaction step
+
+compaction
+at the end
+
+ﬁltration
+
+ 
+
+2.4.4 Further improvements Another optimization in RazerS 3 is a
+reduction of running time of the masking step by conducting local sorting
+instead of global sorting. As a memory optimization, each ﬁlter uses an
+open addressing q-gram index whose memory footprint is linear in the
+number of stored q-grams (see Supplementary Sections S3 and S4 for
+details).
+
+3 EXPERIMENTAL RESULTS
+
+We compared RazerS 3 with the best-mappers Bowtie 2, BWA
+and Soap 2 as well as the all-mappers Hobbes, mrFAST and
+SHRiMP 2. For running time comparison, we ran the tools
+with 12 threads and used local disks for I/O. We used default
+parameters, except where stated otherwise. Read mappers that
+accept a maximal number of errors (mrFAST, Hobbes and Soap
+2) were conﬁgured with the same error rate as RazerS 3. For a
+fair comparison with best-mappers, we conﬁgured RazerS 3 in a
+second variant to also output one best match per read. The exact
+parameterization is described in Supplementary Section S6.
+
+All read sets are given by their SRA/ENA id. As references we
+used whole genomes of Escherichia coli (NCBI NC_000913.2),
+Caenorhabditis elegans (WormBase WS195), Drosophila melano-
+gaster (FlyBase release 5.42) and human (GRCh37.p2).
+The mapping times were measured on a cluster of nodes with
+72 GB RAM and 2 Intel Xeon X5650 processors (each with six
+cores) per node running Linux 3.2.0.
+
+3.1 Comparing the SWIFT and pigeonhole ﬁlters
+
+RazerS 3 provides support for two string metrics (Hamming and
+edit distance) and two ﬁlter variants (SWIFT and pigeonhole
+ﬁlter). To investigate which filter performs best on which kind
+of input and metric, we conducted an experimental evaluation of
+the time required to map different real datasets for varying map-
+ping settings.
+
+For this reason, we ran RazerS 3 in both filtration modes for
+reads of lengths 30, 50, 70 and 100 bp for the references of E. coli,
+C. elegans and chr. 2 of human with error rates of 040%.
+Figure 3 shows an excerpt of the resulting experimental map
+for mapping reads to chr. 2 of human using Hamming and
+edit distance at 100% sensitivity. Supplementary Figure S5
+shows the full result set and Supplementary Table S2 describes
+the datasets we used.
+
+H. sapiens, edit, 100% H. sapiens, Hamming, 100%
+1:32
+
+1:16
+
+ 
+
+error rate (%)
+
+      
+
+omummpmN-Ao
+wmummme—Ao
+
+0 J
+
+30 50 70 100
+read length (bp) PH:SW|FT
+
+0
+
+32:1
+30 50 70 100
+
+read length (bp)
+
+Fig. 3. Experimental map for human chr. 2 with different read lengths
+and error rates. Ratios between the mapping times with pigeonhole and
+SWIFT are color coded in the plots
+
+ 
+
+2595
+
+112 /310'S[BHJUOIPJOJXO'SOIJBLUJOJIIIOlq/ﬂduq 111011 pap1201umoq
+
+9103 ‘0g isnﬁnV uo ::
+
+D. Weese et al.
+
+ 
+
+The result shown in Figure 3 is representative for our overall
+results and shows the running time ratios between mapping with
+the pigeonhole and SWIFT ﬁlter. We observe that for edit dis-
+tance, the pigeonhole ﬁlter always leads to shorter running times
+than the SWIFT ﬁlter. For Hamming distance, the pigeonhole
+ﬁlter is well suited for low error rates (up to 6%), whereas the
+SWIFT ﬁlter yields better mapping times for higher error rates.
+Astonishingly, the factors between the two methods range from
+1:32 to 32:1.
+
+The differences in mapping times can be explained by the dif-
+ferent characteristics of both ﬁlters. Compared with SWIFT, the
+simpler but less specific pigeonhole ﬁlter requires no counting
+and hence less processing overhead, which compensates the
+increased number of verifications for low error rates. With an
+increase in error rate, the speciﬁcity of both ﬁlters deteriorates
+equally for edit distance. For Hamming distance, gapped shapes
+compensate this degradation and make the SWIFT ﬁlter much
+more speciﬁc than the pigeonhole filter, which is based on
+ungapped q—grams. Supplementary Section S2 gives a detailed
+comparison of the inﬂuence of the filter choice on the running
+time and load balancing.
+
+In the following, we will denote RazerS 3 in edit distance mode
+using the pigeonhole ﬁlter with given sensitivity rate as R3-100
+and R3-99. Similarly, we will denote RazerS 3 using SWIFT in
+edit distance mode with R3-SW-99 and R3-SW—100.
+
+3.2 Veriﬁcation of expected pigeonhole sensitivity
+
+In this experiment, we examine the accuracy of the sensitivity
+estimation for our new pigeonhole filter.
+
+We used 10M ﬂy reads of length 75 bp (SRR060093) and
+10M human reads of length 100 bp (ERR012100). For each
+read set, we computed a reference set consisting of all reads
+that can be mapped uniquely with up to 5% errors. From the
+mapping results, we determined positional error probabilities
+and used them to estimate the fraction of k-error matches lost
+by a (q, A)-seed filter (loss rate) while varying the q-gram length
+q=16,...,31 and the q—gram overlap q — A = 0, ..., 10. The
+estimated loss rates were compared with the loss rates observed
+after mapping the reference read sets with the same filtration
+settings and are shown on the left-hand side in Figure 4. As a
+sanity check, we simulated 10M reads of length 75 and 100 bp
+from the ﬂy and human genome and implanted errors with the
+same positional error proﬁle and repeated the whole comparison.
+
+The results are shown on the right-hand side in Figure 4. Dots
+below the diagonal correspond to experiments with an empirical
+sensitivity higher than estimated and above the diagonal the em-
+pirical sensitivity was overestimated. As a measure of accuracy,
+we use the relative difference between empirical and estimated
+loss rate. The dashed line shows the mean relative difference of
+all experiments up to a certain estimated loss rate. We observe a
+high level of agreement for simulated reads with a mean relative
+difference <1% for loss rates between 0 and 10%. On real data,
+the predicted loss rates between 0 and 10% show a mean relative
+difference of 3% on the ﬂy and 14% on the human read set.
+
+We explain this deviation by a correlation of sequencing errors
+at adjacent positions, whereas our model assumes independence
+of errors. This error correlation has also been observed in
+Dohm et al. (2008) and may be the result of molecules, which
+
+D. melanogaster 75bp D. melanogaster 75bp, simulated
+
+20
+
+20
+20
+
+15
+emprical loss rate (%)
+10
+9i
+,p
+I
+0
+mean relative difference (%)
+
+15
+
+p
+ii
+
+10
+
+ 
+
+emprical loss rate (%)
+10
+mean relative difference (%)
+
+o
+m A .— u) .l—
+A
+o 1error A aermrs o 1error A serrors
+o f n 2err0rs a o n zerrors a
+
+o 5 1 o 1 5 20 o 5 1 o 1 5 an
+estimated loss rate (%) estimated loss rate (%)
+
+ 
+
+ 
+
+H. sapiens 100bp H. sapiens 100bp, simulated
+
+ 
+
+ 
+
+ 
+
+    
+
+-------------- ",1 n\° , o\°
+" ""' x1 V A V
+S .r, ,x +10 g S .n * o g
+V ,_ xx 1; c V ._ ,_ c
+:3 33% : a g a
+._ Xx : a) r. n)
+m {s45 .35 m .1! SE
+a: o x,“ A 'c w o .............. ..o '0
+2 '— a) 2 " a:
+_ X > _ >
+m 1“ 3: m . 2:
+.2 x" - g .2 - g
+E. X 'o 9 '5. 'o 9
+g” 7 s E” 7 g
+
+0 terror + 4errors Q) 0 1 error + 49"ch (I)
+
+n Zerrors x sermrs E n Zermrs x 5errors E
+
+ 
+
+ 
+
+ 
+
+ 
+
+o A 3 errors A 3 errors
+
+—20
+
+o
+
+ 
+
+ 
+
+O S 1'0 1'5 2'0 ('3 5 1'0 1'5 2'0
+estimated loss rate (%) estimated loss rate (%)
+Fig. 4. Validation of the estimated sensitivity. We compared the esti-
+mated with the observed loss rate (l-sensitivity) of unique matches with
+different numbers of errors for (q, A)-seed ﬁlters with q = 16, . . . , 31 and
+overlaps between 0 and 10. We evaluated real (left) and simulated reads
+
+(right) using the observed error proﬁle
+
+are out of phase for multiple cycles in the sequencing process and
+lead to interferences with signals of adjacent bases. However, this
+correlation shows no negative inﬂuence as in none of our experi-
+ments the effective sensitivity was overestimated by our model.
+
+3.3 Rabema benchmark results
+
+Next, we used the Rabema benchmark (Holtgrewe et al., 2011)
+(v1.1) for a thorough evaluation and comparison of read map-
+ping sensitivity. As datasets, we simulated 100k reads of length
+100 bp from the whole human genome with Mason (Holtgrewe,
+2010) and distributed sequencing errors like in a typical Illumina
+experiment (see Supplementary Section S9 for more details).
+
+The benchmark contains the categories all, all-best, any-best
+and recall. In the categories all, all-best and any-best, a read
+mapper has to ﬁnd all, all of the best or any of the best edit
+distance matches for each read. The category recall requires a
+read mapper to ﬁnd the original location of each read, which is a
+measure independent of the used scoring model (edit-distance or
+quality-based). The benchmark was performed for an error rate
+of 5%.
+
+To compare the sensitivity fairly, we conﬁgured read mappers
+as best-mappers and as all-mappers if possible (BWA, Bowtie 2
+and RazerS 3). We parametrized the best-mappers for high sen-
+sitivity and multiple matches. We do not consider running time
+here, since best-mappers are not designed for ﬁnding all matches
+and consequently consume more time (up to 3h in a run com-
+pared with several minutes). The aim here was to investigate
+sensitivity and recall.
+
+The results are shown in the left part of Table 1. As expected,
+the all-mappers generally perform better than the best-mappers.
+
+ 
+
+2596
+
+112 /310'S[BHJUOIPJOJXO'SOIJBLUJOJIIIOlq/ﬂduq 111011 pap1201umoq
+
+9103 ‘0g isnﬁnV uo ::
+
+RazerS 3
+
+ 
+
+Table 1. Rabema benchmark results (left) and variant detection results (right)
+
+ 
+
+method all all-best
+Bowtie 2
+
+BWA
+Soap2
+R3—100
+R3-95
+Bowtie 2
+BWA
+Hobbes
+mrFAST
+SHRiMP 2
+R3-100
+R3-95
+
+any-best
+
+ 
+ 
+    
+  
+    
+ 
+    
+
+best-mappers
+
+  
+
+all-mappers
+
+IN?) (210) (410) (1,1) (I 12) (013)
+method prec. reel. precl red, prec. reel, pres. recl. prec, reel, prec. reel.
+
+recall
+
+ 
+
+(0,0) (4,0) (8,0) (2,2) (214) (05)
+method prec. reel. precl red, prec. reel, pres. recl. prec, reel, prec. reel.
+
+Hobbes
+mrFAST
+SHRIMP 2
+= rte-100
+R355
+
+ 
+
+Rabema scores are given in percent (average fraction of matches found per read. Large numbers are the total scores in each Rabema category and small numbers show the
+
+category scores separately for reads with (3’ i g
+
+errors. Variant detection results are shown for single-end (top right) and paired—end read (bottom right). The percentages of
+
+found origins (recall) and fractions of unique reads mapped to their origin (precision) are grouped by reads with s SNPs and i indels (s, i).
+
+In addition, as expected, mappers lose more of the high-error
+locations than low-error locations. Surprisingly, Bowtie 2 and
+BWA are better than the all-mapper Hobbes. Soap 2 is low sen-
+sitive to reads with more than two errors as it allows at most two
+mismatches in total and by chance aligns some of the reads with
+more errors by replacing all N’s in the reads by a G’s. R3-100 is
+the most sensitive method, followed by mrFAST (which is not
+fully sensitive for higher error rates), SHRiMP 2 and Bowtie 2.
+Even when conﬁgured as a best-mapper (i.e. only reporting one
+best match), RazerS 3 achieves the best scores.
+
+3.4 Variant detection
+
+The next experiment analyzes the applicability of RazerS 3 and
+other read mappers in sequence variation pipelines. Similarly to
+the evaluation in David et al. (2011), we generated 5 million read
+pairs of length 2 x 100 bp with sequencing errors, SNPs and
+indels from the whole human genome such that each read has
+an edit distance of at most ﬁve to its genomic origin. To distrib-
+ute sequencing errors according to a typical Illumina run, we
+used the read simulator Mason with the default proﬁle settings.
+The reads (pairs) were grouped according to the numbers of
+contained SNPs and indels, where the group (s and i) consists
+of reads (pairs) with s SNPs and i indels in total. We mapped the
+reads both as single and paired-end reads and measured the
+sensitivities separately for each class and read mapper.
+
+A read (pair) was mapped correctly if an alignment (paired
+alignment) has been found within 10 bp of the genomic origin. It
+is considered to map uniquely if only one alignment was reported
+by the mapper. For each class, we deﬁne recall to be the fraction
+of all contained reads (pairs) and precision the fraction of
+uniquely mapped reads (pairs) that were mapped correctly. The
+right side of Table 1 shows the results for each read mapper and
+class, where the upper and lower table contain the single-end and
+paired-end results. An extended version of this table is given in
+Supplementary Section S1 1.
+
+Comparing the all-mappers results, R3-100 shows the highest
+recall and precision values on both the single and paired-end
+
+datasets. mrFAST is also full sensitive on the single-end dataset
+but has a low recall value of 8% for pairs with 5-bp indels.
+SHRiMP 2 shows full precision in all classes and experiments
+but misses some non-unique alignments. Hobbes seems to have
+problems with indels and shows the lowest sensitivities in the
+all-mapper comparison.
+
+Surprisingly, R3-100 is the most sensitive best-mapper even in
+the non-variant class (0,0) where the simulated qualities could
+possibly give quality-based mappers an advantage. For
+paired-end reads where matches are also ranked by their devi-
+ation from the library size, it is even more sensitive than the
+all-mappers Hobbes and mrFAST. As observed in David et al.
+(2011), quality-based mappers like Bowtie 2, BWA and Soap 2
+are not suited to reliably detect the origin of reads with variants.
+Their recall values deteriorate with more variants as they prefer
+alignments where mismatches can be explained by sequencing
+errors instead of natural sequence variants. The low sensitivity
+of Soap 2 is again due to its limitation to at most two
+mismatches.
+
+3.5 Performance comparison
+
+In the last experiment, we compare the real-world performance
+of RazerS 3 with other read mappers. To this end, we mapped
+four different sets of 10 million Illumina read pairs of length
+2 x 100 bp from E. coli, C. elegans, ﬂy and human, as well as
+six simulated datasets consisting of 1 million simulated read pairs
+of length 2 x 200bp, 2 ><400bp and 2 x 800bp from ﬂy and
+human to their reference genomes. We mapped the reads both
+as single and paired-end reads with 4% error rate and measured
+running times, peak memory consumptions, mapped reads
+(pairs) and reads (pairs) mapped with minimal edit distance.
+We compared RazerS 3 in default mode with other all-mappers
+and conﬁgured it to output only one best match per read for the
+best-mapper comparison. Since mrFAST supports no
+shared-memory parallelization, we split the reads into packages
+of 500k reads and mapped them with 12 concurrent processes of
+mrFAST. Hobbes’ large memory consumption also required to
+
+ 
+
+2597
+
+ 
+
+ 
+
+1r: /810's112um0_fp101x0'so1112u1101u101q/ﬁd1111 mot} pQPEOIII/IAOCI
+
+9103 ‘09 isanV uo ::
+
+D. Weese et al.
+
+ 
+
+Table 2. Mapping times and accuracy of single-end mapping
+
+ 
+
+ 
+
+dataset SRR497711 ERR012100 simulated, m = 800
+D. melanogaster H. sapiens D. melanogaster
+time correctly mapped mapped reads time correctly mapped mapped reads time correctly mapped mapped reads
+method [minzs] reads [%] [%] [min:s]
+
+ 
+ 
+ 
+   
+ 
+   
+ 
+   
+ 
+   
+ 
+   
+     
+      
+ 
+      
+ 
+        
+   
+    
+
+ 
+ 
+
+75.52
+
+73.57
+
+Soap2 1 :55 72“ 2:34
+R3-100 1:28 _ 716° 85:56
+R3-95 1:26 78.82 52;“ 67f" 7959 43:16
+Hobbes 4:51 1 7‘“ 265248
+mrFAST 4:01 W 413:40
+SHRIMP2 23:40 1312:09
+R3-100 1:51 V 118:26
+R3-95 1:45 78.82 52-“ 573‘ 73-59 58:13
+
+75.94 78.82
+
+best—mappers
+
+   
+
+   
+
+73.66
+
+all-mappers
+
+   
+
+73.69
+
+reads [%] [%] [minzs] reads [%] [%]
+
+82.51 911.05
+0.00 40.61 68.09
+63.09 63.09
+
+0.00 28.17 37.88
+38'14 33.14 38.14
+
+90.43 0.06 41.13 74.1:
+
+82.55 90.43
+
+9043 0.00 41.15 74.13
+
+6932 0.00 89.54 69.82
+
+69.32 59.52
+0.00 41.04 73.67
+99'31 01.60 59.14
+
+0.06 41.13 74.13
+ 82.65 30.43
+
+90.43 0.06 41.13 74.13
+
+82.85 90.43
+
+The left side shows the results for the ﬁrst 10M X 100 bp single—end reads of two Illumina datasets. The dataset on the right consists of l M X 800 bp simulated single—end
+reads with a stretched Illumina sequencing error proﬁle. Hobbes could not be run on reads longer than 100 bp. In large, we show the percentage of totally mapped reads and in
+
+small the percentages of reads that are mapped with up to ( 32A,  2%
+
+number of errors.
+
+) errors. Correctly mapped reads show the fractions of reads that were mapped with the overall minimal
+
+Table 3. Mapping times and accuracy of paired-end mapping with the same setting as in Table 2
+
+ 
+
+ 
+
+d SRR497711 EFtR012100 simulated, m = 800
+ataset .
+D. melanogaster H. saplens D. melanogaster
+time correctly mapped mapped pairs time correctly mapped mapped pairs time correctly mapped mapped pairs
+method [minzs] pairs [%] [%] [minzs] pairs [%] [minzs] pairs [%] [%]
+
+   
+ 
+ 
+
+Bowtie2 3 89-”
+BWA
+Soap2 5:29
+R3-100 9:01 72.95 325“ “:53 7"“ 176:29
+R3-95 6:56 72.80 325° *3“ 6”“ 135:44
+Hobbes 8:43 1 1 5”" 89:35
+mrFAST 8:26 779:12
+
+59.30
+
+55.93
+
+best—mappers
+
+    
+
+70.04
+
+ 
+
+    
+
+all-mappers
+
+SHRiMP2 47:07 W m 6995 2762:32
+R3-100 7:59 72.95 3;; 3;; 7"“ 184:27
+
+   
+ 
+
+R3-95 7:36 72.80 32"“ w“ 59'“ 16622
+
+72.39 72.30
+
+  
+   
+    
+  
+ 
+
+    
+   
+ 
+   
+ 
+   
+    
+ 
+ 
+
+40.44 40.44
+wean“
+amen“
+71 0.00 24.22 58.37
+51.55
+
+ 0.00 24.50 43.35
+
+45.55 43.35
+wens“
+cram“
+wean”
+
+   
+   
+ 
+    
+ 
+ 
+
+  
+ 
+
+15:04 77.64 35.25 10:47
+1617226
+36.93 15.04 77.65 135.27 230
+36.84 15.04 77:55 135.23 229
+
+  
+ 
+
+85.15
+
+ 
+
+  
+ 
+
+ 
+
+   
+ 
+
+As datasets we used 10M X 2 X 100bp paired—end Illumina reads (left) and l M X 2 X 800 bp simulated paired—end reads with a stretched Illumina sequencing error proﬁle
+(right). There were none of the 2 X 800 bp pairs without error (denoted by a ‘7’ in the 0—error class).
+
+map the reads package-wise but with a single process and 12
+threads.
+
+For the evaluation, we use the commonly used measure of
+percentage of mapped reads (pairs), i.e. the fraction of reads
+(pairs) that are reported as aligned in the result ﬁle of the
+mapper. However, as some mappers report alignments without
+constraints on the number of errors, we also determine the frac-
+tion of reads (pairs) whose best match has an error rate of at
+most 0%,...,4% (small numbers in the mapped reads (pairs)
+column in Tables 2 and 3).
+
+We call a read (pair) 8-mappable, if it can be aligned with
+an error rate of 8 (by any mapper). As a more stringent measure
+for edit distance mappers, we call an 8-mappable read (pair)
+correctly mapped if at least one (paired) alignment has
+been found with an error rate of 8. For each mapper, we
+measured the percentage of correctly mapped reads (pairs),
+i.e. the fraction of 8-mappable reads (pairs) for 8 6 [0,4%]
+that are correctly mapped. For a more detailed analysis,
+
+we additionally give the percentages separately for sets of
+8 = 0,8 6 (0, l%],...,8 6 (3,4%].
+
+The results for the ﬂy and human Illumina datasets as well as
+the simulated 800-bp ﬂy dataset are shown in Tables 2 and 3.
+More detailed tables of all datasets are given in Supplementary
+Section S12.
+
+As can be seen, R3-100 aligns all reads with the minimal
+number of errors and achieves the best percentage of correctly
+mapped reads followed by R3-95 in all experiments. A decrease
+in the speciﬁed sensitivity results in a decrease in running time
+and on the human genome R3-95 is up to twice as fast as R3-100.
+As in the previous experiments, the actual sensitivity is always
+higher than speciﬁed.
+
+3.5.1 All-mapper comparison For the single-end lOO-bp data-
+sets, mrFAST is as sensitive but four times slower than R3-100.
+On paired-end reads, it is less sensitive and apparently has prob-
+lems to map long reads with an increased number of absolute
+
+ 
+
+2598
+
+112 /310'S[BHmOIpJOJXO'SOIJBLUJOJIIIOlq/ﬂduq mot} p9p1201um0q
+
+9IOZ ‘OE ISUEHV Ho ::
+
+RazerS 3
+
+ 
+
+errors. In the results of the Illumina paired-end datasets, we
+found some alignments with actual more errors than asserted
+by mrFAST and an error rate >4%. Thus, the number of totally
+mapped pairs is slightly higher compared with R3-100 on the
+Illumina paired-end reads.
+
+On single-end reads, Hobbes is about two times slower and
+only on human paired-end reads faster (up to two times) than
+R3-100. It maps $15% less reads correctly and also the total
+number of mapped reads is less. Hobbes is not able to map reads
+longer than 100 bp and some single-end read packages could not
+be mapped due to repeated crashes (4 of 20 for C. elegans and 1
+of 20 for human). As SHRiMP 2 does not use a maximal error
+rate, it outputs more mapped reads than R3-100 in total.
+However, the percentages of correctly mapped reads are less in
+all experiments. This could be due to its different scoring scheme,
+where two mismatches costs less than opening a gap, but does
+not explain why it misses reads with 0 errors. SHRiMP 2 is $23
+times slower than R3-100 on the Illumina datasets and up to 600
+times slower on the 800 bp datasets.
+
+3.5.2 Best-mapper comparison Compared with other
+best-mappers, R3-95 is faster or equally fast on all E. coli, C.
+elegans and ﬂy datasets. For human reads of length 10(L200 bp,
+it is two to three times slower than BWA and equally fast or
+faster for longer reads. BWA and Bowtie 2 could not be run with
+a maximal error rate and hence map more reads than R3-100 in
+total, but less correctly (in terms of edit distance) as they opti-
+mize for errors at low-quality bases. With longer reads, BWA
+becomes less sensitive and BWA-SW might be the better choice.
+However, we could not compare BWA-SW as it does not align
+the reads from end to end. As seen before, Soap 2 is low sensitive
+to reads with more than two errors.
+
+3.5.3 Memory requirement In all-mode (best-mode), RazerS
+3 requires 15 GB (9 GB) for mapping 10M reads of length 100 bp
+to hg18. The memory requirement is proportional to the number
+of reads and matches, about 10 GB are required for each add-
+itional 10M x 100 bp reads. For the same input set, Bowtie 2
+uses 3.3 GB, BWA uses 4.5 GB, Soap 2 uses 5.4 GB and
+SHRiMP 2 uses 38 GB. Due to the lack of parallelization or a
+high memory consumption, we ran mrFAST and Hobbes on
+packages of 500k reads where they required 11 and 70 GB of
+memory. Supplementary Section S7 contains a detailed discus-
+sion of the memory requirements of RazerS 3 and
+Supplementary Section S12 contains tables that also show the
+full memory requirements. A large read set, e.g. an Illumina
+HiSeq run, can be mapped on clusters or low memory machines
+by splitting it into blocks of appropriate size and mapping them
+separately.
+
+4 DISCUSSION
+
+We presented a read mapping program that is faster than (or at
+least competitive to) existing, popular tools while guaranteeing
+full sensitivity following a sensible and formal deﬁnition for both
+Hamming and edit distance. Furthermore, it allows the user to
+lower the sensitivity in a controlled fashion to further lower the
+running time. Third, RazerS 3 can deal with reads of arbitrary
+length and large error rates.
+
+We showed that RazerS 3 has a superior performance in the
+presence of sequence variations. Together with some other
+recent publications, our work shows that the use of the BWT to-
+gether with more or less exhaustive backtracking strategies has its
+limitations if the number of absolute indel errors is large.
+In addition, the above strategies do not need a pre-computed index.
+
+The banded edit distance veriﬁcation algorithm presented here
+should also be considered as a fast algorithmic ingredient for
+future read mappers. Finally, our tool is able to fully leverage
+the in-core parallelism of modern processors.
+
+RazerS 3 was implemented using Squn (D6ring et al., 2008)
+and is publicly available at http://www.seqan.de/projects/razers.
+
+Funding: This work was supported by Deutsche Forschungsge-
+meinschaft [RE-1712/3-1 to MH] and the Federal Ministry of
+Education and Research [16V0080].
+
+Conflict of Interest: none declared.
+
+REFERENCES
+
+Ahmadi,A. et al. (2011) Hobbes: optimized gram—based methods for efﬁcient read
+alignment. Nucleic Acids Res, 40, e41.
+
+Alkan,C. et al. (2009) Personalized copy number and segmental duplication maps
+using next—generation sequencing. Nat. Genet, 41, 106171067.
+
+Baeza—Yates,R.A. and Navarro,G. (1999) Faster approximate string matching.
+Algorithmica, 23, 1277158.
+
+Bauer,M.J. et al. (2010) ELANDV27fast gapped read mapping for Illumina reads.
+In ISMB. ISCB.
+
+David,M. et al. (2011) SHRiMP2: sensitive yet practical short read mapping.
+Bioinformatics, 27, 101171012.
+
+Dohm,J. et al. (2008) Substantial biases in ultra—short read data sets from
+high—throughput dna sequencing. Nucleic Acids Res., 36, e105.
+
+D6ring,A. et al. (2008) Squn an efﬁcient, generic C++ library for sequence ana—
+lysis. BMC Bioinformatics, 9, ll.
+
+Gotoh,O. (1982) An improved algorithm for matching biological sequences. J. Mol
+Biol, 162, 7057708.
+
+Hoffmann,S. et al. (2009) Fast mapping of short sequences with mismatches,
+insertions and deletions using index structures. PLoS Comput. Biol, 5,
+61000502.
+
+Holtgrewe,M. (2010) Masonia read simulator for second generation sequencing
+data. In Technical Report T R-B—10—06 ORGANIZATION. Institut fiir
+Mathematik und Informatik, Freie Universitat, Berlin.
+
+Holtgrewe,M. et al. (2011) A novel and well—deﬁned benchmarking method for
+second generation read mapping. BMC Bioinformatics, 12, 210.
+
+Hyyr6,H. (2003) A bit—vector algorithm for computing levenshtein and damerau
+edit distances. Nord. J. Comput, 10, 2%39.
+
+Langmead,B. and Salzberg,S.L. (2012) Fast gapped—read alignment with Bowtie 2.
+Nat. Methods, 9, 3577359.
+
+Langmead,B. et al. (2009) Ultrafast and memory—efﬁcient alignment of short DNA
+sequences to the human genome. Genome Biol, 10, R25.
+
+Li,H. and Durbin,R. (2009) Fast and accurate short read alignment with
+burrows—wheeler transform. Bioinformatics, 25, 175471760.
+
+Li,H. and Homer,N. (2010) A survey of sequence alignment algorithms for
+next—generation sequencing. Brief. Bioinform., 11, 4737483.
+
+Li,R. et al. (2009) SOAPZ: an improved ultrafast tool for short read alignment.
+Bioinformatics, 25, 196(r1967.
+
+Myers,G. (1999) A fast bit—vector algorithm for approximate string matching based
+on dynamic programming. J. ACM, 46, 3957415.
+
+Needleman,S.B. and Wunsch,C.D. (1970) A general method applicable to the
+search for similarities in the amino acid sequence of two proteins. J.
+Molecular Biol, 48, 4434153.
+
+Rasmussen,K.R. et al. (2006) Efﬁcient q—gram ﬁlters for ﬁnding all epsilon—matches
+over a given length. J. Comput. Biol, 13, 29G308.
+
+Ukkonen,E. (1985) Finding approximate patterns in strings. J. Algorithms, 6,
+1327137.
+
+Weese,D. et al. (2009) Razersefast read mapping with sensitivity control. Genome
+Res, 19, l64(rl654.
+
+ 
+
+2599
+
+112 /310'S[BHJHOIPJOJXO'SOIJ’BLUJOJIIIOlq/ﬂdnq uror} pap1201umoq
+
+9103 ‘0g1sn8nV uo ::
+

@@ -1,0 +1,1155 @@
+ORIGINAL PAPER
+
+Vol. 28 no. 24 2012, pages 3195-3202
+doi:10. 1093/bioinformatics/bt5601
+
+ 
+
+Genome analysis
+
+Advance Access publication October 9, 2012
+
+De novo detection of copy number variation by co-assembly
+
+Jurgen F. Nijkampl‘z'e, Marcel A. van den Broekz'e, Jan-Maarten A. Geertman“,
+
+Marcel J. T. Reinders1'3'5, Jean-Marc G. Daran2'3 and Dick de Ridder1'3'5'*
+
+1The Delft Bioinformatics Lab, Department of Intelligent Systems, Delft University of Technology, 2628 CD Delft,
+2Department of Biotechnology, Delft University of Technology, 2628 BC Delft, 3Kluyver Centre for Genomics of Industrial
+Fermentation, 2600 GA Delft, 4Heineken Supply Chain, Global Research & Development, 2382 PH Zoeterwoude and
+5Netherlands Bioinformatics Centre, 6500 HB Nijmegen, The Netherlands
+
+Associate Editor: Michael Brudno
+
+ 
+
+ABSTRACT
+
+Motivation: Comparing genomes of individual organisms using next-
+generation sequencing data is, until now, mostly performed using a
+reference genome. This is challenging when the reference is distant
+and introduces bias towards the exact sequence present in the refer-
+ence. Recent improvements in both sequencing read length and effi-
+ciency of assembly algorithms have brought direct comparison of
+individual genomes by de novo assembly, rather than through a ref-
+erence genome, within reach.
+
+Results: Here, we develop and test an algorithm, named Magnolya,
+that uses a Poisson mixture model for copy number estimation of
+contigs assembled from sequencing data. We combine this with
+co-assembly to allow de novo detection of copy number variation
+(CNV) between two individual genomes, without mapping reads to a
+reference genome. In co-assembly, multiple sequencing samples are
+combined, generating a single contig graph with different traversal
+counts for the nodes and edges between the samples. In the resulting
+‘coloured’ graph, the contigs have integer copy numbers; this negates
+the need to segment genomic regions based on depth of coverage, as
+required for mapping-based detection methods. Magnolya is then
+used to assign integer copy numbers to contigs, after which CNV
+probabilities are easily inferred. The copy number estimator and
+CNV detector perform well on simulated data. Application of the algo-
+rithms to hybrid yeast genomes showed allotriploid content from dif-
+ferent origin in the wine yeast Y12, and extensive CNV in aneuploid
+brewing yeast genomes. Integer CNV was also accurately detected in
+a short-term laboratory-evolved yeast strain.
+
+Availability: Magnolya is implemented in Python and available at:
+http://bioinformatics.tudelft.nl/
+
+Contact: d.deridder@tudelft.nl
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on March 2, 2012; revised on September 26, 2012;
+accepted on October 2, 2012
+
+1 INTRODUCTION
+
+Genomes can differ in many ways. Several types of variation are
+commonly distinguished, from small local differences such as
+single nucleotide polymorphisms and short insertions and dele-
+tions (indels), to variation involving DNA fragments >l kbp, i.e.
+
+ 
+
+*To whom correspondence should be addressed.
+
+structural variation. Structural variations can be divided into
+balanced and unbalanced mutations. Balanced mutations, such
+as inversions and translocations, preserve the copy number of a
+given allele, whereas unbalanced mutations, such as indels and
+duplications, change the number of copies of the involved allele.
+Differences between genomes in the latter respect are referred to
+as copy number variation (CNV).
+
+Algorithms for variant discovery have until recently started by
+mapping sequencing reads to a reference genome. Subsequently,
+variation between the sequenced genome and the reference is
+inferred by analysing aberrantly mapped reads (Li et al., 2009),
+read-depth variation (Klambauer et al., 2012; Xie and Tammi,
+2009), split-read mappings W e et al., 2009) or a combination of
+aberrantly mapped read pairs and read-depth variation
+(Medvedev et al., 2010). Optionally, reads from the target
+sample in regions with many aberrantly mapped reads can
+then be locally assembled to infer genomic sequence not present
+in the reference genome.
+
+Recently, the Cortex assembler was introduced, the ﬁrst fully
+de new variant detection algorithm, not reliant on a reference
+genome. Cortex is a de Bruijn graph assembler capable of
+co-assembling multiple sequencing samples. In the underlying
+data structure, the de Bruijn graph, the nodes and edges are
+coloured by the samples in which they are observed. By obser-
+ving bifurcations in the graph that separate the colours (bubbles),
+sequence variation is detected.
+
+While bubble finding works well for detecting (simple) vari-
+ation, it does not easily allow CNV detection. A duplication
+event introduces an (almost) identical sequence in the genome,
+i.e. a repeat; furthermore, larger CNV regions are likely to con-
+tain repetitive regions inherent to the genome, such as trans-
+posons and paralogous genes. The resulting repeats pose a
+problem for assemblers, which collapse them into single contigs
+(Fig. 1). Because it is unknown how such collapsed repeats
+should be traversed, i.e. which pairs of incoming and outgoing
+edges should be connected Via the repeat, a bubble cannot be
+detected. Thus, in a de new variation detection setting bubble
+calling is not suitable to detect CNVs.
+
+The number of times a contig occurs in the genome can be
+inferred from read depths, exploiting the fact that assembly auto-
+matically segments the genome into contigs of integer copy
+number. Previously, the A-statistic has been proposed to deter-
+mine whether a contig is unique or represents a collapsed repeat
+(Myers, 2005). Medvedev and Brudno (2009) estimated the copy
+
+ 
+
+© The Author 2012. Published by Oxford University Press. All rights reserved. For Permissions, please e—mail: journals.permissions@oup.com 3195
+
+112 /310'slvu1nofp103x0"sotJBuiJOJutotq/ﬁduq 11101} papnolumoq
+
+91oz ‘Og anﬁnV uo ::
+
+J.F.Nijkamp et al.
+
+ 
+
+(a)
+
+  
+
+A R1 R2 R3 C
+
+ 
+
+ 
+
+01 B R1 R2 R3 D
+
+ 
+
+ 
+
+E R2 F
+
+ 
+
+ 
+
+Fig. 1. Coloured string graphs with two samples, 01 (solid) and 02
+(dashed). The pairs of numbers indicate the traversal count (left for 01,
+right for 02), which are estimated by a PMM. Solid and dashed edges
+represent reads spanning the connected contigs. Bars under the graphs
+represent the unknown corresponding genome structures of the solid and
+the dashed sample. (a) A ‘clean’ duplication of contig R. (b) A more
+complex duplication in which another repeat is enclosed. If the duplicated
+region is large, the centre node R is likely to contain repeats homologous
+to other sequence in the genome, complicating the graph structure
+
+number of a contig using a maximum likelihood ﬂow-solving
+algorithm, assuming a known genome size. Here, we introduce
+a Poisson mixture model (PMM) approach to estimate the copy
+number (CN) of a contig without making assumptions on
+genome size.
+
+The use of a PMM for modelling read depths in segments
+across multiple samples that have been mapped to a reference
+genome was recently introduced (Klambauer et al., 2012). Here,
+we use a PMM in a de new setting to obtain a genome-wide
+model for one genome, rather than in a local segment across
+multiple samples. The algorithm relies on de novo assembly for
+segmentation. We show how this mixture model can be applied
+in coloured assembly graphs to detect CNVs. The algorithm was
+named Magnolya (matched genomes de novo assembly graph
+analysis).
+
+In contrast to Cortex’s De Bruijn graph approach, we use an
+overlap-layout—consensus assembler to generate a contig string
+graph. Contig string graphs are generated by ﬁrst calculating
+pairwise overlaps between reads. A node in the resulting graph
+represents a read, and an edge between two reads represents an
+overlap. The graph is subsequently simpliﬁed by transitive reduc-
+tion, which removes redundant edges, followed by unitigging, a
+process of collapsing simple paths without branches (Myers,
+2005). The result is a contig string graph, in which now the
+nodes represent collapsed reads called contigs, and edges repre-
+sent reads spanning two contigs. The contigs cannot be collapsed
+further, as for each pair of contigs connected by an edge the in-
+or out-degree (dependent on strand) is >l.
+
+String graph assemblers were first developed in the Sanger era,
+to assemble relatively long sequencing reads. The advent of next-
+generation sequencing (NGS), yielding short reads of length
+3&100bp, required development of assemblers not reliant on
+pairwise overlaps of reads, the widely used de Bruijn graph as-
+semblers. However, increasing read lengths produced by NGS
+technology (including the third-generation single-molecule se-
+quencers) are renewing interest in overlap-layout—consensus
+
+assemblers, such as String Graph Assembler, capable of efﬁ-
+ciently assembling mammalian genomes (Simpson and Durbin,
+2012). We extended the string graph by assigning each read a
+colour, corresponding to the sample from which it originated. In
+the resulting coloured contig string graph, we then detect vari-
+ation by modelling read counts per colour with a mixture of
+Poissons and inferring the probability of a CNV.
+
+To our knowledge, we here for the ﬁrst time apply a PMM to
+detect CNVs fully de novo between samples from two individuals.
+This approach has two main advantages. First, no read counti
+based segmentation of the genome is required to distinguish
+regions with different copy numbers; this is handled in the
+co-assembly. Second, there is no bias to a, possibly distant, ref-
+erence genome.
+
+In experiments, copy number estimation using Magnolya is
+demonstrated both on simulated data and on data from the
+genome of an allotriploid wine yeast. Furthermore, CNV detec-
+tion with Magnolya applied to co-assemblies is tested on simu-
+lated data and demonstrated on the aneuploid genomes of two
+Saccharomyces pastorianus brewing yeasts and a laboratory-
+evolved yeast strain.
+
+2 ALGORITHM
+
+We propose an algorithm for CNV detection based on NGS
+data, not reliant on mapping to a reference genome. In this sec-
+tion, we outline how contig copy number can be inferred using a
+PMM (Section 2. l) and how these models are used in a coloured
+co-assembly string graph to detect CNV (Section 2.2). Detailed
+derivations of the formulas can be found in the Supplementary
+Material.
+
+2.1 Contig copy number assignment with a Poisson
+mixture model
+
+2.1.] Assembly segments the genome into integer copy number
+contigs Assemblers would ideally assemble all sequencing reads
+into chromosome-sized contigs (contiguous sequences), but usu-
+ally do not succeed in doing so because of repetitive sequences in
+the genome. Repeats are common in any genome owing to trans-
+posons, rDNA repeats and paralogous genes and homozygous
+regions of two or more copies of a chromosome. Assemblers are
+unable to distinguish multiple copies of an (almost) identical
+sequence. As a result, reads originating from these identical
+sequences are merged into a single contig up until the position
+where the two sequences diverge. In the contig graph, a situation
+where a sequence occurs twice in the genome, ﬂanked by four
+unique sequences, results in a node with and in- and out-degree
+of two. This is the case for sample 01 (solid edges) in Figure la: it
+is unknown whether contig A and C or A and D should be
+connected Via R; therefore, this repeat cannot be resolved with-
+out additional information. However, in the resulting contig
+graph, regions with different copy number are thus automatically
+segmented, and contigs will have integer copy numbers.
+Co-assembling the two target samples is essential to obtain
+contigs with a single copy number for both samples. This negates
+the need for read-countibased genome segmentation of read-
+mapping approaches to CNV detection. In our approach, the
+genome is segmented by bifurcations in the contig graph,
+
+ 
+
+3196
+
+112 /310'S[BHJHO[pJOJXO'SOIIIBLUJOJIIIOIq/ﬂdnq 11101} papBOIII/IAOG
+
+91oz ‘Og isnﬁnV uo ::
+
+De novo detection of CNV
+
+ 
+
+which is based on sequence information instead of read counts.
+For example, if a single sample assembly would have been per-
+formed on the dashed sample, contig R in Figure la would not
+be repetitive, and contigs A-R-C and B-D would be formed.
+Mapping-based CNV detection between the solid and dashed
+sample would require segmenting contig B-R-D based on read
+depth variation in the solid sample, which introduces inaccura-
+cies. By co-assembly we exploit the assemblers inability to resolve
+repeats to obtain precisely delineated contigs with a unique copy
+number difference.
+
+2.1.2 Modelling read depths on contigs with a Poisson mixture
+model The copy number of a contig can be inferred from the
+number of reads that start on a contig. We can model the
+observed number of reads xc that start on a contig c e C with
+a given copy number i as p(xcli). The data set contains contigs
+with different copy numbers, which together are modelled as a
+mixture model containing M components:
+
+M
+p(x.) = Zp(i)P(xCli) (1)
+i=1
+
+The number of reads sampled from a certain nucleotide pos-
+ition in the genome can be modelled as a Poisson process (Myers,
+2005), with rate parameter A = g, where R is the total number of
+reads and G is the genome length. p(xcli) can thus be replaced by
+a Poisson distribution Pois(xc|6,-,c), yielding the following:
+
+M
+p(xc) = Z mPois(xc|6,-,c) (2)
+[:1
+
+The parameters are the mixture coefﬁcients the 71,-, estimates of
+p(z)’s and the Poisson parameters 6” = LciA, with LC the contig
+length and i the copy number (i.e. the mean number of reads in a
+contig with copy number i is modelled as directly proportional
+to i). We cannot compute A directly because we do not know the
+genome size G; therefore, we estimate A and the n,- from the data,
+which we do by Expectation Maximization (EM).
+
+2.1.3 Higlbcopy number repeats Speciﬁc repetitive regions in
+the DNA occur at high copy number, such as ribosomal DNA
+repeats and transposons. We are not interested in modelling the
+copy number of these repeats. Therefore we View them as outliers
+and capture the contigs with a copy number higher than
+(M + l)LcA in a shifted geometric distribution (model M + 1).
+We define the set of highwopy number repeat contigs Z as
+
+Z={ceC:xcz(M+l)LcA} (3)
+
+The outlier distribution for the highwopy number repeats is
+defined as
+
+ifxceZ
+
+0
+MM) = {Geomocc _ 6M+1|A,ot,lll) if xc¢ Z (4)
+
+where a is the rate parameter of the geometric distribution. Our
+model thus becomes
+
+M
+p(xcln, A, a) = Z 71,-Pois(xc|6,-,c) (5)
+i=1
+
++ nM+1u(xc)Geom(xc — 6M+1,C|A, or, Al)
+
+where u(c) is an indicator function deﬁned as
+
+was. 23:; 
+
+2.1.4 Estimation of the model parameters by expectation
+maximization The mixture parameter 7:, the Poisson rate par-
+ameter A and the geometric distribution rate parameter a are
+estimated from the data (N contigs) by optimizing the log
+likelihood,
+
+N
+—£(CI7T,A,a) = — log Hprxcin,x,a)p(n) (7)
+
+c=l
+
+In the E-step, current estimates of the parameters
+(6fod 2 LciAOId and 71"”) are used to estimate the posterior prob-
+abilities, or responsibilities rm 2 p(ilxc) for each model and each
+contig. In the M-step, the newly obtained responsibilities are
+used to update A and a as follows:
+
+ 
+
+N M
+Z Z ri,cxc
+Anew _ c=l i=1
+_ N M N
+:1  11ch + :1 u(xc)(M+ l)Lch+1,clog(l — Li)
+(8)
+N
+Z “(xc)rM+l,c
+anew : C=1 
+
+ 
+
+N Xrignld
+Z “(xc)VM+1,c( LA?“ +1)
+
+c=l
+
+2.1.5 Incorporating prior knowledge on ploidy In many biolo-
+gical experiments, there is prior knowledge on the distribution
+p(i). For example, in haploid yeast samples, most contigs will
+correspond to mixture component i: l; for diploid samples, it
+is expected that p(i = 2) will dominate. Note that ploidy is not the
+sole inﬂuence on the distribution of p(i) in an unﬁnished assem-
+bly, but also the repeat content in the genome. We adopted the
+idea of Klambauer et al. (2012) to use a Dirichlet prior distribu-
+tion with parameters y for cases where we can incorporate prior
+knowledge on p(i), where y is an M—dimensional vector
+()4, . . . , yM). The update rule for n,- then becomes as follows:
+N
+Vic +  _ 
+ﬂew : CIIWH— 
+1+Ai,(; Vi_(M+1))
+
+2.1.6 Model selection The model with the optimal number of
+Poisson distributions is selected among models with 3720
+Poissons with the lowest Bayesian information criterion (see
+Supplementary Material S l .2).
+
+2.1.7 MAP estimation of integer copy numbers We infer the
+integer copy number iMAP for a given read count xc by maximum
+a posteriori estimation (MAP):
+
+i =ar max ix =ar maxr- 11
+MAP i=1,g..,M+1p(| C) i=1,g..,M+1 “6 ( )
+
+Contigs for which iMAP = M + l are outlier contigs.
+
+ 
+
+3197
+
+112 /310'S[BHJHO[pJOJXO'SOIIIBLUJOJIIIOIq/ﬂdnq 11101} papnolumoq
+
+91oz ‘Og isnﬁnV uo ::
+
+J.F.Nijkamp et al.
+
+ 
+
+2.2 Copy number variation using co-assembly
+
+2.2.1 Detecting copy number variation Given two sequencing
+samples 01 and 02, we are interested in those contigs that dis-
+play an aberrant copy number in the two samples, i.e. in CNV.
+We fit the proposed PMM for both samples; assuming independ-
+ent, we can calculate the probability of a CNV for non-outlier
+contigs as follows:
+
+M
+p(CNV in x.) = 1 — Zp1(i|xc)p2(ilxc) (12)
+
+[:1
+
+3 METHODS
+3.1 Simulated DNA sequencing data
+
+The Saccharomyces cerevisiae strain S288C reference genome (Goffeau
+et al., 1996) was downloaded from the Saccharomyces Genome Database
+(Cherry et al., 2012) (www.yeastgenome.org, accessed March 03, 2011).
+For testing CNV detection, a perturbed yeast genome containing 100
+duplications (gains) was simulated from this yeast reference genome.
+Donor and insertion sites were randomly drawn. The duplication
+length was randomly drawn between 1 Kbp and 10 Kbp. Distance be-
+tween the duplication events was guaranteed by rejecting a newly drawn
+event if either one of the edges of the donor or the insertion site was
+within 10 Kbp of another event. A total of 800 000 error-free sequencing
+reads with a length of 150 bp each were then simulated at 10x coverage
+for each sample using fragsim (Lysholm et al., 2011). Additionally, a 20x
+coverage read dataset was simulated from the reference genome to gen-
+erate a shotgun reference assembly, which was used to gauge performance
+of mapping-based CNV detection methods on an unﬁnished genome.
+
+3.2 Real DNA sequencing data
+
+In the experiments, we used a number of NGS data sets available for
+various yeast strains (Table 1). The sequencing of S.cerevisiae
+CEN.PK113-7D was described in Nijkamp et al. (2012), yielding a
+Illumina library (Illumina, San Diego, CA) with a 50-bp read length
+and a 454 GS FLX library (454 Life Sciences, Branford, CT) with an
+average read length of 350 bp.
+
+The genomic DNA of two brewing yeasts of the species Spastorianus
+was puriﬁed as previously described (de Kok et al., 2012). The two
+Spastorianus strains are indicated as SPA and SPB in this study. The
+fragments of ~18(F200 bp were sequenced paired-end on a Genome
+Analyzer IIx (Illumina) with a read length of 100bp at Baseclear
+(Leiden, The Netherlands). Afterwards the overlapping read pairs were
+merged into single longer reads.
+
+DNA sequencing reads (454/Roche) were downloaded from the
+short-read archive for the S.cerevisiae strain Y12, part of the
+
+Table 1. Saccharomyces cerevisiae strains used in this study
+
+S.cerevisiae strain project (http://genome.wustl.edu/genomes/saccharo-
+myces_cerevisiae_strain_project_genomes).
+
+3.3 Assembly and alignment
+
+Genome assembly was performed using the GSAssembler 2.6, aka
+Newbler (454/Roche), using default settings. The contig string graph
+that results from an assembly with Newbler was coloured using the
+output ﬁle that describes the read layout on the contigs (the .ACE ﬁle).
+Alignments were performed with nucmer version 3.07, part of the
+Mummer 3 package (Delcher et al., 2002).
+
+3.4 Copy number integrity
+
+A contig has to be present an integer number of times in its genome if the
+assembler correctly bifurcated the contig graph. This was assessed by
+aligning contigs that were assembled using simulated reads to the
+genome. Only contigs longer than 500 bp were considered. Alignments
+with an identity lower than 95% were discarded. For each position in the
+reference, only the best query hit was kept, allowing for query overlaps
+(delta—filter —i95 —r in the Mummer package). The number of
+times the contig is covered in the remaining alignments is then summed.
+The closest integer to this sum is denoted as CNah-gn. We deﬁne copy
+number integrity (Fig. 2) as the absolute deviation from CNah-gn, optimal
+at 0 and with a maximum of 0.5. For example, a contig that is covered 1.6
+times in the genome has a integrity value of 0.4, which implies the contig
+is far from having an integer copy number.
+
+3.5 Validation
+
+Validation was performed on the genome with the simulated duplication
+events (gains) described above. Magnolya was run on the co-assembly
+with haploid settings. FREEC v5.6 (Boeva et al., 2012), CN.MOPS v1.2.1
+(Klambauer et al., 2012) and CNV-Seq (Xie and Tammi, 2009) were used
+to benchmark the performance of Magnolya. The read datasets used to
+perform the co-assembly were independently mapped to the reference
+genome and the reference shotgun assembly. CN.MOPS was provided
+three times the reference sample and one time the perturbed sample, to
+enable it to model ‘normal read count’. The haploid CN.MOPS version
+was used with minWidth: 1 and priorImpact: 0.5. The minimum and
+maximum expected guanine-cytosine content (GC content) GC content
+required for FREEC were set to 0.3 and 0.5, respectively (the S .cerevisiae
+GC content is 0.38). For both FREEC and CN.MOPS, the window size
+was set to 500 bp, CNV-seq inferred a window size itself. CNV-seq was
+run with global normalization on the reference genome and the shotgun
+assembly. Additionally, contig normalization was performed on the shot-
+gun assembly to account for possible collapsed repeats. Reads were
+mapped to the reference genome and the reference assembly using the
+Burrows-Wheeler Aligner (BWA) version 0.5.9-r16 (Li and Durbin,
+
+ 
+
+ 
+
+Accession Species Strain Description Ploidy Dirichlet prior parameters
+7 S .pastorianus SPA Lager brewing yeast Aneuploid None
+
+7 S .pastorianus SPB Lager brewing yeast Aneuploid None
+
+SRX129889 S.cerevisiae CEN.PK113-7D Laboratory strain Haploid y = (1 + G, 1, .., 1)
+SRX129995 S.cerevisiae IMW004 Laboratory evolved strain Aneuploid y = (1 + G, 1, .., 1)
+SRX039438 S.cerevisiae Y12 Palm wine sample, single spore Aneuploid y = (1 + %G, 1 + %G, 1, .., 1)
+
+Subspecies uvarum
+
+Derivative of NRRL Y-12633
+
+ 
+
+The ‘Accession’ column shows the Sequence Read Archive accessions numbers. The last column shows the y vector used as parameters for the Dirichlet prior, reﬂecting prior
+expectations on copy number distribution. G is the hyper parameter that is set to the number of contigs.
+
+ 
+
+3198
+
+112 /310'S[BHJHO[pJOJXO"SOIJBHIJOJIIIOlq/ﬂdnq uteri papaolumoq
+
+91oz ‘Og isnﬁnV uo ::
+
+De novo detection of CNV
+
+ 
+
+(a)
+
+ 
+
+ 
+
+(b) contig
+
+genome
+
+Fig. 2. A contig should be present an integer number of times in the
+genome. To assess whether this is true, contigs assembled from simulated
+reads were aligned to the genome from which the reads originate. (a) The
+contig occurs exactly two times in the genome and therefore is assigned
+an integrity value of 0. (b) The contig occurs 1.4 times in the genome and
+is assigned an integrity value of 0.4
+
+2009). Sensitivities and specificities were calculated by counting true posi-
+tive and false positive calls per base. In all, 250 bp around duplications
+were ignored, to prevent counting them as false positives owing to over-
+hanging windows.
+
+3.6 Timing
+
+Sets of 1000, 2500, 5000, 7500, 10 000 and 12 500 contigs were randomly
+sampled without replacement from the Y12 dataset. Magnolya was run
+25 times on each dataset, each with M: 8 and A initialized on the 25th
+percentile. The algorithm was halted when an iteration resulted in a like-
+lihood improvement <10’5. The processor time for the EM procedure
+was measured using python’s time.clock() on a single core of a Dell T7400
+Workstation with Intel Xeon X5272 dual core processor.
+
+4 RESULTS AND DISCUSSION
+
+Magnolya can be used in estimating the copy number of the
+contigs in the genome. This was ﬁrst veriﬁed on simulated data
+and then applied on data obtained from an allotriploid hybrid
+genome of a palm wine yeast.
+
+In a multi-sample setting, the PMM can then be used as a
+statistical approach to CNV detection. This has been tested on
+simulated data and on the complex aneuploid genomes of beer
+brewing yeasts.
+
+4.1 Copy number estimation
+
+4.1.1 Simulations The performance of the PMM to estimate
+the number of times a contig is present in a genome was assessed
+using an assembly of simulated reads from the S288C yeast ref-
+erence genome. Two individual features of our method were
+tested using this simulation (Table 2).
+
+First, the assumption that contigs have an integer copy
+number was assessed by calculating copy number integrity
+(Section 3.4). The contigs were found to have low average integ-
+rity values (Table 2). Only 18 of the 3723 contigs had an integ-
+rity value >0.1, which proves the assembled contigs indeed
+mostly have an integer copy number. Second, the PMM copy
+number estimate iMAP was compared with the number of times a
+contig appears in the genome CNalign. Of the 3723 tested contigs,
+the PMM incorrectly estimated the copy number for just a single
+contig.
+
+4.1.2 Copy number and genome size estimation of an allotriploid
+hybrid genome Saccharomyces yeast species used in industrial
+
+Table 2. Simulation results for copy number estimation
+
+ 
+
+ 
+
+CN CNalign CNalign = 1M A [9 Integrity
+
+1 3638 3638 (100%) 0.0011 :I: 0.014
+2 67 66 (99%) 0.0111 :I: 0.055
+3 14 14 (100%) 0.0005 :I: 0.001
+4 4 4 (100%) 0.0014i0.003
+
+ 
+
+Only copy numbers 141 are listed, as no higher copy numbers were observed. The
+integrity column indicates averages and standard deviations of the integrity values
+(Fig. 2).
+
+fermentation processes, such as beer and wine making, are often
+hybrid species, containing DNA of several Saccharomyces ori-
+gins. For example, the lager beer brewing yeast S .pastorianus was
+shown to be a hybrid between S.cerevisiae and Saccharomyces
+eubayanus (Libkind et al., 2011). The wine-making yeast VIN7
+was shown to contain diploid S.cerevisiae and haploid
+Saccharomyces kudriavzevii genomic content (Borneman et al.,
+2012). Furthermore, these hybrid genomes may contain many
+chromosomal rearrangements and aneuploidy (Nakao et al.,
+2009). Aneuploid genomes have an irregular number of chromo-
+somes. Magnolya can be used to estimate the copy number per
+contig in aneuploid genomes and thereby the total genome size.
+
+Saccharomyces cerevisiae Y12 is such a hybrid yeast. Genomic
+sequencing reads from its genome were assembled into 14 551
+contigs containing 16.1 Mbp of total sequence, of which 5893
+large contigs (3500 bp) contained 13.9 Mbp. Fitting the mixture
+model on the read counts without incorporation of prior know-
+ledge on the ploidy resulted in i = 2 and i = 4, to ﬁt the two peaks
+in Figure 3, i.e. the model explained the data as contigs having
+copy number 2 and 4. Visual inspection of the read count histo-
+gram (Fig. 3) led us to the belief that these peaks stem from
+haploid and diploid genomic content instead, which is in line
+with previous results describing the allotriploid strain VIN7
+(Borneman et al., 2012). The uneven coverage of the 454 sequen-
+cing data resulted in a better explanation of the data using more
+Poissons.
+
+The parameters for the Dirichlet prior distribution were then
+set to favour single and double copy numbers for the contigs
+(Table 1), representing our belief that the Y12 genome has hap-
+loid and diploid content, rather than diploid and tetraploid. The
+mixture model was fit on the contigs (3500 bp) using the model
+selection procedure. A total of M: 8 Poissons was found to be
+optimal. The S .cerevisiae Y12 genome was estimated to be
+2,12; Lkik = 29.9Mbp in size, 22% of which was represented
+one time (haploid) and 74% two times (diploid).
+
+The contigs were mapped to the 12.1 Mbp S .cerevisiae S288C
+reference genome to investigate the possible S .cerevisiae origin of
+parts of the genome. Only alignments of contigs that aligned
+reliably to the reference genome were kept (> 95% contig cover-
+age, >99% identity). In total, 9.2 Mbp could thus be aligned.
+These aligned bases originated for 97% from contigs with
+iML = 2, indicating that the S.cerevisiae content in this hybrid
+genome is present in diploid form, as is the case for VIN7
+(Borneman et al., 2012).
+
+ 
+
+3199
+
+112 /310's112u1n0fp10}x0"soiJBuiJOJuioiq/ﬁduq uteri papaopimoq
+
+91oz ‘Og isnﬁnV uo ::
+
+J.F.Nijkamp et al.
+
+ 
+
+ 
+
+ti contigs
+
+ 
+
+ 
+
+ 
+
+Read count
+
+Fig. 3. PMM ﬁtted on the assemblies of the wine yeast Y12. Grey bars:
+histogram of read counts on the contigs, normalized to a contig length of
+300 bp. The ﬁtted PMM is the plotted as a black line with 300A 2 11.7.
+
+ 
+
+CPUtime(sec)
+OHNWJ> MONO! 3
+
+o
+
+ 
+
+ 
+
+ 
+
+2000 4000 6000 8000 10000 12000 14000
+Number of contigs
+
+Fig. 4. CPU time consumed by the EM algorithm for different numbers
+of contigs, which were randomly sampled from the Y12 yeast dataset. On
+average the EM algorithm ﬁnished within 14 iterations
+
+The Y12 assembly had the most contigs and was therefore
+used to time the algorithm (Fig. 4). Computational complexity
+is low, (compared with mapping and assembly of short read
+data) and scales linearly with the number of contigs.
+
+4.2 Copy number variation detection
+
+4.2.1 Benchmarking A simulation experiment was designed
+to benchmark the performance of Magnolya in a setting where
+a closely related reference genome is available versus the situ-
+ation where this is not the case. We did not simulate biological
+noise or contamination, nor did we introduce uneven depth of
+coverage. Therefore, this benchmark does not gauge how well
+the methods deal with such biological effects, but merely illus-
+trates the potential performance drops when no reference is
+available.
+
+Magnolya was benchmarked against the three top-performing
+methods in the study performed by Klambauer et al. (2012). The
+reference and a perturbed yeast genome containing 100 duplica-
+tions between 1 Kbp and 10 Kbp were used. The sequencing
+reads were mapped to the reference genome and to a shotgun
+assembly to infer CNVs. Sensitivity and precision are the two
+measures relevant to CNV detection. Table 3 reports the
+F-measure, i.e. the harmonic mean of sensitivity and precision,
+for both situations. The F—measure does not take the true nega-
+tive rate into account, but this is not an issue because this rate is
+always high for all methods (as genomes are very large compared
+with the total length of the CNVs).
+
+For all methods, two samples were used, a reference and a
+perturbed sample, except for CN.MOPS. CN.MOPS is designed
+to be used with multiple samples, so it can model read depth
+across multiple samples. It cannot be used on only two samples
+because it cannot distinguish what is normal read count and
+what is not. We therefore provided it with three times the refer-
+ence sample and one time the perturbed sample. CNV-seq
+
+Table 3. Performance in simulation experiments expressed as the
+F-measure (the harmonic mean of precision and sensitivity)
+
+ 
+
+Reference genome Shotgun assembly
+
+ 
+
+CN.MOPS 0.57 0.34
+Control-FREEC 0.86 0.12
+CNV-seq global 0.91 0.44
+CNV-seq contig 7 0.41
+Magnolya 7 0.94
+
+ 
+
+The columns show a scenario with and without the availability of a ﬁnished refer—
+ence genome. CNV—seq was run with global normalization and normalization per
+contig.
+
+ 
+
+(a) 30
+
+ 
+
+ 
+
+10-
+5- MM
+0
+
+0 200 400 600 EDD 1000 1200
+
+ 
+
+Read count
+
+S. pastorianus strain A (SPA)
+
+ 
+
+ 
+
+ 
+
+ 
+
+600 800 1000 1200
+
+5 - /\ /\
+o
+200 400
+Read count
+
+S. pastorianus strain E (SPB)
+
+Fig. 5. Poisson mixture distribution ﬁtted on the assemblies of two brew-
+ing yeasts. The grey bars are the read counts x, on the contigs, normal-
+ized to a contig length of 1000 bp. The plotted distributions indicate the
+mixture components (M :6, 1000A = 99 for SPA and 1000A = 169 for
+SPB)
+
+performs best on the reference genome (Table 3). Possibly this
+is because it is model free, only looks at read depth ratios and
+does not account for noise, which is absent in this simulation.
+For all methods, performance dropped when applied to the shot-
+gun assembly.
+
+Magnolya has the highest F-score, with a sensitivity of 0.93
+and a precision of 0.94. Its performance is close to the other
+methods on a ﬁnished reference genome, but surpasses the
+other methods with at least a double F-measure on the shot-
+gun-assembled reference genome.
+
+4.2.2 CN V in a laboratory evolution pair As another test case,
+a pre- and post-laboratory evolution pair was analysed. Short-
+term laboratory evolution (up to a few months) generally leads to
+only few mutations. An evolved strain and its pre-evolution an-
+cestor are therefore expected to be genetically close. We recently
+applied laboratory evolution to investigate lactate transport in
+the haploid yeast S.cerevisiae CEN.PK113-7D (de Kok et al.,
+
+ 
+
+3200
+
+112 /310's112u1n0fp10}x0"soiJBuiJOJuioiq/ﬁduq uteri papaopimoq
+
+91oz ‘Og isnﬁnV uo ::
+
+De novo detection of CNV
+
+ 
+
+(a) Pre-evolution
+80
+
+ 
+
+60
+
+40
+
+it co ntigs
+
+20 A
+o,
+
+0 40 60 80
+(c) Read cou nt
+
+ 
+
+ 
+
+ 
+
+Isochromosome III
+
+(b) Post-evolution
+
+ 
+
+15,- _
+
+101- -
+
+# contigs
+
+ 
+
+ 
+
+ 
+
+O 200 400 600
+Read count
+
+4A,.____________.n...........___________________________.
+
+Chromosome III Centromere
+
+ 
+
+(d)
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+CN post-evo _ CN pre-evo
+
+150 200 250 300
+
+Chomosomal location (kb)
+
+Fig. 6. De novo CNV detection using Magnolya. The yeast S.cerevisiae CEN.PK113-7D was evolved in the laboratory under strong selective pressure.
+The genomes of the evolved strain and its pre-evolution ancestor were both sequenced and assembled into contigs. The grey bars form a histogram of the
+read counts on the contigs for (a) the pre-evolution ancestor and (b) the evolved yeast strain. The read counts have been normalized for visualization
+purposes to a contig length of 1000 bp, i.e. (va/LLV) >I< 1000 for each contig c. The mixture model consisting of 4 Poissons has been plotted as a black line
+with (a) 1000A = 41 and (b) 1000A = 152. Note that because of the large difference in number of reads in the two datasets the axes are unequally scaled.
+(c) Schematic representation of the original chromosome III and the newly formed isochromosome 111 during evolution. The solid line represents i = 1,
+the dotted line i = 2 and the dashed line i = 3. (d) Integer CNV plotted versus chromosomal location on the yeast reference genome
+
+2012). This strain, used in systems biology research and in indus-
+try, deviates significantly from the yeast reference sequence
+S288C (Nijkamp et al., 2012) including multiple Kbp insertions
+and deletions and >20 000 single nucleotide variations. Our de
+novo CNV detection algorithm enables us to directly compare the
+two CEN.PK113-7D individuals, without having to resort to
+comparison using a more distant reference genome.
+
+A mutant harbouring a JEN] deletion grew poorly in liquid
+culture with lactate as sole carbon source. Laboratory evolution-
+ary engineering was then used to evolve a JENI-independent
+fast-growing strain on lactate. A mutation in ADY2, an acetate
+transporter, was identiﬁed as responsible; but additionally a copy
+number increase was suspected to give the evolved strain a com-
+petitive advantage. Read mapping analysis conﬁrmed that the
+gene dosage of ADY2 was indeed increased through the forma-
+tion of a novel isochromosome carrying two additional copies of
+AD Y2 (Fig. 5c). Here, we reanalyzed the sequencing data of the
+evolved strain. The obtained integer copy numbers indeed indi-
+cate the chromosomal regions corresponding to the novel isochro-
+mosome (Fig. 5d). Compared with the mapping-based approach
+taken in de Kok et al. (2012), these results are easier to interpret.
+
+4.2.3 CN V in aneuploid brewing strains CNV was detected
+between two aneuploid lager brewing yeast strains of the species
+S.pastorianus. Co—assembly of the Illumina reads showed aneu-
+ploidy for both strains (Fig. 6), with a large percentage of contigs
+present one, two or three times in the genomes. This is in
+
+agreement with previous observations in a different
+S.pastorianus strain (Nakao et al., 2009).
+
+The mixture model was trained on both datasets using the
+model-selection procedure. The Bayesian information criterion
+indicated a total of M: 6 Poisson distribution was optimal to
+use on these data. Figure 6 shows that the two S.pastorianus
+strains have different karyotypes. For example, strain SPB ap-
+pears to have more contigs appearing only once in the genome.
+For each contig, the probability of a copy number difference
+between the strains was calculated using the posterior probabil-
+ities p(ilxc),ie {1,2, ..., 6}, using equation (12). More than 13
+Mbp (p(CNV)>0.95) were found to be present at a different
+copy number. Although the nucleotide composition of these
+two strains may be similar, this large scale CNV largely affects
+the gene dosage of thousands of genes, with an intriguing yet
+unexplored effect on the phenotypic characteristics.
+
+5 CONCLUSIONS
+
+Since the advent of NGS, variation detection has been performed
+by mapping short reads to a reference genome to detect aberrant
+read mappings. Comparing two individuals by mapping them to
+a (perhaps distant) reference inevitably introduces bias. The only
+unbiased approach to comparisons of individuals is through de
+novo assembly. Short sequencing reads and repetitive genomes
+have thus far hampered accurate reconstruction of individual
+
+ 
+
+3201
+
+112 /310's112u1n0fp10}x0"soiJBuiJOJuioiq/ﬁduq uteri papaopimoq
+
+91oz ‘Og isnﬁnV uo ::
+
+J.F.Nijkamp et al.
+
+ 
+
+genomes. However, with increasing read lengths and recently
+developed de novo assemblers that efﬁciently assemble mamma-
+lian sized genomes, reconstruction and comparison of individual
+genomes is coming within reach.
+
+We here proposed a PMM to de novo estimate copy numbers
+of contigs, and combined this with a co-assembly approach. This
+allows easy detection of CNV, one of the most abundant types of
+genomic variation, with severe phenotypic effects. The mixture
+model estimates copy numbers per sample at high speciﬁcity,
+exploiting the fact that assemblers automatically segment a
+genome into regions of integer copy number, and allows infer-
+ence of CNV. The resulting de novo CNV detection algorithm
+has two main advantages over mapping-based approaches:
+foregoing the need for read count-based segmentation and the
+lack of bias with respect to a reference genome.
+
+The Magnolya algorithm performs at higher precision and
+sensitivity than other methods when no ﬁnished reference is
+available. The method was shown to perform well on yeast gen-
+omes, a simple eukaryote for which good assemblies can be ob-
+tained using current sequencing technology. When long enough
+reads can be obtained to generate human assemblies, a de novo
+approach might be preferred over reference-based approaches to
+detect CNV in matched experiments, such as tumor-normal
+pairs.
+
+The co-assembled coloured string graphs that are used in this
+study enclose all genomic variation between the two assembled
+individuals, including inversions, insertions, deletions and trans-
+locations. While in this work we focused on the detection of
+CNVs, an algorithm named bubble calling was recently proposed
+to mine other classes of variation from coloured assembly graphs
+(Iqbal et al., 2012). We expect a combination of a bubble calling
+algorithm, our CNV detection and approaches exploiting read
+pair data in coloured assembly graphs to allow a move to fully
+unbiased detection of variation between individuals in the near
+future.
+
+Funding: This work was supported by the Kluyver Centre for
+Genomics of Industrial Fermentation, supported by the
+Netherlands Genomics Initiative.
+
+Conflict of Interest: none declared.
+
+REFERENCES
+
+Boeva,V. et al. (2012) Control—FREEC: a tool for assessing copy number and allelic
+content using next—generation sequencing data. Bioinformatics, 28, 4234125.
+Borneman,A.R. et al. (2012) The genome sequence of the wine yeast VIN7 reveals
+an allotriploid hybrid genome with Saccharomyces cerevisiae and
+
+Saccharomyces kudriavzevii origins. FEMS Yeast Res., 12, 88796.
+
+Cherry,J.M. et al. (2012) Saccharomyces genome database: the genomics resource of
+budding yeast. Nucleic Acids Res., 40, D7007D705.
+
+de Kok,S. et al. (2012) Laboratory evolution of new lactate transporter genes in a
+jenI mutant of Saccharomyces cerevisiae and their identiﬁcation as ADY2 alleles
+by whole—genome resequencing and transcriptome analysis. FEMS Yeast Res.,
+12, 3597374.
+
+Delcher,A.L. et al. (2002) Fast algorithms for large—scale genome alignment and
+comparison. Nucleic Acids Res., 30, 247872483.
+
+Goffeau,A. et al. (1996) Life with 6000 genes. Science, 274, 546, 5637567.
+
+Iqbal,Z. et al. (2012) De novo assembly and genotyping of variants using colored de
+bruijn graphs. Nat. Genet, 44, 223232.
+
+Klambauer,G. et al. (2012) cn.MOPS: mixture of Poissons for discovering copy
+number variations in next—generation sequencing data with a low false discovery
+rate. Nucleic Acids Res., 40, e69.
+
+Li,H. and Durbin,R. (2009) Fast and accurate short read alignment with
+burrows—wheeler transform. Bioinformatics, 25, 175471760.
+
+Li,H. et al. 1000 Genome Project Data Processing Subgroup (2009) The sequence
+alignment/map format and SAMtools. Bioinformatics, 25, 207872079.
+
+Libkind,D. et al. (2011) Microbe domestication and the identiﬁcation of the wild
+genetic stock of lager—brewing yeast. Proc. Natl Acad. Sci. USA, 108,
+1453714544.
+
+Lysholm,F. et al. (2011) An efﬁcient simulator of 454 data using conﬁgurable stat—
+istical models. BMC Res. Notes, 4, 449.
+
+Medvedev,P. and Brudno,M. (2009) Maximum likelihood genome assembly.
+J. Comput. Biol, 16, 110171116.
+
+Medvedev,P. et al. (2010) Detecting copy number variation with mated short reads.
+Genome Res., 20, 161371622.
+
+Myers,E.W. (2005) The fragment assembly string graph. Bioinformatics, 21
+(SuppL 2), ii797ii85.
+
+Nakao,Y. et al. (2009) Genome sequence of the lager brewing yeast, an interspecies
+hybrid. DNA Res., 16, 1157129.
+
+Nijkamp,J.F. et al. (2012) De novo sequencing, assembly and analysis of the
+genome of the laboratory strain Saccharomyces cerevisiae cen.pkll3—7d, a
+model for modern industrial biotechnology. Microb. Cell Fact, 11, 36.
+
+Simpson,J.T. and Durbin,R. (2012) Efﬁcient de novo assembly of large genomes
+using compressed data structures. Genome Res., 22, 5497556.
+
+Xie,C. and Tammi,M. (2009) CNV—seq, a new method to detect copy number
+variation using high—throughput sequencing. BMC Bioinformatics, 10, 80.
+
+Ye,K. et al. (2009) Pindel: a pattern growth approach to detect break points of large
+deletions and medium sized insertions from paired—end short reads.
+Bioinformatics, 25, 286572871.
+
+ 
+
+3202
+
+112 /310'S[BHJHO[pJOJXO'SOIJ’BLUJOJIIIOICI”K1111] 11101} papaolumoq
+
+9103 ‘Og isnﬁnV uo ::
+

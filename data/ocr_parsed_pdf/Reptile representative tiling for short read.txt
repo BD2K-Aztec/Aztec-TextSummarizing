@@ -1,0 +1,1164 @@
+ORIGINAL PAPER
+
+Vol. 26 no. 20 2010, pages 2526-2533
+doi: 1 0. 1093/bioinformatics/btq468
+
+ 
+
+Sequence analysis
+
+Advance Access publication August 16, 2010
+
+Reptile: representative tiling for short read error correction
+
+Xiao Yanglaz, Karin S. Dorman2’3’4 and Srinivas Aluru1’2’4’5a*
+
+1Department of Electrical and Computer Engineering, 2Bioinformatics and Computational Biology Program,
+3Department of Statistics, 4Department of Genetics, Development & Cell Biology, Iowa State University, Ames IA
+50011, USA and 5Department of Computer Science and Engineering, Indian Institute of Technology Bombay,
+
+Mumbai 400076, India
+Associate Editor: Joaquin Dopazo
+
+ 
+
+ABSTRACT
+
+Motivation: Error correction is critical to the success of next-
+generation sequencing applications, such as resequencing and
+de novo genome sequencing. It is especially important for high-
+throughput short-read sequencing, where reads are much shorter
+and more abundant, and errors more frequent than in traditional
+Sanger sequencing. Processing massive numbers of short reads
+with existing error correction methods is both compute and memory
+intensive, yet the results are far from satisfactory when applied to
+real datasets.
+
+Results: We present a novel approach, termed Reptile, for error
+correction in short-read data from next-generation sequencing.
+Reptile works with the spectrum of k-mers from the input reads, and
+corrects errors by simultaneously examining: (i) Hamming distance-
+based correction possibilities for potentially erroneous k-mers; and
+(ii) neighboring k-mers from the same read for correct contextual
+information. By not needing to store input data, Reptile has the
+favorable property that it can handle data that does not fit in
+main memory. In addition to sequence data, Reptile can make use
+of available quality score information. Our experiments show that
+Reptile outperforms previous methods in the percentage of errors
+removed from the data and the accuracy in true base assignment.
+In addition, a significant reduction in run time and memory usage
+have been achieved compared with previous methods, making it
+more practical for short-read error correction when sampling larger
+genomes.
+
+Availability: Reptile is implemented in C++ and is available through
+the link: http://aluru-sun.ece.iastate.edu/doku.php?id=software
+Contact: aluru@iastate.edu
+
+Received on March 16, 2010; revised on August 9, 2010; accepted
+on August 10, 2010
+
+1 INTRODUCTION
+
+High-throughput sequencing is profoundly changing the way
+genetics data are collected, stored and processed (Shendure and
+Ji, 2008). The advantages of the new technology have led to
+revitalization of old techniques and discovery of novel uses, with
+growing applications in resequencing, de novo genome assembly,
+metagenomics and beyond (Ansorge, 2009; Marguerat et (11., 2008).
+New technology inevitably comes with Challenges. For many
+next-generation sequencers, the advantage of deeper and cheaper
+
+ 
+
+*To whom correspondence should be addressed.
+
+coverage comes at the cost of shorter reads with higher error rates
+compared with the Sanger sequencing they replace.
+
+Genome assembly, the de novo inference of a genome without
+the aid of a reference genome, is challenging. Sanger reads,
+typically 700—1000bp in length, are long enough for overlaps
+to be reliable indicators of genomic co-location, which are used
+in the overlap-layout-consensus approach for genome assembly.
+However, this approach does poorly with the much shorter reads
+of many next-generation sequencing platforms (e.g. 35—100bp
+for Illumina Genome Analyzer II). In this context, de Bruijn
+graph (Idury and Waterman, 1995) and string graph (Myers, 2005)
+based formulations that reconstruct the genome as a path in a
+graph perform better due to their more global analysis and ability
+to naturally accommodate paired read information. As a result,
+they have become de facto models for building short-read genome
+assemblers, e.g. ALLPATHS (Butler et (11., 2008), Velvet (Zerbino
+and Bimey, 2008), ABySS (Simpson et (11., 2009) and Yaga (Jackson
+et (11., 2010). Error correction has long been recognized as a critical
+and difﬁcult part of these graph-based assemblers. It also has
+signiﬁcant impact in other next-generation sequencing applications
+such as resequencing.
+
+We give a brief review of several well-known error correction
+methods. Alignment-based error correction methods, such as MisEd
+(Tammi et (11., 2003) for Sanger reads, require reﬁned multiple read
+alignments and assume unusually isolated bases to be read errors.
+Like the Sanger-motivated assembly algorithms, these approaches
+do not adapt well to short reads. Hence, Chaisson et (11. (2004)
+proposed the spectral alignment problem (SAP): in a given dataset,
+a kmer is considered solid if its multiplicity exceeds a threshold,
+and insolid otherwise. Reads containing insolid kmers are corrected
+using a minimum number of edit operations so that they contain only
+solid kmers post-correction. Similar approaches have been adapted
+and used by others (Butler et (11., 2008). To overcome the typically
+long run times of SAP-based approaches, Schroder et (11. (2009)
+proposed SHREC, a method based on a generalized sufﬁx tree
+constructed from short-read data using both forward and reverse
+complementary strands. SHREC compares the multiplicity of a
+substring, represented by a node in the sufﬁx tree, with its expected
+frequency of occurrence calculated analytically, assuming uniform
+sampling of the genome and uniformly distributed sequencing
+errors. The nodes with observed counts that deviate beyond a
+tolerable threshold from their expected values are considered
+erroneous. An erroneous node is corrected to a sibling when
+applicable, and all its descendants are transferred to the selected
+sibling. Well-engineered code is necessary to cope with the large
+
+ 
+
+2526 © The Author 2010. Published by Oxford University Press. All rights reserved. For Permissions, please email: journals.permissions@oxfordjournals.org
+
+112 /3.Io's[Bumo[p.IOJxosorwuiJOJurorq”:duq 11101} papBOIII/IAOG
+
+9103 ‘{g anﬁnv 110::
+
+Reptile
+
+ 
+
+memory requirement of the sufﬁx tree data structure. Unlike these
+general purpose error correction methods, FreClu (Qu et (11., 2009)
+targets transcriptome data. The error rates for each position of a read
+are estimated in the same experiment via a set of control reads of a
+known bacterial artiﬁcial chromosome (BAC) sequence. Reads are
+Clustered using the estimated error rates, and after error correction,
+FreClu could map ~5% more reads back to the reference genome.
+
+Error correction of short-read data is particularly challenging
+because of the massive datasets, non-uniformly distributed read
+errors introduced at relatively high rates, and non-uniform coverage
+of the target genome. Next-generation short-read sequencers
+produce hundreds of millions of reads in a single run, and this
+trend of fast, massive data generation is continuing to accelerate.
+To process these data, even an efﬁcient linear space algorithm could
+easily exceed available memory on a standard desktop computer. The
+high rate of sequencing errors also signiﬁcantly increases memory
+usage due to the introduction of numerous erroneous kmers that
+are not present in the genome. Errors are typically identiﬁed as the
+unusual reads or kmers occurring less frequently than a threshold
+calculated under the assumptions of uniform coverage and error
+distribution. Neither assumption holds true in real data, leading to
+an excess of false error predictions.
+
+In this article, we present Reptile, a scalable short-read error
+correction method that effectively addresses the above Challenges.
+We draw upon the k-spectrum approach pioneered in earlier
+results, but explore multiple alternative kmer decompositions of
+an erroneous read and use contextual information speciﬁed by
+neighboring kmers to infer appropriate corrections. Reptile also
+incorporates quality score information when available. We present
+algorithmic strategies to store kmer Hamming distance graphs and
+efﬁciently retrieve all graph neighbors of a kmer as candidates
+for correction. We compare our results with SHREC (Schroder
+et (11., 2009), a high-quality short-read error correction method,
+and one of the more recent in a line of continuously improving
+error correction protocols. In all experiments with Illumina
+datasets, Reptile outperforms SHREC in percentage of errors
+corrected and accuracy of true base assignment. Futhermore,
+a signiﬁcant reduction in memory usage and run time makes
+Reptile more applicable to larger datasets. As with most current
+approaches including SHREC, Reptile is targeted to short reads
+with substitution errors, assuming insertion and deletion errors are
+rarely produced by short-read sequencing technology (Dohm et (11.,
+2008).
+
+2 NOTATIONS
+
+Let R ={r1,r2, ...,r,,} be a collection of short reads sequenced from
+genome G. For simplicity (but without loss of generality), we assume
+each read rl- has a ﬁxed length L. The coverage of the genome by the
+reads is given by Cov= %, where |G| denotes the genome length.
+
+Deﬁne the k-spectrum ofaread r to be the set rk = {r[i : i+ k — 1] l0 3
+i<L—k+ l}, where r[i 2}] denotes the substring from position i to
+j in r. We index the positions of a string starting from 0. The k-
+spectrum of R is given by Rk = L1 
+
+Let a and (3 be two strings such that a[(|a| —1):(|a| — 1)] =ﬂ[0:
+(1 — 1)] for some 0 £1 < min(|a|, | 5|). We deﬁne the 1-concatenation
+ofa and f3, denoted alllﬂ, to be the string y of length |a|+|ﬂ| —1
+
+SHChthat VI02(|0t|—1)l=0t and V[(|J/| — WI): (ll/l — 1)] =13.
+
+The Hamming distance between two strings (11 and (12 for
+|a1| =|a2|, denoted hd(a1,a2), is the number of positions at
+which they differ. For a kmer (1,- eRk, deﬁne its d-neighborhood
+Nl-d={01j eRk |hd(ai,aj)§d}. Its complete d-neighborhood N511. =
+{(111. | hd(ai,aj) 3d} contains all kmers within Hamming distance (1,
+whether or not they occur in Rk.
+
+3 METHODS
+
+The success of any error correction method relies on an adequate coverage
+of the target genome. If we know the genomic location of every read. we
+could layout all reads that contain a speciﬁc genomic position into a multiple
+alignment (Fig. l) and correct all erroneous bases to the consensus base under
+the reasonable assumption that errors are infrequent and independent. For
+instance. base T in r3 would be considered a sequencing error to be corrected
+to the consensus base A.
+
+The main idea underlying Reptile is to create approximate multiple
+alignments. with the possibility of substitutions. in the absence of location
+information. Multiple alignments with substitutions could be created by
+considering all reads with pairwise Hamming distance less than some
+threshold. but such alignments are already hard (Manthey and Reischuk.
+2005) and even in high coverage situations. the occurrence of many exactly
+coincident reads. e.g. r0 and r1 in Figure l. are rare. We therefore resort to
+alignments on subreads. the substrings of a read.
+
+Storing R. let alone all its subreads. could be memory intensive. not
+to mention the memory required to store information required for error
+correction. Inspired by the idea for bounding memory usage with de
+Bruijn graphs in short-read assembly. we work with kmer subreads of
+input data. where the memory of storing the k-spectrum Rk is bounded by
+0(min(4k , n(L —k+ l))). Typically. k is chosen so that the expected number
+of occurrences of any kmer in the genome should be no more than one.
+i.e. 4k > |G|. Therefore. choosing 105k: 16 is sufﬁcient for microbial or
+human genomes. in which case the k-spectrum would ﬁt within 4 GB RAM
+regardless of input size.
+
+Focusing on reasonably short kmers has several advantages. First. we
+expect an adequate number of kmers to align to the same position along the
+genome even with relatively low coverage (e.g. 40X). High local coverage
+is needed to identify erroneous bases. For instance. in Figure 1. there exist
+ﬁve subreads. four copies of 012 and one copy of 0/2. aligning to the same
+starting position in the genome. but this number reduces to three for the
+longer subread 012||0013. Second. it is less compute intensive to identify Ni‘l
+when k is small. since there are fewer ways to select (1' out of k positions. Last.
+sequencing errors in kmers are much less frequent compared with full-length
+reads. so (1' need not be large.
+
+6
+
+Fig. 1. G is the target genome. shown as a bold line; ri’s (0 5 i 5 8) represent
+reads. shown as thin lines; 01]— (051‘: 8). 0/2 and 01% are kmer instances in
+the reads. shown as rectangles. Every read is drawn aligned to its origin of
+sequencing position on the target genome. The bases at two positions in the
+kmers 012. 0/2 and 01% are shown. All other positions in these kmers match
+across all three variants.
+
+ 
+
+2527
+
+112 /3.Io's[BrunoIpJOJXO'sorwuiJOJurorq”:duq 11101} papBOIH/IAOG
+
+9103 ‘{g anﬁnv 110::
+
+X. Yang et al.
+
+ 
+
+Nevertheless. relying solely on short kmers can easily lead to ambiguities
+when resolving erroneous bases. For instance. in Figure 1. without knowing
+the alignment. it is unclear if (1’2 should be corrected to 012 or 01%. since both
+hd(a’2,cx2)=hd(a’2,cx’2’)= 1 and 012 and 01% have a similar higher frequency.
+However. the contexual information of 01/2 available from read r3 (in this
+case. 011) uniquely identiﬁes 012 as the right correction. We seek a way to
+use contextual information to help resolve errors without increasing k and
+lowering local coverage.
+
+Contextual information is provided by noting which kmers co-exist in
+observed reads. For instance. 01] HQ 012 exists in r0. r1 or r4. and 015 ||,51C 015
+exists in r5 in Figure 1. The following deﬁnitions formalize the notion of
+contextual information.
+
+DEFINITION 1. [2011111012 (0§l<k) is a tile of read r ift is a substring of
+r, and la1|=|€¥2|=k-
+
+DEFINITION 2. t’ 201’ “113’ is a d-mutant tile oftzozlllﬁ ifhd(oi,o/) 5d and
+(WT/3713,1551-
+
+DEFINITION 3. T,=(t1,t2,...,t,,,) isa tiling ofread r ifr=t1 ||ll t2...||lm_l t,,,
+such that(1) ti (lfifm) isa tile ofr, and (2) 1,31 (15i<m).
+
+Note that if t, is speciﬁed as r[j :j’]. then the overlaps between
+consecutive tiles can be inferred; i.e. 155 can be derived from ti’s. Multiple
+tilings exist for any read. For example. both ((017 | l5;C 014),(015 ||,51C 015))
+and ((017 | I0013),(Olg ||0015)) are tilings of r5. We also extend the
+concept of d-mutant tiles to tilings. For instance. we can think of
+((011 Hod/210% | In 013)) as a OHS-mutant tiling 0f Tn) =((€¥1 Ho 012)’ (012 | In 013))-
+Similarly. ((011 HO 01/2,)(0/2’ | lo 013)) is a two-mutant tiling of T”). Formally:
+DEFINITION 4. A d-mutant tiling of T, =(t1,t2, . . .t,,,) of read r is a sequence
+oftiles (ti,t£,...t,’n) such that (I) |t,»| = |t;| and |t,»||ll. ti+1 | 2 ll; ll), ill“ |, where
+1,» is implicitly determined by rfor 15 i <m, and (2) t; is a d-mutant tile of
+t, for 1 5 i 5 m.
+
+If read r contains errors and T, is a tiling of r. then we expect to ﬁnd
+a tiling TY of the true read s as one of the d-mutant tilings of T,. where
+constituent tiles of TV have higher coverage than those of T,. However. in
+some cases. TV will not be found among the d-mutant tilings.
+
+3.1 The algorithm
+
+For ease of presentation. we assume R can ﬁt in main memory (this
+requirement will be relaxed later). The algorithm consists of two major
+phases. We ﬁrst provide a brief overview. and subsequently describe the
+algorithm in more detail and analyze its time and space complexity.
+
+(1) Information extraction.
+
+(a) Derive the k-spectrum Rk of R.
+
+(b) Derive Hamming graph GH =(VH,EH). where v, e VH
+represents 01, ERk and El eij =(vi,v]-) 6 EH <=> hd(vi,v]-) 5 d. for
+a given threshold d.
+
+(c) Compute tile occurrences.
+(2) Individual read error correction.
+
+(a) Place an initial tile t at the beginning of the read.
+(b) Identify d-mutant tiles of t.
+(c) Correct errors in t as applicable.
+
+(d) Adjust tile t placement and go to step 2b. until tile placement
+choices are exhausted.
+
+Given a read reR. any of its constituent kmers 01 is a vertex v in the
+Hamming graph. The d-neighborhood of 01 is accessible Via the edges
+incident to v. Hence. if 01 contains at most d substitution sequencing errors.
+the kmer it should be corrected to exists in its d-neighborhood. By building
+local. approximate alignments of tilings constructed from d-neighborhoods.
+our strategy identiﬁes a tiling of the true read as a high frequency tiling.
+
+3.1.] Phase 1: information extraction Constructing Rk involves one
+linear scan of each read in R. This takes 0(nL) time. We maintain Rk in
+sorted order using O(|Rk|log|Rk|) time. The space requirement for Rk is
+given by |Rk | = O(min(4k,n(L—k+1)). Any non-ACGT characters (due to
+difﬁculty in base calling) are initially converted to A. which will be validated
+or corrected later by the algorithm.
+
+During error correction. it is important to have fast access to the d-
+neighborhood of any kmer. ideally in constant time per neighboring kmer.
+One could do so by storing the entire Hamming graph GH. but it would
+require large amount of memory. If we assume G as a random string. and
+errors accumulate independently with probability pg. then the probability that
+a node is linked to another is pk 22L] [0.25k_90.75"+(1—pg)k_"p:].
+including the chance that another random kmer in the genome is within d
+Hamming distance of the current kmer and the chance that the current kmer
+
+contains up to d errors. Thus. the expected memory usage is 0((lR2kl)pk).
+
+Alternatively. we could recover all edges associated with a given kmer
+01, by checking whether each kmer in its complete neighborhood. 01]- 6N2».
+exists in Rk. If OleRk, then there is an edge between v, and Vj in the
+Hamming graph. This takes 0(loglel) time using binary search. There
+
+are (2)4‘1 possible candidate mutant kmers for each aieRk. so it takes
+0((:)4d|Rk|log|Rk|) time to identify all edges.
+
+To reduce the average time for inferring Ni‘l of 01,». we replicate Rk in
+memory and sort each replicate on a different subset of positions in the kmer
+string. using the following strategy:
+
+(a) Store indices 0 to k—l in a vector A.
+
+(b) DivideA evenly into c (d < c 5 k) chunks. each of size Lk/cj or [k/c'l.
+
+(c) For every choice of  chunks. sort Rk by masking the indices from
+
+selected chunks and store the sorted results separately.
+
+To identify Ni‘l of 01,». we query 01, against each sorted k-spectrum R1]? (05
+j<  by binary search considering only indices used for sorting R111 All
+kmers that belong to the d-neighborhood of 01, are adjacent to 01, in at least
+one R1]? . If sequencing errors accumulate independently. then the expected
+number of elements of Ni‘l found in every R1]? is h: |Rk|/4k_dlk/‘l. Hence.
+we need approximately (2,)thk |log|Rk| expected time to recover all edges
+of the Hamming graph. i.e. O(|Rk|log|Rk|) time assuming both  and h
+are constants. Typically. |Rk| <<4k. therefore. choosing a larger c value
+will use more memory. but less expected run time. As an example. in a
+real Escherichia coli dataset with 160>< coverage. storing 13 copies of Rk
+required only ~560 MB memory. but the average number of hits per 13mer
+in each 13-spectrum was less than one. Therefore. identifying each element
+of N 1 for a 13mer took constant time on average.
+
+The above method provides an exact solution for identifying all edges in
+the Hamming graph. Alternatively. a simpler recursive approximation derives
+Nd by inferring N 1 for every element in N d“. This stategy might be more
+biologically meaningful (Qu et al.. 2009). but is only an approximation since
+an edge between two vertices v, and Vj could be recovered only if there exists a
+path connecting them such that adjacent vertices represent kmers that differ
+by exactly one position. In this case. choosing a smaller k. using a larger
+dataset, or having a higher sequencing error rate all improve the chance to
+identify all edges.
+
+Tiles are l-concatenations of consecutive or overlapping kmers found in
+reads. Here. we use one ﬁxed value of l but several different values of 1 can
+be used to consider tiles with different lengths. We compute the multiplicities
+of tiles by a linear scan of every read to record all tiles. followed by a sort
+of the collected tiles and one linear scan of the sorted list. This process takes
+0(|R2k" |log|R2k_l |) time. where |R2k-’| =O(min(42k_l,n(L—2k+l+ 1))).
+Meanwhile. we record the number of occurrences of each tile. where every
+position has a quality score exceeding some threshold QC. Typically. a quality
+score is associated with every base of a short read. The score indicates
+the probability [7,, that the corresponding base is sequenced incorrectly.
+
+ 
+
+2528
+
+112 /3.IO'S[1211anprOJXO'SOIJBLUJOJIIIOIq”Idllq urorj papeolumoq
+
+9103 ‘{g anﬁnv 110::
+
+Reptile
+
+ 
+
+For instance. Illumina GenomeAnalyzer encodes the quality score as Q:
+— 1010g 10(17, / 1 —pg). A higher score indicates a more reliable base call.
+
+To deal with the double strandedness of the target genome. we consider
+both the forward and reverse complementary strands of every read. Edge
+identiﬁcation in the Hamming graph takes twice the time. but no additional
+memory is needed since Rk is already generated using both strands.
+
+3.1.2 Phase 2: error correction We use the contextual information in read
+r to identify sequencing errors through the process of choosing a tiling T, and
+comparing it with its d-mutant tilings. In particular. if r contains x errors. and
+we choose any tiling T,. then an error-free tiling T, belongs to the collection
+of d-mutant tilings of T, if d 3x. Under the standard assumption of uniform
+coverage. the tiles of T, should be substantially more abundant than at least
+some of the tiles of T, with errors. After T, is identiﬁed. the true read s can
+be readily inferred from T,.
+
+In practice. x could be large. and sequencing errors tend to cluster toward
+the 3’ end of a read. Since we prefer d to be small to limit memory usage.
+run time and false error detection. it is entirely possible that T, is not one
+of the d-mutant tilings of T,. On the other hand. an alternate tiling l", of r
+may lower the maximum number of mutations per kmer to below d such that
+l", with high frequency tilings is one of the d-mutant tilings of 1",. In the
+case that there is no such tiling 1",. we examine a subset of constituent tiles
+in 1",. If a high coverage path of these selected tiles is present. the tiles are
+corrected. With some errors removed. a tiling may now exist that contains
+the true read among its d-mutant tilings.
+
+These observations are sufﬁcient to motivate the following procedure for
+identifying and correcting read errors. Place a tile t on r and attempt to correct
+t Via comparisons with its d-mutant tiles (tile correction). If t is validated or
+corrected. move to the next tile in the standard tiling and repeat. If t cannot
+be corrected or validated. look for an alternative tiling. presumably one that
+avoids clusters of more than d errors that are thwarting attempts to ﬁnd
+error-free tiles within the d neighborhoods. We ﬁrst describe tile correction
+in Algorithm 1. then the overall procedure for read correction in Algorithm 2.
+
+Tile correction. For each tile in R. we have recorded its multiplicity O,
+in R and the number 0g of those instances where the quality score of every
+base exceeds Q,. If a short read dataset comes with unreliable or missing
+quality score information. we set 0g 2 0,. Otherwise. 0g is a better estimate
+of the number of error-free occurrences of each tile.
+
+The tile correction procedure is given in Algorithm 1. A decision to correct
+tile t is based on a comparison of the high-quality occurrence counts 0g
+of t compared with its d-mutant tiles. As a rule of thumb. there must be
+compelling evidence before a correction is made. Any tile is automatically
+validated if its occurrence count exceeds an upper threshold C g (lines 172). A
+low occurrence tile with no d-mutant tiles is validated only if it occurs more
+than a low threshold Cm times (lines #6). When there exist d -mutant tiles of
+t with much higher frequencies (at least C, times. C, > 1) than t and which
+differ at low-quality bases (< Q,,,) in t. it is likely that t contains error(s) and
+the true tile is one of its d-mutant tiles. In such cases. a correction is possible
+only if there is a unique d-mutant tile with the closest Hamming distance.
+including a mutation at a low-quality base in t (line 14). We will replace t
+with this tile. Otherwise. we choose not to modify t to avoid false corrections.
+Similar reasoning applies to t with very low multiplicity (lines 17 and 18).
+Since there exist a constant number of d-mutant tiles of t. and correcting t
+requires comparison of every base between t and t’ e T. Algorithm 1 takes
+constant time.
+
+Read correction. The overall procedure for correcting a read is given
+in Algorithm 2. In line 1. an initial tile is chosen and d1 and d2. two
+parameters specifying the maximum Hamming distance allowed in the two
+constituent kmers while identifying mutant tiles. are initialized to d. The
+algorithm terminates when no more plausible tiles can be identiﬁed. Within
+the while loop. d-mutant tiles are identiﬁed for the current tile (line 3). which
+is validated or corrected using Algorithm 1 (line 4). The new placement
+of tile tnext is chosen according to which of the three decisions is made by
+Algorithm 1 (line 4). Repeated placement of tnext according to decisions. [D1]
+
+ 
+
+Algorithm 1 Tile t error correction.
+1. if Og(t)3Cg then
+
+t is valid; return.
+
+3. end if
+
+4. if t has no d-mutant tiles t’ then
+
+5 if 0g(t) 2 Cm then
+
+6. t is valid; return.
+
+7
+
+8
+
+9
+
+ 
+
+.N
+
+end if
+. return due to insufﬁcient evidence.
+. end if
+10. if 0g(t)2 Cm then
+11. Select d-mutant tiles T= {t’|
+
+12. If T=lZJ, t is valid; return.
+
+13. For every t’ ET, record those positions differed from t and
+corresponding quality scores.
+
+14. Correct t to t’ and return if 1) hd(t, t’) f hd(t,t”) for all t” e T.
+2) at least one of the corrected bases has quality score less
+
+0,,(1’)
+030)
+
+ 
+
+Ecrlr
+
+than Qm in t.
+
+15. If t’ is not unique, return due to insufﬁcient evidence
+(ambiguities).
+
+16. else
+
+17. if t has only one d-mutant tile t’ s.t. Og(t’) 3 Cm then
+18. Correct t to t’; return.
+
+19. else
+
+20. return due to insufﬁcient evidence.
+21. end if
+
+22. end if
+
+ 
+
+through [D3] (lines 678). gradually forms a validated or corrected tiling of
+read r. although some reads may never be fully validated.
+
+To better understand how the rules in lines 678 choose a tiling. we
+illustrate with an example in Figure 2 for d = 1. An initial tile to is chosen
+as shown. Since there exists one error in each of the constituent kmers. to
+can be corrected. Tile ii is chosen as the next tile according to [D2]. but
+two sequencing errors within the second kmer of ti lead to an inconclusive
+decision. Hence. ii is not selected in the tiling and an alternative tile 1']
+is chosen according to [D3(a)]. The algorithm iterates and if tiles can be
+validated or corrected at every stage. we are able to complete a tiling
+moving from 5’ to 3’ along the read. Unfortunately. non-uniform coverage
+and the existence of more than one reasonable d-mutant tile can lead to an
+inconclusive decision in Algorithm 1 regardless of tiling choice. In Figure 2.
+the 5’ to 3’ tiling encounters an inconclusive dead-end at arrow a3. To move
+past dead-end tiles. a non-overlapping tile 1'; is chosen by [D3(b)]. A small
+unvalidated gap is left in the middle of the 5’ to 3’ tiling of this read. The
+example shows only the tiling from 5’ to 3’. The same strategy is applied in
+the 3’ to 5’ direction.
+
+We brieﬂy analyze the run time of Algorithm 2. Tiles are sorted. so
+tile information is accessed in O(log(nL)) time. Therefore. line 3 requires
+O(log(nL)) time. Once some tiles have been corrected. the search space for
+new d-mutant tiles shrinks when d1 or d; is set to 0 in line 5. The maximum
+number of non-overlapping tiles in a tiling is the constant L / |t|. Hence. the
+time spent in correcting each read is O(log(nL)). and the overall run time of
+Algorithm 2 is 0(nLlog(nL)).
+
+3.1.3 Choosing parameters Although analytical calculations like those
+adopted in existing methods can be used to choose parameters of Algorithm 1.
+we choose their values based on the input data to help avoid the unrealistic
+assumptions of uniformly distributed read errors and uniform genome
+coverage. Given short-read data R. we examine the empirical distribution
+of quality scores and choose threshold Q, such that a given percentage
+(e.g. 15720%) of bases have quality score value below QC. This value could
+
+ 
+
+2529
+
+112 /3.IO'S[1211anprOJXO'SOIJBLUJOJIIIOIq”Idllq urorj papeolumoq
+
+9103 ‘{g anﬁnv 110::
+
+X. Yang et al.
+
+ 
+
+ 
+
+Algorithm 2 Read error correction.
+
+ 
+
+1. Initialize: t <—t0, where to is a preﬁx of r; d1,d2 <—d.
+
+2. while t 75 ((1 do
+
+3. Identify d-mutant tiles of t=ot1 || [(12 as the set
+{t’=a’1||1a’2|(a’1,a’2)eN1d‘XNgz}.
+
+Correct t (Algorithm 1).
+
+5. Based on the decisions made on t in the former step, tile tnext
+of r will be chosen according to [D1]—[D3] as follows. If
+there is insufﬁcient space to place a tile toward the end of a
+read r, tnext will be chosen as the sufﬁx of r.
+
+6. [D1] t is valid: select tnext such that the sufﬁx—preﬁx overlap
+between t and tnext equals (12; d1 <—0.
+
+7. [D2] t was corrected to t’ =ot’1 || [(1’2 and t is replaced with t’
+in r: select tnext such that the sufﬁx—preﬁx overlap between t’
+and tncxt equals (1’2; (11 <—0.
+
+8. [D3] Insufﬁcient evidence to correct t: set tncxt to be one of the
+following. Let r[i1 :i2] be a maximal validated or corrected
+region of r that overlaps with the 5’ region of t, where i2 —
+i1 +1 3 |t|, and r[i2 +1 :i3] be a maximal uncorrected region
+from previous iterations due to insufﬁcient evidence.
+
+a. If r[i2+l:i3]=lll, then tnext <—r[i2—|t|+2,i2+l] and
+d1(—l.
+
+b. Ifr[i2+1:i3]7$lll, then tncx,<—r[i3+l,i3+|t|].
+
+Similarly, if r[i1 :i2] overlaps with 3’ end oft and r[i3 : i1 — 1]
+is a maximal uncorrected region from previous iterations, then
+if r[i3 : i1 — 1] :11), set tncxt <—r[i1 — l : |t| +i1 —2] and (12 <— 1.
+In above cases, tnext is valid only if it was not assigned with
+the same value in previous iterations (unless tncxt became the
+sufﬁx of r). If such a Choice does not exist, tncxt <— 111.
+9. t (— tum.
+10. end while
+
+ 
+
+ 
+
+Fig. 2. An illustration of choosing a tiling of a read for d: 1. A read is
+represented on top by a concatenation of rectangles. where each rectangle
+denotes a kmer. Each tile is represented by a concatenation of two adjacent
+arrows. which denote its kmer composition. For simplicity of illustration. we
+choose the read length to be divisible by k and each tile is a O-concatenation
+of two adjacent kmers. X ’5 denote sequencing errors. Each bold arrow. a, (1 5
+i :4). denotes tile with insufﬁcient evidence for correction. The placement
+of an alternative tile is indicated by a dotted arrow.
+
+be adjusted to consider the error rates of the particular next-generation
+sequencing equipment in use. Given Q, and counts of high-quality tile
+ocurrences. we choose Cg so that only a small percentage (e.g. 173%) of
+tiles have high-quality multiplicity greater than Cg. Cm is chosen so that a
+larger percentage (e. g. 476%) of tiles occur more than Cm times in R. As Cm
+
+value decreases. more errors are corrected at the cost of an increased risk of
+false error correction. The speciﬁc values chosen depend on the histogram of
+tile occurrences. By default. we set C, = 2 such that a low frequency tile could
+only be corrected to a tile with at least twice the frequency. Increasing C,
+improves the conﬁdence in error correction. Finally. we choose k = [log |G|]
+when an estimate of the length of the genome is available. otherwise. a
+number between 10 and 16 should work. Tile size is ~2k. so kmer overlap
+is 0 to a few bases. The maximum Hamming distance d is set to one by
+default. But when k is chosen to be relatively large (e. g. 14 to 16). increasing
+d allows us to identify more sequencing errors but incurs a longer run time
+and increases the risk of false error prediction.
+
+3.1.4 Overall complexity Combining the analysis for each step. the overall
+run time is 0(nLlog(nL)) and the space usage is O(le | + |Rl’l |).
+
+When the collection of input short reads R does not ﬁt in main memory.
+we propose a divide and merge strategy where R is partitioned into chunks
+small enough to occupy just a portion of main memory. For each chunk. we
+stream through each read and record the k-spectrum and tile information.
+merging it with the data from previous chunks. Reads need not be stored
+in memory after they have been processed. A similar strategy is applied for
+error correction: R is reloaded into memory in chunks. tilings and d-mutant
+tilings are inferred for each read. and errors are corrected as warranted.
+
+4 RESULTS
+
+We evaluated Reptile on several Illumina/Solexa datasets and
+compared the results with SHREC (Schroder et (11., 2009) version
+2.0, a recent high-quality short-read error correction method that
+is itself shown to give superior results over prior k-spectrum
+approaches. We omitted evaluation on simulated data because
+simulations with random errors or synthetic genomes do not
+accurately reﬂect actual short-read sequencing errors (Dohm et (11.,
+2008), and could even be misleading. Our test datasets are Illumina-
+generated short reads of well-Characterized, Sanger assembled
+bacterial genomes. Knowledge of the genomes is needed for
+determining the accuracy of the error correction methods. The
+six experimental datasets, downloaded from the sequence read
+archive at NCBI, are listed in Table 1. Datasets D1 (Accession
+Number: SRX000429), D2 (SRR001665_1), D5 (SRR022918_1)
+and D6 (SRR034509_1) are Illumina reads from the E.coli str.
+K—IZ substr (NC_000913) genome (~4.64 Mbp); datasets D3
+(SRR006332) and D4 are Illumina reads from the Acinetobacter
+sp. ADP] (NC_005966) genome (~3.6 Mb). The ﬁrst four datasets
+are generated by Solexa 1G Genome Analyzer, where each read has
+the same length 36 bp. The latter two datasets are generated using
+the more recent Illumina Genome Analyzer II, with read lengths
+of 47 bp in D5 and 101 bp in D6. D1 has high coverage and low
+error rate. D2 has typical coverage and low error rate. D3 has high
+coverage and high error rate. D4 is derived from D3 by randomly
+selecting short reads amounting to 40X coverage. This is done for
+evaluating performance on a low coverage, high error rate dataset.
+Both D5 and D6 have higher error rates. In addition, >13.9% of the
+reads in D6 contain ambiguous nucleotides, denoted by character N.
+Since SHREC cannot process non-ACGT characters, we eliminated
+all reads with ambiguous bases, even though Reptile has no such
+limitation. The number of discarded reads is indicated in column 5,
+Table 1.
+
+Similar to Schroder et (11. (2009), we evaluated error correction
+results with the aid of RMAP (v2.05) (Smith et (11., 2008), which
+maps short reads to a known genome by minimizing mismatches.
+We allowed up to ﬁve mismatches per read in the ﬁrst four datasets
+
+ 
+
+2530
+
+112 /3.Io's172an0[p.IOJxosorwurJOJurorq”:duq urorj papeo1umoq
+
+9103 ‘1g15n8nv 110::
+
+Reptile
+
+ 
+
+Table 1. Experimental datasets
+
+ 
+
+Data Genome Read Number Discarded Cov. Error
+length (bp) of reads (M) reads rate (%)
+
+ 
+
+D1 E.coli 36 20.8 107.7K 160>< 0.6
+D2 E.coli 36 10.4 48.3K 80>< 0.6
+D3 A. sp. 36 17.7 456K 173>< 1.5
+D4 A. sp. 36 4.0 0 40>< 1.5
+D5 E.coli 47 7.0 32.7K 71>< 3.3
+D6 E.coli 101 8.9 1.44M 193>< 2.2
+
+ 
+
+Error rate is estimated by mapping the reads to the corresponding genome using RMAP,
+and ﬁnding mismatches based on uniquely mapped reads.
+
+Table 2. Results of mapping each dataset to the corresponding genome using
+RMAP
+
+ 
+
+Data Allowed
+mismatches of reads”
+
+Number Uniquely Ambiguously
+
+mapped reads (%) mapped reads (%)
+
+ 
+
+D1 5 20708709 96.5 2.5
+D2 5 10359952 96.7 2.5
+D3 5 17675271 79.9 1.5
+D4 5 4000000 84.1 1.6
+D5 10 7049153 62.5 1.5
+D6 10 8874761 63.5 1.2
+
+15 68.8 1.4
+
+ 
+
+3Number of reads containing no ambiguous bases.
+
+and allowed up to 10 mismatches (default value of RMAP) in D5
+and ﬁfteen mismatches in D6 since the reads are longer in the
+latter two datasets. Reads that could not be mapped to the genome,
+or that map to multiple locations, are discarded. The mismatches
+between uniquely mapped reads and the genome are considered read
+errors. Quality of the datasets varied as shown in Table 2, with the
+percentage of reads that are uniquely mapped ranging from 62.5 to
+96.7%. The large percentage of unmappable reads, the higher error
+rates as well as the large percentage of reads with ambiguous bases
+indicate that D5 and D6 have lower quality than D1 to D4.
+
+Since the goal of error correction is to identify and correct each
+erroneous nucleotide, we assess the quality of error correction at the
+base level. A true positive (TP) is any erroneous base that is changed
+to the true base, a false positive (FP) is any true base changed
+wrongly, a true negative (TN) is any true base left unchanged,
+and a false negative (FN) is any erroneous base left unchanged.
+Then Sensitivity = TP/(TP + FN) and Speciﬁcity = TN/(TN + FP).
+Note that these deﬁnitions are different from those used by Schroder
+et al. (2009), which target read-level error detection (whether a read
+is ﬂagged as containing an error or not). This is a less stringent
+measure because any read containing errors was classiﬁed as TP
+provided at least one of its errors was detected and irrespective of
+whether they were accurately corrected or not.
+
+We propose two additional measures for assessing the quality of
+error correction:
+
+° Erroneous base assignment (EBA): let n, denote the number
+of erroneous bases that are correctly identiﬁed but changed to
+a wrong base. Then, EBA = n, /(TP+n,) reﬂects how well we
+are able to correct an erroneous base to the true base after a
+
+sequencing error has been identiﬁed. A lower value of EBA
+indicates a more accurate base assignment.
+
+0 Gain: (TP—FP)/(TP+FN). This measures the percentage of
+errors effectively removed from the dataset, which is equivalent
+to the number of errors before correction minus the number
+of errors after correction divided by the number of errors
+before correction. Clearly, Gain should approach one for the
+best methods, but may be negative for methods that actually
+introduce more errors than they correct.
+
+We regard these measures as important because they penalize
+failing to detect an erroneous base, correctly detecting an erroneous
+base but wrongly correcting it, and characterizing a correct base to
+be an erroneous base. In particular, we strongly advocate the Gain
+measure as it captures data quality post-error correction compared
+with the quality prior to the correction.
+
+The results of running Reptile and SHREC on the six datasets
+are summarized in Table 3. Due to the larger memory usage of the
+SHREC program, we were not able to obtain results for D3, D5
+and D6. In all other cases, Reptile had higher Gain and lower EBA
+than SHREC. With other parameters ﬁxed in Reptile, we varied
+maximum (1 value used for inferring Hamming graph in D1 and D2.
+As expected, the run time signiﬁcantly increased as (1 increased,
+since the size of d-neighborhood for each kmer increased. Also, we
+see an increase in both TP and PP and four to ﬁve times higher EBA,
+indicating that when we increase the search space, we run the risk
+of false error detection and correction but increase the chance to
+identifying more errors.
+
+An inherent difﬁculty in using any method is the challenge of
+Choosing optimal parameters. The results reported in Table 3 are
+obtained when using the parameter choices suggested in Section 3.
+To show that even better performance is possible, we applied a series
+of parameter choices to dataset D3 (Fig. 3). Gain improved from 63%
+with the default parameters to as high as 72%. We chose to report on
+Reptile using the default parameters for all cases in Table 3 because
+it is unfair to choose optimal parameters for each individual case
+based on our knowledge of the genome, which would generally
+not be known. Similarly, we used the default parameter settings for
+SHREC. Using a different combination of parameters may vary the
+results of both SHREC and Reptile. In this article, we have presented
+a method to select parameters for Reptile based on known quantities
+such as kmer frequency and quality score histograms. A similar
+guidance is needed for the SHREC program and is beyond the scope
+of the article. Note that we do not take into account improved results
+that can only be obtained by the knowledge of the genome (Fig. 3).
+One can observe that our method of parameter estimation based
+on statistics from the dataset is performing better than analytical
+calculations based on the assumptions of uniform error distribution
+and uniform coverage of genome by reads.
+
+In addition, we compared the run time and memory usage of
+SHREC and Reptile. SHREC is a multi-threaded program while
+the current release of Reptile can only use a single core. Hence,
+we report run times in total CPU hours. Both methods were run
+on a SUN Fire X2200 workstation with dual quad-core 2.3 GHz
+AMD Barcelona three processors with 8 GB RAM and 4GB swap
+memory, running Debian GNU/Linux x86_64. Results in Table 3
+show Reptile is 3—10 times faster and uses 8—11 times less memory
+than SHREC. As expected, memory usage of Reptile is associated
+with the length of the genome and the number of errors in the data
+
+ 
+
+2531
+
+112 /3.Io's112an0[p.IOJxosorwurJOJurorq”:duq urorj papeo1umoq
+
+9103 ‘1g15n8nv 110::
+
+X. Yang et al.
+
+ 
+
+Table 3. Results of Reptile and SHREC on Illumina sequenced short reads
+
+ 
+
+ 
+
+Data Method (d) TP FN FP TN EBA (%) Sensitivity (%) Speciﬁcity (%) Gain (%) CPU Memory
+(Cov) Hours (GB)
+D1 SHREC 2819754 1183861 667435 740 842 474 1.794 70.4 99.9 53.8 - > 8
+(160x) Reptile (1) 3164394 839221 133558 741376351 0.007 79 99.9 75.7 0.79 1.1
+Reptile (2) 3457717 545 898 245417 741264492 0.028 86.4 99.9 80.2 2.49 1.1
+D2 SHREC 1303505 422337 251228 370981202 1.549 75.5 99.9 61.0 3.6 7.1
+(79.5x) Reptile (1) 1169256 556586 44959 371 187 471 0.009 67.8 99.9 65.2 0.35 0.84
+Reptile (2) 1315277 410565 91205 371 141225 0.042 76.2 99.9 70.9 1.23 0.84
+D3 SHREC — — — 7 7 7 7 7 7 7
+(172.5x) Reptile (1) 7138883 2361813 1138666 610144638 0.013 75.1 99.8 63.2 1.66 2.2
+D4 SHREC 1473252 530736 613921 141382091 1.306 73.5 99.6 42.9 2.78 7.6
+(40x) Reptile (1) 1422949 581039 222218 141773 794 0.091 71 99.8 59.9 0.26 0.66
+D5 SHREC — — — 7 7 7 7 7 7 7
+(71x) Reptile (1) 3551764 3189748 985674 323 583 005 0.017 52.7 99.7 38.1 0.94 1.9
+D6 SHREC — — — 7 7 7 7 7 7 7
+(193x) Reptile (1) 17158925 2947342 1298891 874 945 703 0.01 85.3 99.9 78.9 2.76 4.6
+
+ 
+
+0.34 034 0.34 0.34 “-
+
+—l—--l----l-
+.72 "'-
+
+0 0.12
+
+El.
+
+"' Sensitivity
+II- Gain
+
+ 
+
+ 
+
+Fig. 3. Gain and sensitivity versus different parameter choices for D3. The
+ﬁrst 11 sample points use parameters k=11,d= 1, |t|:22. and (C,,,. Q,)
+values (14. 60). (12. 60). (10. 60). (10. 55). (8. 60). (8. 55). (8. 50). (8. 45).
+(7. 45). (6. 45). (5. 45). respectively. The last sample point uses parameters
+(k:12,d=2,|t|=24,C,,,=8,Q,=45).
+
+(compare D1 and D2), while the memory usage of SHREC increased
+with the number of reads, genome length and sequencing errors. In
+addition, although D1 contains many more reads (20.8M) than D3
+(17.7M), the higher error rate signiﬁcantly increased memory usage
+in both methods.
+
+To enable fair comparison with SHREC, the above experiments
+were carried out by excluding all reads containing ambiguous bases.
+However, Reptile does have ﬁinctionality to deal with ambiguous
+bases, which is useﬁil in the following cases: (i) if a read contains
+few ambiguous bases, the surrounding high-quality regions provide
+sufﬁcient information to infer correct bases by referencing the
+k-spectrum; (ii) in some datasets, neglecting reads containing
+ambiguous bases leads to excessive loss of data, which further
+distorts uniformity of the sampling. For instance, as much as 13.9%
+reads in dataset D6 contain N’s.
+
+Reptile attempts to correct ambiguous bases in regions where their
+density is low. If a read contains too many ambiguous bases, it is
+low quality and untrustworthy. Some reads may have ambiguous
+bases Clustered in some region, e.g. the 3’ region, while other
+
+Table 4. Quality of ambiguous base correction using Reptile
+
+ 
+
+ 
+
+Data N Accuracy Sensitivity Speciﬁcity Gain EBA
+(%) (%) (%) (%) (%)
+D2 A 99.98 66.4 100 63.7 0.01
+C 100 66.4 100 63.8 0.01
+G 100 66.4 100 63.7 0.01
+T 100 66.3 100 63.7 0.01
+D6 A 99.99 85.1 99.8 78.5 0.01
+C 99.99 85.2 99.8 78.4 0.009
+G 100 85.3 99.8 78.5 0.01
+T 99.99 85.3 99.8 78.5 0.009
+
+ 
+
+parts may still be of good quality. It is more meaningful to try
+correcting ambiguous bases in the latter parts alone, since a Cluster
+of ambiguous nucleotides in a read makes it unlikely to pinpoint
+other reads that have the same genomic co-location. Formally,
+Reptile attempts to correct an ambiguous base b of read r, if in
+any substring r[i : i+w— 1] that contains b, there are no more than
+(1 ambiguous bases. The ratio of d to w constrains the maximum
+density of ambiguous bases allowed in attempting error correction.
+By default, w is set to k (to equal kmer length), while (1 is
+set to the maximum Hamming distance allowed (Section 3). To
+implement the above idea, all ambiguous bases satisfying the density
+constraint are changed to one of the bases from the set {A, C, G, T}
+initially (default ‘A’), and will be validated or corrected later by the
+algorithm.
+
+To test the accuracy of this procedure as well as study the effect
+of the Choice of the default base, we conducted Reptile runs on
+the full datasets of D2 (36bp) and D6 (101bp) by setting the
+ambiguous bases to the chosen default. The results are presented in
+Table 4. The default base used is shown under Column ‘N’ . Accuracy
+is deﬁned to be the percentage of ambiguous bases that have
+been successfully corrected (again, only reads uniquely mapped by
+RMAP are considered as truth is unknown otherwise). The last four
+
+ 
+
+2532
+
+112 /3.Io's112an0[p.IOJxosorwurJOJurorq”:duq urorj papeo1umoq
+
+9103 ‘1g15n8nv 110::
+
+Reptile
+
+ 
+
+columns are as deﬁned in Table 3. As can be observed from Table 4,
+(i) the accuracy of ambiguous base correction is high and consistent
+with the overall EBA rate, (ii) changing the default base slightly
+inﬂuenced the results due to the resulting differences in k-spectrum
+composition and (iii) the sensitivity and Gain values are slightly
+lower than reported in Table 3, mainly because the ambiguous bases
+that were left uncorrected by Reptile could sometimes be uniquely
+mapped to the reference genome using RMAP, hence increasing the
+FN value.
+
+5 DSCUSSON
+
+The proposed error correction algorithm is conservative because
+it avoids changing bases unless there is a compelling under-
+representation of a tile compared with its d-mutant tiles. Actual
+errors in read r cannot be corrected if r occurs in a very low coverage
+region of the genome or there exist multiple candidate d-mutant tiles,
+probably because of genome repetition. On the other hand, a tile may
+be miscorrected if it contains a minor variant of a highly repetitive
+element in the genome or it traverses a low coverage region that is
+similar to other regions with normal coverage. Our method is not
+unique in being Challenged by non-uniform coverage on repetitive
+genomes. Error correction for highly repetitive genomes is essential
+for successfully assembling larger eukaryotic genomes but none of
+the existing methods successfully addresses this problem, including
+Reptile.
+
+Short-read mapping provides a reasonable method to evaluate
+error correction methods in well-assembled, low repetition genomes.
+Nevertheless, it is not possible to unambiguously determine
+all errors. There are natural polymorphisms among bacterial
+lines, and some presumed polymorphisms may be unrecognized
+assembly errors. Furthermore, the mapping software chooses among
+alternative mappings by invoking parsimony, but there is some
+chance that the true number of errors is less than the minimum.
+Lastly, mapping software cannot map reads that contain more than
+a constant number of substitutions, typically just two, with full
+sensitivity, although we considered 5 here and tested as many as
+15 with similar results. Despite these limitations, we believe that
+most errors are correctly identiﬁed, and this approach can provide a
+fair comparison of error correction methods.
+
+We and others (Smith et al., 2008) have found that sequence
+quality scores provide valuable information. Our use of quality
+scores probably helped us account for the error patterns in next-
+generation sequencing data (Dohm et al., 2008) without explicitly
+modeling them. However, it has been observed (Dohm et al., 2008)
+that high quality scores may be too optimistic and low quality scores
+too pessimistic in estimating sequencing errors in Solexa data. Since
+quality scores may not be precise measures of misread probabilities,
+the current version of Reptile uses quality score information in a very
+
+simple manner, but can be modiﬁed to make more sophisticated use
+of quality scores if warranted. Finally, although quality scores are
+needed to run Reptile, it can be run effectively without scores by
+setting all quality scores and the threshold Q, to the same value.
+
+There remain several additional challenges in next-generation
+sequencing error correction. One challenge is to distinguish
+errors from polymorphisms, for example, single nucleotide
+polymorphisms (SNPs). Reptile could accommodate SNP prediction
+with modiﬁcation in the tile correction stage (Algorithm 1), where
+ambiguities may indicate polymorphisms. Another challenge is
+the growing read length of upcoming high-throughput sequencers.
+Currently, we deﬁne tiles as concatenations of two kmers. it might
+prove useful to extend the tile deﬁnition to more than two kmers in
+order to address error correction in much longer reads.
+
+Funding: This research is funded in part by the Iowa State University
+Plant Sciences Institute Innovative Research Grants program.
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Ansorge,W.J. (2009) Next-generation DNA sequencing techniques. Nat. Biotechnol.,
+25, 1957203.
+
+Butler,J. et a1. (2008) ALLPATHS: de novo assembly of whole-genome shotgun
+microreads. Genome Res, 18, 81W820.
+
+Chaisson,M. et a1. (2004) Fragment assembly with short reads. Bioinformatics, 20,
+206772074.
+
+Dohm,J.C. et a1. (2008) Substantial biases in ultra-short read data sets from high-
+throughput DNA sequencing. Nucleic Acids Res, 36, 6105.
+
+Idury,R.M. and Waterman,M.S. (1995) A new algorithm for DNA sequence assembly.
+J. Comput. Biol., 2, 2917306.
+
+Jackson,B.G. et a1. (2010) Parallel de novo assembly of large genomes from
+high-throughput short reads. In 24th IEEE International Parallel & Distributed
+Processing Symposium, Atlanta, USA, pp. 1710.
+
+Manthey,B. and Reischuk,R. (2005). The intractability of computing the Hamming
+distance. Theor Comput. Sci., 337, 3317346.
+
+Marguerat,S. et a1. (2008) Next-generation sequencing: applications beyond genomes.
+Biochem. Soc. Trans, 36, 109171096.
+
+Myers,E.W. (2005) The fragment assembly string graph. Bioinformatics, 21 (Suppl. 2),
+ii797ii85.
+
+Qu,W. et a1. (2009) Efﬁcient frequency-based de novo short-read clustering for error
+trimming in next-generation sequencing. Genome Res, 19, 130971315.
+
+SchrdderJ. et a1. (2009) SHREC: a short-read error correction method. Bioinformatics,
+25, 215772163.
+
+Shendure,J. and Ji,H. (2008) Next-generation DNA sequencing. Nat. Biotechnol., 26,
+113571145.
+
+Simpson,J.T. et a1. (2009) ABySS: a parallel assembler for short read sequence data.
+Genome Res, 19, 111771123.
+
+Smith,A. et a1. (2008) Using quality scores and longer reads improves accuracy of
+solexa read mapping. BMC Bioinformatics, 9, 1287135.
+
+Tammi,M.T. et a1. (2003) Correcting errors in shotgun sequences. Nucleic Acids Res,
+31, 46634672.
+
+Zerbino,D.R. and Birney,E. (2008) Velvet: algorithms for de novo short read assembly
+using de Bruijn graphs. Genome Res, 18, 8217829.
+
+ 
+
+2533
+
+112 /3.Io's112an0[p.IOJxosorwurJOJurorq”:duq urorj papeo1umoq
+
+9103 ‘1g15n8nv 110::
+

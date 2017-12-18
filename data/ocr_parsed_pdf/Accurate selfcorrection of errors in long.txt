@@ -1,0 +1,840 @@
+Bioinformatics, 2016, 1—8
+doi:10.1093/bioinformatics/btw321
+
+Advance Access Publication Date: 6 June 2016
+Original Paper
+
+ 
+
+Sequence analysis
+
+Accurate self-correction of errors in long reads
+using de Bruijn graphs
+Leena Salme|a1'*, Riku Walve1, Eric Rivals2 and Esko Ukkonen1
+
+1Helsinki Institute for Information Technology HllT, Department of Computer Science, University of Helsinki,
+Helsinki, Finland and 2LIRMM and Institut de Biologie Computationelle, CNRS and Université Montpellier,
+Montpellier, France
+
+*To whom correspondence should be addressed.
+Associate Editor: Cenk Sahinalp
+
+Received on March 19, 2016; revised on May 3, 2016; accepted on May 16, 2016
+
+Abstract
+
+Motivation: New long read sequencing technologies, like PacBio SMRT and Oxford NanoPore, can
+produce sequencing reads up to 50 000 bp long but with an error rate of at least 15%. Reducing the
+error rate is necessary for subsequent utilization of the reads in, e.g. de novo genome assembly.
+The error correction problem has been tackled either by aligning the long reads against each other
+or by a hybrid approach that uses the more accurate short reads produced by second generation
+sequencing technologies to correct the long reads.
+
+Results: We present an error correction method that uses long reads only. The method consists of
+two phases: first, we use an iterative alignment—free correction method based on de Bruijn graphs
+with increasing length of k—mers, and second, the corrected reads are further polished using long—
+distance dependencies that are found using multiple alignments. According to our experiments,
+the proposed method is the most accurate one relying on long reads only for read sets with high
+coverage. Furthermore, when the coverage of the read set is at least 75x, the throughput of the
+new method is at least 20% higher.
+
+Availability and Implementation: LoRMA is freely available at http://www.cs.helsinki.fi/u/lmsalmel/
+
+ 
+
+LoRMA/.
+Contact: leena.salmela@cs.helsinki.fi
+
+ 
+
+1 Introduction
+
+With the diminishing costs, high-throughput DNA sequencing has
+become a commonplace technology in biological research. Whereas
+the second generation sequencers produced short but quite accurate
+reads, new technologies such as Pacific Biosciences and Oxford
+NanoPore are producing reads up to 50 000 bp long but with an
+error rate at least 15%. Although the long reads have proven to be
+very helpful in applications like genome assembly (Koren and
+Philippy, 2015; Madoui et (11., 2015), the error rate poses a chal-
+lenge for the utilization of this data.
+
+Many methods have been developed for correcting short reads
+(Laehnemann et (11., 2016; Yang et (11., 2013) but these methods are
+not directly applicable to the long reads because of their much
+higher error rate. Moreover, most research of short read error
+
+(63 The Author 2016. Published by Oxford University Press.
+
+correction has concentrated on mismatches, the dominant error type
+in Illumina data, whereas in long reads indels are more common.
+Recently, several methods for error correction of long reads have
+also been developed. These methods fall into two categories: either
+the highly erroneous long reads are self-corrected by aligning them
+against each other, or a hybrid strategy is adopted in which the long
+reads are corrected using the accurate short reads that are assumed
+to be available. Most standalone error correction tools like proov-
+read (Hackl et (11., 2014), LoRDEC (Salmela and Rivals, 2014), LSC
+(Au et (11., 2012) and Jabba (Miclotte et (11., 2015) are hybrid meth-
+ods. PBcR (Berlin et (11., 2015; Koren et (11., 2012) is a tool that can
+employ either the hybrid or self-correction strategy.
+
+Most hybrid methods like PBcR, LSC and proovread are based
+on the mapping approach. They first map the short reads on the
+
+1
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution Non-Commercial License (http://creativecommons.org/Iicenses/by-nc/4.0/),
+which permits non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact
+
+journals.permissions@oup.com
+
+/310‘srcumo[p10}xo‘sopcuHOJIItotq/ﬁdnq
+
+L.Sa/mela et al.
+
+ 
+
+long reads and then correct the long reads according to a consensus
+built on the mapped short reads. PEcR extends this strategy to self—
+correction of PacEio reads by computing overlaps between the long
+reads using probabilistic locality—sensitive hashing and then correct—
+ing the reads according to a consensus built on the overlapping
+reads. As the mapping of short reads is time and memory consum—
+ing, LoRDEC avoids the mapping phase by building a de Eruijn
+graph (DEG) of the short reads and then threading the long reads
+through this graph to correct them. Jabba is a recent tool that is also
+based on building a DEG of short reads. While LoRDEC finds
+matches of complete k—mers in the long reads, Jabba searches for
+maximal exact matches between the k—mers and the long reads
+allowing it to use a larger k in the DEG.
+
+In this paper, we present a self—correction method for long reads
+that is based on DEGs and multiple alignments. First our method
+performs initial correction that is similar to LoRDEC, but uses only
+long reads and performs iterative correction rounds with longer and
+longer k—mers. This phase considers only the local context of errors
+and hence it misses the long—distance dependency information avail—
+able in the long reads. To capture such dependencies, the second
+phase of our method uses multiple alignments between carefully se—
+lected reads to further improve the error correction.
+
+Our experiments show that our method is currently the most ac—
+curate one relying on long reads only. The error rate of the reads
+after our error correction is less than half of the error rate of reads
+corrected by PEcR using long reads only. Furthermore, when the
+coverage of the read set is at least 75 X , the size of the corrected read
+set of our method is at least 20% higher than for PEcR.
+
+2 Overview of LoRDEC
+
+LoRDEC (Salmela and Rivals, 2014) is a hybrid method for the
+error correction of long reads. It presents the short reads in a DEG
+and then maps the long reads to the graph. The DEG of a read set is
+a graph whose nodes are all k—mers occurring in the reads and there
+is an edge between two nodes if the corresponding k—mers overlap
+by k — 1 bases. LoRDEC classifies the k—mers of long reads as solid
+if they are in the DEG and weak otherwise. The correction then pro—
+ceeds by replacing the weak areas of the long reads by solid ones.
+This is done by searching paths in the DEG between solid k—mers to
+bridge the weak areas between them. If several paths are found, the
+path with the shortest edit distance as compared to the weak region
+is chosen to be the correct sequence, which replaces the weak region
+of the long read. The weak heads and tails of the long reads are the
+extreme regions of the reads that are bordered by just one solid la—
+mer in the beginning (resp. end) of the read. LoRDEC attempts to
+correct these regions by starting a path search from the solid k—mer
+and choosing a sequence that is as close as possible to the weak head
+or tail.
+
+Repetitive regions of the genome can make the DEG tangled.
+The path search in these areas of the DEG can then become intract—
+able. Therefore, LoRDEC employs a limit on the number of
+branches it explores during the search. If this limit is exceeded,
+LoRDEC checks if at least one path within the maximum allowed
+error rate has been found and then uses the best path found for cor—
+rection. If no such path has been found, LoRDEC starts a path
+search similar to the correction of the head and tail of the read, to
+attempt a partial correction of the weak region.
+
+Some segments of the long reads remain erroneous after the cor—
+rection. LoRDEC outputs bases in upper case if at least one of the
+k—mers containing that base is solid, i.e. it occurs in the DEG of the
+
+short reads, and in lower case otherwise. For most applications, it is
+preferable to extract only the upper case regions of the sequences as
+the lower case bases are likely to contain errors.
+
+3 Self-correction of long reads
+
+In this section, we will show how an error correction procedure
+similar to LoRDEC can be used to iteratively correct long reads
+without short read data. We will use LoRDEC”r to refer to LoRDEC
+in this long reads only mode. Then, we further describe a polishing
+method to improve the accuracy of correction. Figure 1 shows the
+workflow of our approach.
+
+3.1 Iterative correction
+
+To describe how LoRDEC can be adapted for self—correction of read
+sets, let Q be a set of long reads to be corrected, and let integer 10 be
+the abundancy threshold that is used in choosing the k—mers to the
+DEG. The correction procedure repeats for an increasing sequence
+k : 161.....16, the following steps 1—3:
+
+1. Construct the DEG of set Q using as the nodes the k—mers that
+occur in Q at least 10 times;
+
+2. Correct Q using the LoRDEC algorithm with this DEG;
+
+3. Replace Q with the corrected Q.
+
+After the final round, the regions of the reads identified as cor—
+rect in the last iteration are extracted for further correction with the
+multiple alignment technique by LoRMA.
+
+As the initial error level is assumed high, the above iterations
+have to start with a relatively small k 2161. With a suitable abund—
+ancy threshold 10, the DEG should then contain most of the correct
+k—mers (i.e. the k—mers of the target genome) and a few erroneous
+ones. Although path search over long weak regions may not be feas—
+ible because of strong branching of the DEG, shorter paths are likely
+to be found and hence, short weak regions can be corrected. After
+the first round, the correct regions in the reads have become longer
+because close—by correct regions have been merged whenever a path
+between them has been found, and thus, we can increase k. Then,
+with increasing ks, the DEG gets less tangled and the path search
+over the longer weak regions becomes feasible allowing for the cor—
+rection of the complete reads. A similar iterative approach has previ—
+ously been proposed for short read assembly (Bankevich et al.,
+2012; Peng et al., 2010).
+
+When the path search is abandoned because of excessive branch—
+ing, the original LoRDEC algorithm still uses the best path found so
+far to correct the region. Such a greedy strategy improves correction
+accuracy in a single run, but in the present iterative approach false
+corrections start to accumulate. Therefore, we make a correction
+only if it is guaranteed that the correction is the best one available in
+the DEG, i.e. all branches have been explored.
+
+Abundancy threshold 10 controls the quality of the k—mers that
+are used for correction. In our experiments, we used a fixed
+
+increase 19
+
+PacBio reads Corrected reads
+
+ 
+
+Fig. 1. Workflow of error correction. LoRDEC* is first applied iteratively to the
+read set, with an increasing k. The corrected reads are further corrected by
+LoRMA, which uses multiple alignments to find long-distance dependencies
+in the reads
+
+ﬁm'sreumol‘pquo'sopcuuowtotq/ﬁdnq
+
+Figure 3
+
+Miclotte at a]. (2015) Table 1
+
+Figure 2
+
+Salmela
+and Schroder, 2011
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+I
+o —o— 13:0.05
+' —El— p:O.10
+, + p:0.15
+' —o— p:(J.2O
+I o
+O
+I I
+O
+I U
+Q
+I .0
+.C
+I O.
+' 'o
+I. 0.. .
+I
+I'. “.50-
+I ' o.
+. l 00
+o . . III-I..-
+.NNHN, ll.—
+
+ 
+
+ 
+
+ 
+
+CGTATCAG
+
+/810'sreumofploqxo"soueuuoqutotqﬂ:dnq
+
+L.Sa/mela et al.
+
+ 
+
+Table 1. Datasets used in the experiments
+
+ 
+
+E.coli (simulated)
+
+E.coli
+
+Yeast
+
+ 
+
+Reference organism
+
+ 
+
+ 
+
+ 
+
+Name Escherichia coli Escherichia coli Saccharomyces cerevisiae
+Strain K-12 substr. MG1655 K—12 substr. MG1655 W303
+Reference sequence NC_OOO913 NC_OOO913 CM001806-CMOO1823
+Genome size 4.6 Mbp 4.6 Mbp 12 Mbp
+PacBio data
+Number of reads 92 818 89 481 261 964
+Avg. read length 9997 10 779 5891
+Coverage 200x 208>< 129><
+Illumina data
+Accession number — ERR022075 SRR5 67755
+Number of reads — 2 316 613 4 503 422
+Read length — 1 OO 1 00
+Coverage — 50>< 38><
+Reads:
+1. AGGGACA 2. GACATTTTTCT 3. GGGAGATTTTTC 4. TTTCTCTCTA
+
+DBG:
+
+ 
+
+ 
+
+ 
+
+DBG paths and read labels:
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1:2 2:3
+2:1 3:3 414
+2:2 2:4 2:5
+1:1 :2 :4 4:1 4:2 4:6
+(AGGGHGGGA) (ATTT) 3 (TTTT) 3 (TTTC) (TTCT) (TOTO) 4.3 (CTCT) (TCTA)
+3:1 I
+4:5
+
+Fig. 4. Augmented DBG. For simplicity, reverse complements are not considered. The lower graph only shows the branching nodes of the D86 and the labels on
+the paths/edges are of the form read id: read part id. For example, the path for read 2 consists of segments with labels 2:1, 2:2, 2:3, 2:4 and 2:5
+
+on this path. Hence, the path for a read i consists of segments who
+have a triplet with i as the read id and with part id values 1, 2,. . .,
+the path being composed of these segments in the order of the part
+id value (Fig. 4). Using this information, it is now possible to recon—
+struct each read from the DEG except that the reads will be prefixed
+(suffixed) by the complete simple path that starts (ends) the read.
+
+In the second phase of our method, we take the reads one by one
+and use the DEG to select reads that are similar to the current read.
+We follow the path for the current read and gather the set of reads
+sharing k—mers with it, which can be done using the triplets of the
+augmented DEG. Out of these reads, we then first select each read R
+such that the shared k—mers span at least 80% of the shorter one of
+the read R and the current read. Furthermore, out of these reads, we
+select those that share the most k—mers with the current read. We
+call this read set the friends of the current read. The number of se—
+lected reads is a parameter of our method (by default 7).
+
+We then proceed to compute a multiple alignment of the current
+read and its friends. To keep the running time feasible, we use the
+same simple method as in Coral (Salmela and Schroder, 2011 ). First,
+the current read is set to be the initial consensus. Then we take each
+friend of the current read one by one, align them against the current
+consensus using banded alignment, and finally update the consensus
+according to the alignment. Finally, we inspect every column of the
+multiple alignment and correct the current read towards the consen—
+sus if the consensus is supported by at least two reads.
+
+We implemented the above procedure in a tool called Long Read
+Multiple Aligner (LoRMA) using the GATE library (Drezen et al.,
+2014) for the implementation of the DEG.
+
+4 Experimental results
+
+We ran experiments on three datasets that are detailed in Table 1.
+The simulated Escherichia coli dataset was generated with PESIM
+(Ono et al., 2013) using the following parameters: mean accuracy
+85%, average read length 10 000, and minimum read length 1000.
+The other two datasets are real data. Although our method works
+solely on the PacEio reads, the table also includes statistics of com—
+plementary Illumina reads that were used to compare our method
+against hybrid methods that need also short reads. All experiments
+were run on 32 GE RAM machines equipped with 8 cores.
+
+4.1 Evaluation of the quality of error correction
+
+In the simulated dataset, the genomic position where each read de—
+rives from is known. Therefore, the quality of error correction on
+the simulated dataset is evaluated by aligning the corrected read
+against the corresponding correct genomic sequence. We allow free
+deletions in the flanks of the corrected read because the tools trim
+regions they are not able to correct. To check if the corrected reads
+align to the correct genomic position, we aligned the corrected reads
+
+ﬁm'srcumol‘piqxo'sopeuuowtotq/ﬁdnq
+
+Accurate self—correction of long reads
+
+ 
+
+on the reference genome with ELASR (Chaisson and Tesler, 2012)
+keeping only a single best alignment for each read. The following
+statistics were computed:
+
+° Size: The relative size of the corrected read set as compared to
+the original one.
+
+° Error rate: The number of substitutions, insertions and deletions
+divided by the length of the correct genomic sequence.
+
+° Correctly aligned: The relative number of reads that align to the
+same genomic position where the read derives from.
+
+To evaluate the quality of error correction on the real datasets,
+we used ELASR (Chaisson and Tesler, 2012) to align the original
+and corrected reads on the reference genome. For each read, we
+used only a single best alignment because a correct read should only
+have one continuous alignment against the reference. Thus, chimeric
+reads will be only partially aligned. We computed the following
+statistics:
+
+° Size: The relative size of the corrected read set as compared to
+the original one.
+
+° Aligned: The relative size of the aligned regions as compared to
+the complete read set.
+
+° Error rate: The number of substitutions, insertions and deletions
+in the aligned regions divided by the length of the aligned regions
+in the reference sequence.
+
+° Genome coverage: The proportion of the genome covered by the
+aligned regions of the reads.
+
+Together, these statistics measure three aspects of the quality of
+error correction. Size measures the throughput of the method.
+Aligned and error rate together measure the accuracy of correction.
+Finally genome coverage estimates if reads deriving from all regions
+of the genome are corrected.
+
+4.2 Parameters of our method
+
+We ran experiments on the real E.coli dataset to test the effect of
+parameters on the performance of our method. First, we tried sev—
+eral progressions of k in the first phase where LoRDEC”r is run itera—
+tively. We started all iterations with k : 19 because given the high
+error rate of the data k must be small for correct k—mers to occur in
+the read data. The results of these experiments are presented in
+Table 2. With more iterations, the size of the corrected read set and
+
+Table 2. The progression of kfor the iterations of LoRDEC*
+
+ 
+
+ 
+
+ 
+
+k progression Size Aligned Error Elapsed
+(%) (%) rate(%) time (h)
+
+19 64.901 99.499 0.294 4.08
+
+19,22,25,28,31 66.702 99.302 0.276 12.97
+
+19,22,25,28,31,34,37,40,43,46 66.630 99.311 0.274 20.65
+19,22,25,28,31,34,37,40,43,46, 66.546 99.296 0.271 27.53
+49,52,55,58,61
+
+ 
+
+ 
+
+ 
+
+19,26,33 66.401 99.329 0.274 9.58
+19,26,33,40,47 66.230 99.298 0.271 13.07
+19,26,33,40,47,54,61 66.144 99.283 0.266 16.08
+19,33 66.705 99.358 0.277 7.68
+19,33,47 66.178 99.352 0.268 10.58
+19,33,47,61 65.991 99.301 0.261 11.92
+19,40 66.619 99.360 0.272 8.32
+19,40,61 66.223 99.317 0.257 10.30
+
+the aligned proportion of reads decrease, but the aligned regions are
+more accurate. The decrease in the size of the corrected read set may
+be a result of better correction because PacEio reads have more in—
+sertions than deletions. However, the decrease in the aligned propor—
+tion of the reads may indicate some accumulation of false
+corrections. The runtime of the method increases with the number
+of iterations but later iterations take less time as the reads have al—
+ready been partially corrected during the previous rounds. To bal—
+ance out these effects, we chose to use a moderate number of
+iterations, i.e. k : 19, 40, 61, by default, which also optimizes the
+error rate of the aligned regions.
+
+LoRMA also builds a DEG of the reads and thus we need to spe—
+cify k. We investigated the effect of the value of k on the E .coli data—
+set. Table 3 shows the effect of k on the performance of LoRMA.
+Because the DEG is only used to detect similar reads in LoRMA, the
+performance is not greatly affected by the choice of k. There is a
+slight decrease in the throughput of the method as k increases as
+well as a slight increase in runtime but these effects are very modest.
+For the rest of the experiments, we set k : 19.
+
+Another parameter of the method is the size of the set of friends
+of the current read (—friends parameter). We tested also the effect of
+this parameter on the E.coli dataset. As the optimal value of this
+
+Table 3. The effect of the k-mer size in LoRMA. The elapsed time is
+the runtime of LoRDEC*+LoRMA
+
+ 
+
+ 
+
+k Size Aligned Error rate Elapsed time Memory peak
+(%) (%) (%) (h) (GB)
+
+19 66.238 99.306 0.256 10.38 17.197
+
+40 66.170 99.309 0.258 10.53 16.958
+
+61 65.941 99.313 0.261 13.87 16.908
+
+ 
+
+Table 4. The effect of the size of the friends set on the quality of the
+correction. The elapsed time is the runtime of LoRDEC*+LoRMA
+
+ 
+
+ 
+
+ 
+
+ 
+
+Friends 5 7 10 15 20
+Coverage 75><
+Size (%) 59.173 59.164 59.146 59.109 59.085
+Aligned (%) 98.894 98.983 99.099 99.192 99.226
+Error rate (%) 0.169 0.156 0.148 0.131 0.128
+Gen. cov. (%) 90.918 90.907 90.900 90.888 90.884
+Elapsed time (h) 1.13 1.22 1.53 1.88 2.27
+Memory (GB) 14.522 14.518 14.522 14.515 14.525
+Disk (GB) 1.076 1.076 1.076 1.076 1.076
+Coverage 100x
+Size (%) 65.759 65.738 65.723 65.670 65.607
+Aligned (%) 98.091 98.317 98.491 98.556 98.620
+Error rate(%) 0.152 0.140 0.134 0.114 0.110
+Gen. cov. (%) 99.404 99.403 99.405 99.403 99.405
+Elapsed time (h) 2.53 3.32 4.32 5.80 7.08
+Memory (GB) 14.720 14.720 14.712 14.723 14.720
+Disk (GB) 1.417 1.416 1.417 1.416 1.416
+Coverage 175 X
+Size (%) 66.933 66.906 66.905 66.852 66.816
+Aligned (%) 98.927 98.973 99.153 99.011 99.104
+Error rate(%) 0.222 0.194 0.191 0.140 0.133
+Gen. cov. (%) 100.000 100.000 100.000 100.000 100.000
+Elapsed time (h) 6.77 8.35 10.62 14.07 17.22
+)
+
+Memory (GB 16.009 16.016 16.003 16.002 16.006
+Disk (GB) 2.361 2.361 2.362 2.362 2.362
+
+ 
+
+ 
+
+ﬁm'srcumol‘piqxo'sopeuuowtotq/ﬁdnq
+
+Table 4
+
+Koren eta]., 2012
+
+Salmela and Rivals, 2014
+Miclotte er al., 2015
+Table 5
+
+prom ‘ad
+PBCR (with Illumina)
+labba
+
+Illumina)
+
+Table 5
+Berlin er al., 2015
+Hackl er al., 2014
+Table 6
+Table 6
+Table 6
+
+0.1143
+0.7789
+52.103 ' ' , 0.06 82
+0.0003 99.745
+
+99.833
+20.346
+). 100 ... 99.652
+99.484 0.1279 99.900
+
+Salmela and Rivals (2014)
+
+0.368
+
+0.451
+4.764
+20.085
+1.031
+
+14
+
+160.154
+0.606
+
+, 26
+0.993
+
+ 
+
+/3.IO'S[BIIm0[p.IOJXO'SOIJBIIIJOJIIIOIq/ﬂdnq
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Accurate self—correction of long reads 7
+Table 7. The effect of coverage of the PacBio read set on the quality of the correction
+
+LoRDEC*+LoRMA PEcR
+Coverage 25>< 50>< 100>< 150>< 208>< 25>< 50>< 100>< 150>< 208><
+Size (%) 3.105 30.348 65.739 67.198 66.223 31.132 44.190 48.391 50.284 51.068
+Aligned (%) 99.400 99.663 98.328 98.748 99.318 99.941 99.794 95.966 90.003 86.023
+Error rate (%) 0.329 0.187 0.140 0.159 0.257 2.224 1.396 0.874 0.757 0.6905
+Gen. cov. (%) 3.886 45.763 99.403 99.999 100.000 94.638 100.000 100.000 100.000 100.000
+Time (h) 0.10 0.32 3.30 7.17 10.40 0.08 0.18 0.47 0.93 1.68
+Memory (GB) 14.165 14.275 14.718 15.415 16.984 7.851 9.020 9.706 9.931 22.00
+Disk (GB) 0.272 0.655 1.416 2.024 2.824 1.232 2.443 3.714 7.114 16.070
+
+ 
+
+On the E.coli and yeast datasets, LoRDEC*+LoRMA uses 45%
+and 37%, respectively, of its running time on LoRDEC”r iterations.
+On both datasets, the error rate of the reads after LoRDEC”r iter—
+ations and trimming was 0.5%.
+
+4.4 The effect of coverage
+
+Especially for larger genomes, it is of interest to know how much
+coverage is needed for the error correction to succeed. We investi—
+gated this by creating random subsets of the E.coli dataset with
+coverages 25><, 50><, 100>< and 150><. We then ran our method and
+PEcR (Berlin et al., 2015; Koren et al., 2012) on these subsets to in—
+vestigate the effect of coverage on the error correction performance.
+Table 7 shows the results of these experiments. The other tools,
+LoRDEC, Jabba and proovread, use also the complementary
+Illumina reads and the coverage of PacEio reads does not affect their
+performance.
+
+When the coverage is high, the new method retains a larger pro—
+portion of the reads than PEcR and is more accurate, whereas when
+the coverage is low, PEcR retains more of the data and a larger pro—
+portion of it can be aligned. However, the error rate remains much
+lower for our new tool. The reads corrected by PEcR also cover a
+larger part of the reference when the coverage is low.
+
+5 Conclusions
+
+We have presented a new method for correcting long and highly er—
+roneous sequencing reads. Our method shows that efficient align—
+ment free methods can be applied to highly erroneous long read
+data. The current approach needs alignments to take into account
+the global context of errors. Reads corrected by the new method
+have an error rate less than half of the error rate of reads corrected
+by previous self—correction methods. Furthermore, the throughput
+of the new method is 20% higher than previous self—correction
+methods with read sets having coverage at least 75 X .
+
+Recently several algorithms for updating the DEG instead of
+constructing it from scratch when k changes have been proposed
+(Boucher et al., 2015; Cazaux et al., 2014). However, these methods
+are not directly applicable to our method because also the read set
+changes when we run LoRDEC”r iteratively on the long reads.
+
+Our method works solely on the long reads, whereas many previ—
+ous methods require also short accurate reads produced by e.g.
+Illumina sequencing, which can incorporate sequencing biases in
+PacEio reads. This could have very negative effect on sequence qual—
+ity, especially since Illumina suffers from GC content bias and some
+context—dependent errors (Nakamura et al., 2011; Schirmer et al.,
+2015).
+
+As further work, we plan to improve the method to scale up to
+mammalian size genomes. We will investigate a more compact
+
+representation of the path labels in the augmented DEG to replace
+the simple hash tables currently used. Construction of multiple
+alignment could also be improved by exploiting partial order align—
+ments (Lee et al., 2002) which have been shown to work well with
+PacEio reads (Chin et al., 2013).
+
+Another direction of further work is to investigate the applicabil—
+ity of the new method on long reads produced by the Oxford
+NanoPore MinION platform. Laver et al. (2015) have reported an
+error rate of 38.2% for this platform and they also observed some
+GC content bias. Both of these factors make the error correction
+problem more challenging, and therefore, it will be interesting to see
+a comparison of the methods on this data.
+
+Funding
+
+This work was supported by the Academy of Finland (grant 267591 to L.S.),
+ANR Colib’read (grant ANR-12-ESO2-0008), IEC (ANR—11—EINF—0002) and
+Defi MASTODONS to E.R., and EU FP7 project SYSCOL (grant UE7-
+SYSCOL-258236 to E.U.).
+
+Conﬂict of Interest: none declared.
+
+References
+
+Au,K.F. et al. (2012) Improving PacEio long read accuracy by short read align-
+ment. PLoS ONE, 7, e46679.
+
+Bankevich,A. et al. (2012) SPAdes: a new genome assembly algorithm and its
+applications to single-cell sequencing. Compnt. Biol., 19, 455—477.
+
+Berlin,K. et al. (2015) Assembling large genomes with single-molecule
+sequencing and locality-sensitive hashing. Nat. Biotechnol., 33, 623—630.
+
+Boucher,C. et al. (2015). Variable-order de Bruijn graphs. In: Proc. DCC
+2015, pp. 383—392.
+
+CazauX,B. et al. (2014). From indexing data structures to de Bruijn graphs. In:
+Proc. CPM 2014, volume 8486 of LNCS. Springer, pp. 89—99.
+
+Chaisson,M.]. and Tesler,G. (2012) Mapping single molecule sequencing
+reads using basic local alignment with successive reﬁnement (ELASR): appli-
+cation and theory. BMC Bioinformatics, 13, 238.
+
+Chin,C.S. et al. (2013) Nonhybrid, ﬁnished microbial genome assemblies from
+long-read SMRT sequencing data. Nat. Methods, 10, 5 6 3—5 69.
+
+Drezen,E. et al. (2014) GATE: genome assembly 86 analysis tool box.
+Bioinformatics, 30, 295 9—2961.
+
+Hackl,T. et al. (2014) proovread: large-scale high accuracy PacBio correction
+through iterative short read consensus. Bioinforrnatics, 30, 3004—3011.
+
+Koren,S. et al. (2012) Hybrid error correction and de novo assembly of single-
+molecule sequencing reads. Nat. Biotechnol., 30, 693—700.
+
+Koren,S. and Philippy,A.M. (2015) One chromosome, one contig: complete
+microbial genomes from long—read sequencing and assembly. Curr. Opin.
+Microhi01., 23, 110—120.
+
+Laehnemann,D. et al. (2016) Denoising DNA deep sequencing data — high-
+throughput sequencing errors and their correction. Brief. Bioinf., 17,
+154—179.
+
+ﬁm'srcumol‘piqxo'sopeuuowtotq/ﬁdnq
+
+L.Sa/mela et al.
+
+ 
+
+Laver,T. et al. (2015) Assessing the performance of the Oxford Nanopore
+Technologies MinION. Biomol. Detect. Quant., 3, 1—8.
+
+Lee,C. et al. (2002) Multiple sequence alignment using partial order graphs.
+Bioinforrnatics, 18, 452—464.
+
+Madoui,M.A. et al. (2015) Genome assembly using Nanopore-guided long
+and error-free DNA reads. BMC Genomics, 16, 327.
+
+Miclotte,G. et al. (2015). Jabba: Hybrid error correction for long sequencing
+reads using maximal exact matches. In: Proc. WABI 2015, volume 9289 of
+LNBI. Springer, pp. 175—188.
+
+Nakamura,K. et al. (2011) Sequence-speciﬁc error proﬁle of Illumina sequen-
+cers. Nucleic Acids Res., 39, e90.
+
+Ono,Y. et al. (2013) PESIM: PacEio reads simulator — toward accurate gen-
+ome assembly. Bioinforrnatics, 29, 119—121.
+
+Peng,Y. et al. (2010). IDEA — a practical iterative de Bruijn graph de novo assem-
+bler. In: Proc. RECOMB 201 0, volume 6044 of LNBI. Springer, pp. 426—440.
+
+Salmela,L. and Rivals,E. (2014) LoRDEC: accurate and efﬁcient long read
+error correction. Bioinforrnatics, 30, 3506—3514.
+
+Salmela,L. and SChréderJ. (2011) Correcting errors in short reads by multiple
+alignments. Bioinforrnatics, 27, 1455—1461.
+
+Schirmer,M. et al. (2015) Insight into biases and sequencing errors for ampli-
+con sequencing with the Illumina MiSeq platform. Nucleic Acids Res., 43,
+e37.
+
+Yang,X. et al. (2013) A survey of error-correction methods for next-
+generation sequencing. Brief. Bioinf., 14, 56—66.
+
+/3.IO'S[BIIInOfp.IOJXO'SOIIBLUJOJIIIOICV/Idllq
+

@@ -1,0 +1,780 @@
+Bioinformatics, 32(15), 2016, 2306—231 2
+
+doi: l0.1093/bioinformatics/btw097
+
+Advance Access Publication Date: 9 March 2016
+Original Paper
+
+ 
+
+ 
+
+Genetics and population analysis
+
+Rapid genotype refinement for whole-genome
+sequencing data using multi-variate normal
+
+distributions
+
+Rudy Arthur*, Jared O’Connell, Ole Schulz-Trieglaff and Anthony J. Cox
+
+lllumina Cambridge Ltd, Chesterford Research Park, Little Chesterford, Essex CBlO lXL, UK
+
+*To whom correspondence should be addressed.
+Associate Editor: Oliver Stegle
+
+Received on November 11,2015; revised on January 25,2016; accepted on February 14,2016
+
+Abstract
+
+Motivation: Whole—genome low—coverage sequencing has been combined with linkage—disequilibrium
+(LD)—based genotype refinement to accurately and cost—effectively infer genotypes in large cohorts of
+individuals. Most genotype refinement methods are based on hidden Markov models, which are accur—
+ate but computationally expensive. We introduce an algorithm that models LD using a simple multivari—
+ate Gaussian distribution. The key feature of our algorithm is its speed.
+
+Results: Our method is hundreds of times faster than other methods on the same data set and its
+scaling behaviour is linear in the number of samples. We demonstrate the performance of the
+
+method on both low— and high—coverage samples.
+
+Availability and implementation: The source code is available at https://github.com/illumina/marvin
+
+Contact: rarthur@illumina.com
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+1 Introduction
+
+The 1000 Genomes Project (1000GP) has pioneered the approach of
+combining low-coverage whole-genome sequencing (LCWGS) with
+linkage disequilibrium (LD)-based genotype refinement to success-
+fully build large panels of accurater genotyped individuals (The
+1000 Genomes Project Consortium, 2010, 2012, 2015). This has
+provided a cost-effective alternative to sequencing many individuals
+at high-coverage. However, genotype refinement has a large compu-
+tational burden. For example, Delaneau et a1. (2014) quote around
+32 compute years to perform haplotype estimation on 1092
+LCWGS individuals using the 1000GP haplotype estimation pipe-
+line. This figure measures the cost of haplotype phasing (which our
+method does not address) as well as genotype refinement. Given
+increasing sample sizes, decreasing sequencing costs and the typic-
+ally super-linear scaling of refinement algorithms, we are fast ap-
+proaching a point where computation will account for a substantial
+proportion of the cost of such analyses.
+
+Low-coverage genotyping typically proceeds by calculating
+genotype likelihoods (GLs) at a fixed set of variants (SNPs and small
+indels) from read alignments, the variant list being created at an
+
+earlier variant discovery step. These GLs reflect the likelihood of the
+read data conditional on each of the three possible genotypes
+(assuming a bi-allelic site). These uncertain GLs are then refined
+into genotypes by exploiting LD, the correlation between physically
+close variants across individuals. This final step is often referred to
+as genotype refinement and involves one (or more) phasing and im-
+putation algorithms. The most accurate phasing and imputation
+techniques typically employ hidden Markov models (HMMs) which
+are computationally demanding, examples include Beagle
+(Browning and Browning, 2007), Thunder (Li et (11., 2011) and
+SHAPEIT (Delaneau et (11., 2012, 2013). The final genotypes of
+1000GP were created using a combination of SHAPEIT and Beagle;
+starting haplotypes were generated with the faster Beagle method
+and then were further refined using the slower, and more accurate,
+SHAPEIT (Delaneau et (11., 2014).
+
+A closely related problem is the imputation of variants into study
+samples assayed on DNA microarrays from reference panels of
+sequenced individuals (Marchini et (11., 2007). Several very fast
+methods have recently emerged for this scenario (Durbin, 2014;
+Fuchsberger et (11., 2015; Howie et (11., 2012). These rely on the
+
+(C7 The Author 2016. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com 2306
+
+/310‘sreumo[p10}xo‘soueuHOJIItotq/ﬁdnq
+
+Rapid genotype reﬁnement for Whole—genome sequencing data
+
+2307
+
+ 
+
+availability of phased haplotypes for both study and reference data
+and it is not clear such algorithms will generalize to the LCWGS use
+case.
+
+An alternative to HMM—based imputation is simply to predict
+genotypes as linear combinations of other genotypes at physically
+close flanking markers, modelling the correlation between variants
+as a multivariate normal (MVN) distribution. This idea was first
+introduced by Wen and Stephens (2010), where it was used in the
+more traditional setting of imputing genotypes into DNA micro—
+array samples from a reference panel. Menelaou and Marchini
+(2013) introduced a related approach, MVNcall, that performs im—
+putation on LCWGS data for which the individual has also been
+assayed on a DNA microarray, exploiting the ‘backbone’ of confi—
+dent microarray genotypes to improve genotypes at non—microarray
+sites.
+
+We introduce a new technique based on MVN representations of
+LD that extends these ideas to the LCWGS—only imputation scen—
+ario. The method exploits various efficient linear algebra operations,
+making it hundreds of times faster than the fastest HMM method.
+This speed comes with a decrease in accuracy compared with
+HMMs, but is still substantially more accurate than genotype calls
+made using no LD information.
+
+In the ‘Methods’ section, we outline the model and its implemen—
+tation. In our ‘Results’ section, we contrast the speed and accuracy
+of our technique with Beagle on 2535 samples from 1000GP Phase
+3 (LCWGS) and 3781 samples taken from the UK10K project
+(UK10K Consortium et al., 2015; Huang et al., 2015). Finally, we
+demonstrate the applicability of LD—based genotype refinement in
+the high—coverage WGS setting, something that has not been investi—
+gated to date.
+
+The method is implemented in a software package called
+MarViN (MultiVariate Normal imputation) and is freely available
+under the GPLv3 license.
+
+2 Materials and methods
+
+We assume that N diploid individuals have been sequenced and used
+to detect M bi—allelic polymorphisms. We record the number of cop—
+ies of the non—reference (alternate) allele in a matrix
+
+Ci} 6 {07172}7 
+
+where the indexes i and / label polymorphic sites and individuals re—
+spectively. We assume that we have been given GLs
+
+P(R,~,~)G,~,~ 2 k), (2)
+
+where k E {0. 1. 2} and R,, denotes the reads aligning to site i in indi—
+vidual /.
+
+2.1 Single—site model
+
+We now describe a simple Expectation—Maximization (EM) algo—
+rithm that we use to initialize our model. We apply Bayes’ theorem
+to obtain posterior probabilities of genotypes:
+
+P(G,‘/' :  O( P(Gil‘ :  Z  
+
+where P(G,, : k) is the prior probability of seeing genotype k and is
+initialized as  Dosages (expected genotype values) at each site can
+be calculated from
+
+G17 2 ZkP<Gij I klRij) (4)
+I:
+
+This constitutes the E—step of our routine. The M—step involves re—
+estimating our prior, P(G,, : k). First, we estimate site allele fre—
+quencies as
+
+A 1
+m 2ﬁ/ZGij. (5)
+
+Assuming Hardy—Weinberg equilibrium, our updated prior is then
+
+(1 — m2 k 2 0.
+P<Gt~ 2 k) 2 2M1 — a.) k 2 1. (6)
+p? k 2 2.
+
+The E—step and M—step are iterated and generally converge rapidly.
+
+2.2 Multi—site model
+
+This EM algorithm gives an estimate of G,, that takes into account
+the population allele frequency at site i but ignores any correlation
+with flanking sites (Le. LD). We now describe how to improve
+the estimate of C using LD. A simple way to encode LD is with the
+M X M covariance matrix 2, where
+
+1
+2n" : m:(Gi/' — Hi)(Gi'j — W)- (7)
+
+Following Wen and Stephens (2010), we make the assumption that
+the probability density for the vector of dosages g”) for individual i,
+the jth column of the genotype matrix (g?) : Giy), is MVN:
+
+Hg”) 2g) 0< CXP<%(8—H)TZ_1(g—H)> (8)
+
+We can then ask ‘what is the distribution for the dosage at site i of
+individual / conditional on the dosages at all other sites?’ For the
+MV 0, a closed form expression for this conditional probability exists:
+
+. k _ V. 2
+P(G,~,~ : leily 2g?) o< exp (9)
+(Ti
+where g?) refers to all genotypes excluding site i and
+M M ~ 0)
+a,- 2 2,.- + Z Z Zinnia. (10)
+[742i m¢i
+~ (')
+VijZHi+ZZZiIQ[;1(Gn1/_Hm)v (11)
+[#i m¢i
+
+and the matrix (21 is the inverse of the matrix formed by deleting the
+ith row and column from 2.
+
+In words, what we are doing is using the genotype matrix to esti—
+mate allele frequencies and LD. Fixing these, we re—estimate the
+genotype matrix using the MVN assumption. The approach is simi—
+lar to our single site EM algorithm, but with the simple population
+frequency prior in Equation (6) replaced with the more sophisticated
+population LD prior in Equation 
+
+Examining the terms closely, we see that a, is independent of the
+individual, as is the quantity
+
+~ 
+t... 2 Z 2.191;. (12)
+121'
+
+Thus we need only calculate it once. Rewriting Equation (11), we
+see that updating the mean of individual i is achieved by evaluating
+
+w,- 2 u,- +Zm,,tm(Gm; we), (13)
+
+at a cost of one dot product per site per individual.
+
+[310'sp2umofp105xo'sopeuHOJIItotq/ﬁdnq
+
+2308
+
+R.Arthur et al.
+
+ 
+
+2.3 Algorithm description
+We initialize C using the single—site model described in Section 2.1.
+We then repeat the following steps for a default of five iterations:
+
+Calculate u and 2 from G.
+
+Calculate tm, and a, for all sites i and m.
+
+For all sites i and individuals /, calculate 11,7.
+Update P(G,7 : klRiy) using Equations (3) and (9).
+Recalculate G.
+
+9+?‘Pi‘
+
+We take the final estimate of G as our imputed genotypes. We could
+iterate steps 2 and 3, reusing the covariance matrix obtained at the
+beginning of the iteration but we found this to be unhelpful in
+practice.
+
+2.4 Calculating Q
+Computationally, step 1 is dominated by the calculation of 2,
+which takes O(NM2) operations. Step 2 requires a matrix vector
+product for every individual and so is also O(NM2). However, a
+straightforward implementation of step 3 would be O(M4), since a
+matrix must be inverted at each site at a cost of O(M3) per
+inversion.
+
+To see how step 3 can be sped up, consider the case where we
+want to update the marker 1 while fixing the M — 1 markers to the
+right. We write the covariance matrix in the following form:
+
+211 212
+2 : (14)
+221 222
+where 211 is 1 X 1 and 222 is (M — 1) X (M — 1).
+To calculate 0'1, we require
+
+(71: 211+ 2122221221 (15)
+
+[compare Equation (10)]. The big overhead here is calculating 2&1.
+
+We define
+_1 Q11 Q12
+:2 2 2 2 , (16)
+Q21 Q22
+
+where the blocks are sized to match the corresponding submatrices
+of 2. By making an LDU decomposition, we can show that
+
+2221 = Q22 — 9219111912. (17)
+
+which is known as the Schur complement of Q11 in Q. This gives us
+(2(1) : 2le which we can use in Equation (12).
+
+Consider the variant at site i. The matrix we need to invert in
+order to evaluate the conditional expectation is the inverse of a sub—
+matrix of 2 formed by deleting the 1th row and column of 2.
+Swapping rows 1' and 1 and columns 1' and 1 of 2 puts the matrix we
+need the inverse of in the position of 222 in Equation (14). A row
+and column can be swapped by pre— and post—multiplying with a
+
+permutation matrix P.
+2 —> PZPT. (18)
+Because permutation matrices are orthogonal we have that
+(PEPTV1 2 P(2)‘1PT 2 PQPT. (19)
+
+The required inverse for variant 1' can be obtained by applying
+Equation (17) again on the permuted matrix. In practice we just
+swap rows and columns of the matrix the usual way, which is
+equivalent to the multiplication. This trades M matrix inverses for a
+
+single matrix inverse plus M matrix operations of complexity O(M2)
+each (matrix—vector products), giving an O(M3) overall cost.
+
+2.5 Using a reference panel
+
+If we have a small number of individuals to impute and a reference
+panel formed from a large number of individuals with hard geno—
+types assigned, we can impute individuals using the panel by follow—
+ing the procedure below:
+
+1. Calculate allele frequencies u and the covariance matrix 2 from
+the panel.
+
+2. Use the panel allele frequencies to obtain an initial estimate of G
+from the GLs.
+
+3. Calculate tm, and a, for all sites i.
+
+4. For each individual with genotype g”) to be imputed, the follow—
+ing steps are performed K times:
+
+5. For all sites i, calculate vii
+
+Update P (g?) : klRii) using Bayes’ theorem, Equations (3) and (9).
+
+7. Recalculate g”).
+
+F”
+
+Calculating tm, is O(M3) and 2 is O(NM2), both of which must
+be done once per panel. To impute each new individual then re—
+quires performing O(M2) operations for each of K iterations, where
+K was be around 5 in practice, we found that performing more than
+five iterations did not improve the quality of the imputation in al—
+
+most every C356.
+
+2.6 Regularizing the covariance matrix
+To guard against degeneracy due to perfect correlation and force the
+variance to be non—zero, we performed Tikhonov regularization on
+
+the covariance matrix, i.e. applied the transformation
+2 —> Z + 21. (20)
+
+By scanning a range of possible values of 2 we found 2 : 0.06 to be
+an effective value for the regularization parameter, the same value
+as found in Menelaou and Marchini (2013). Alternative regulariza—
+tion methods (such as adding a matrix proportional to the diagonal
+of the covariance matrix, as done in the Levenberg—Marquardt algo—
+rithm) were evaluated but were not found to confer a significant
+
+improvement.
+After Wen and Stephens (2010), we also modify the mean as
+follows:
+0
+Hi—>(1_0)Hi+27 (21)
+where
+
+0- (zen-1r
+_ 2N + (21.21“ r1)_1 2
+
+This correction is relevant in the case of small cohorts where
+the empirical mean may be a bad estimate of the true mean, the
+specific form above is derived in Wen and Stephens (2010) using
+the model of Li and Stephens (2003). In our case, with cohorts of
+2500 or more, the difference between this and the sample mean is
+
+very small.
+
+2.7 Implementation
+We implemented our method in C++ using the the Eigen matrix
+library (Gael Guennebaud, Benoit Jacob and others, Eigen v3,
+
+[310'sp2umofp105xo'sopeuHOJIItotq/ﬁdnq
+
+Rapid genotype reﬁnement for Whole—genome sequencing data
+
+2309
+
+ 
+
+http://eigen.tuxfamily.org) for matrix manipulations and HTSlib (Li
+et al., 2009) for streaming the input VCF/BCF files.
+
+2.8 Data
+
+2.8.1 Low-coverage data
+
+We make use of two different publicly available large cohorts to
+evaluate our method in the low—coverage scenario. First, the
+1000GP Phase 3 samples which consist of 2535 samples from a het—
+erogeneous mix of 26 populations, each sample sequenced to an
+average of 7.4><. Second, data from the UK10K control group, a
+more homogeneous cohort than the 1000GP samples comprising
+3781 samples, each sequenced to around 7><. We only evaluated
+SNPs with minor allele count >1 in these comparisons.
+
+As validation data, we used freely available high—coverage
+(>80><) data from Complete Genomics (CG). A subset of the
+1000GP samples (287) were also sequenced by CG. To create valid—
+ation data for the UK10K samples, we took 63 of the European CG
+samples and calculated GLs at the UK10K sites for these samples
+from their respective low—coverage BAM files using bcftools (Li
+et al., 2009). MarViN imputation was performed in 200 kbp win—
+dows with an overlap of 100kbp between windows. We performed
+a number of small timing experiments on a 2 Mbp region of chr20,
+and a more rigorous accuracy experiment using the entire chr20 for
+both cohorts. A summary of the samples and number of variants is
+in Table 1.
+
+On both these cohorts, we compared MarViN with two alterna—
+tive genotype refinement schemes: Beagle 4.0 (r1399) (Browning
+and Browning, 2007) and the ‘no—LD’ method we described in
+Section 2.1, which does not use LD information. We chose Beagle as
+a comparison due its popularity, ease—of—use and relative speed com—
+pared with other HMM routines. Notably the SHAPEIT pipeline
+(used to produce 1000GP Phase 3 haplotypes) requires running
+Beagle as a first step, and hence is more accurate but slower than
+Beagle. Given we expect MarViN to be substantially faster, but also
+less accurate, than Beagle, it is reasonable to conclude that MarViN
+will be faster (and less accurate) than other more computationally
+demanding HMM based routines.
+
+2.8.2 High-coverage data
+
+We took 5 OX coverage of 100 bp—paired reads sequenced from the
+Widely studied NA12878 sample (ENA AC:ERR194147). These
+were aligned with BWA—MEM 0.7.12 (Li, 2013) and small variants
+were called according to GATK3.3—0 best practices (Auwera et al.,
+2013; DePristo et al., 2011), the associated GLs were supplied to
+MarViN. If an alternate allele for a variant in the 1000GP reference
+panel was not detected in a given sample then we used the GL taken
+from the homozygous—to—reference interval in the gvcf file that over—
+lapped the variant site.
+
+MarViN can only improve genotyping at variants seen in the ref—
+erence panel (variants with LD and frequency information). Any
+variant called in an individual that has been seen in a curated panel
+such as 1000GP is likely to be real given sufficient coverage (some
+amount of false discovery in 1000GP notwithstanding), since these
+variants have already been carefully filtered. Variants called in an in—
+dividual that are not present in 1000GP require more scrutiny, al—
+though we still expect tens to hundreds of thousands of novel
+(mostly rare) variants in a given sample.
+
+Hence we apply the hard filters described in Li (2015) to non—
+1000GP variants using hapdip (http://bit.ly/HapDip). For variants
+called by GATK that intersect with 1000GP, we are less stringent,
+only filtering on the genotype quality (GQ) field, the phred—scaled
+
+probability that a genotype is incorrect. The GQ field is produced
+both by GATK and MarViN.
+
+When setting up the reference panel, we excluded NA12878 and
+all other CEPH1463 pedigree members from the 1000GP Phase 3
+panel so as not to bias results. We only considered bi—allelic SNPs
+with an alternate allele count of at least five, reasoning that very
+rare variants were unlikely to benefit greatly from LD—based refine—
+ment. We ran MarViN for five iterations with a window size of 210
+kbp with overlap of 5 kbp at each end (so each window overlaps by
+10 kbp).
+
+As truth data, we used the highly accurate NA12878 call
+set from Platinum Genomes v7.0.0 (http://www.illumina.com/plati
+numgenomes). This consists of variants and confident homozygous—
+reference intervals generated from multiple aligners/callers on the
+17—member CEPH1463 pedigree. The reliability of the variant calls
+is enhanced by retaining only those calls whose inheritance pattern
+across the pedigree is consistent with Mendelian inheritance. GATK/
+MarViN callsets were compared to this truth data using hap.py
+(https://github.com/Illumina/hap.py), a tool which compares vari—
+ants via alignment and exact matching.
+
+3 Results
+
+3.1 Low—coverage genotype refinement
+We first evaluated each method’s speed and accuracy as a function
+of sample size by sampling subsets of the UK10K cohort of sizes
+N: {100, 200, 500, 1000, 2000, 3844} and performing genotyping
+on a 2 Mbp window of chromosome 20 (35—37 Mbp) containing 14
+416 SNPs. We measured the non—reference discordance (NRD) of
+each method, which is defined as (FP + FN)/(FP + TP + FN), where
+TP, FP and FN count the number of true positive, false positive and
+false negative genotypes involving an alternate allele call. The ad—
+vantage of NRD over discordance is that genotypes that are homo—
+zygous—reference (in both the imputed and truth set) are ignored,
+these counts are typically large and represent easy genotypes to call,
+causing a simple discordance metric to be overly optimistic. Timings
+were performed on a an Intel Xeon E5—2670v2 CPU with no other
+compute intensive processes running. We do not report compute
+times for no—LD as this process is dominated by I/O operations.
+Figure 1 plots NRD (left) and compute time in hours (right)
+against sample size. When N : 100; no—LD, MarViN and Beagle
+had NRD of 5.74, 5.20 and 1.26% meaning MarViN was substan—
+tially less accurate than Beagle. However, MarViNr, accuracy dra—
+matically increases with sample size. MarViN had 0.71% NRD at
+N : 1000 and 0.63% at N : 3844 versus 0.59 and 0.38% for
+Beagle. Although still less accurate than Beagle, MarViN,e speed ad—
+vantage widens with increasing N, it being 104>< and 1445>< faster
+than Beagle for N : 1000 and 3844, respectively. Notably MarViN
+
+Table 1. Summary of the number of samples and SNPs for each
+LCWGS data set
+
+ 
+
+ 
+
+Cohort Samples SNPs CG sample CG SNPs
+1000GP 2535 1 628 533 287 565 991
+UK10K 3844 489 278 63 223 528
+
+ 
+
+Sample size is the number of samples present in the input GLs, for UK10K
+this includes the UK10K control cohort (3781 samples) plus an additional 63
+CG validation samples with GLs calculated from low coverage alignments.
+Number of SNPs is the number of non-singleton bi-allelic SNPs in each re-
+spective cohort on chromosome 20. The rightmost two columns count the
+number of samples and SNPs that are also in the CG validation data.
+
+ﬁm'spzumol‘pmﬂo'sopeuuowtotq/ﬁdnq
+
+Table 2
+
+ 
+
+Table 2
+
+Figure 3
+
+Table 3
+
+Figure 2
+
+Beagle
+MarViN
+no—LD
+
+— All
+
+- - MAF<5%
+
+ 
+
+— GATK
+- GATK+MarVi N
+
+ 
+
+Figure 2
+
+method
+
+beagle
+
+marvin
+no—LD
+
+/310'S[BIIJHOFPJOJXO'SOIJBLUJOJIIIOIq/ﬂduq
+
+Rapid genotype reﬁnement for Whole—genome sequencing data
+
+2311
+
+ 
+
+Table 3. Summary of high coverage SNP calls by GATK that were
+not present in 1000G with MAC >4 (first column), calls made by
+GATK that were present in 1000G (middle column) and GATK calls
+after applying MarViN genotype refinement (third column)
+
+ 
+
+ 
+
+non-1000C 1000G
+GATK MarVN
+Total 243 381 3 387 126 3 408 128
+Unevaluated 97 748 74 813 86 845
+TP 143 247 3 309 226 3 317 953
+FN 3 377 480 211 373 202 888
+FP1 (GT wrong) 1251 1577 1318
+FP2 (allele wrong) 98 81 96
+FP3 (homref) 1037 1429 1916
+FP (total) 2386 3087 3330
+
+ 
+
+completeness. Of these, 143 247 SNPs were validated in the
+Platinum Genomes dataset and a total of 2386 were classified as
+false positives due to having either incorrect genotypes, incorrect al—
+leles or being called in a known homozygous—reference region. This
+yields a precision of 98.36%, which as one might expect, is lower
+than calls that intersect with 1000GP variants.
+
+For SNP calls that intersect 1000GP, we only applied a GO 2 fil—
+ter. The GATK callset contained 3 387 126 SNPs, rising to 3 408
+128 after refinement with MarViN. Of these, 3 309 226 and 3 317
+953 were validated as correct in Platinum Genomes, meaning
+MarViN refinement yielded an additional 8727 correctly genotyped
+SNPs. In terms of effect on false positive rate, MarViN reduced the
+number of incorrect genotypes (with correct allele) from 1577 to
+1318, as one might expect genotype reﬁnement to do. However,
+MarViN also imputed a greater number of variants with incorrect
+alternate allele (96 versus 81) and SNPs in homozygous reference
+regions (1916 versus 1 037). This means MarViN had a slightly
+higher number of false positives than the raw GATK callset, 3330
+versus 3087, bringing its precision to 99.902 versus 99.909% for
+GATK 99.902%. Given the gains in SNP recall, this seems a minor
+cost to pay.
+
+4 Discussion
+
+The algorithm presented in this article is at least two orders of mag—
+nitude faster than Beagle on the UK10K cohort. Although this speed
+does come with a decrease in accuracy (particularly for rare vari—
+ants), our method still makes nearly 10—fold fewer errors than a gen—
+otyping routine that does not take LD into account.
+
+The rapidly growing size of reference panels may soon preclude
+the use of super—linear complexity techniques such as Beagle, since
+computation will become too expensive. For example, the
+Haplotype Reference Consortium (McCarthy et al., 2015) has col—
+lected 32 488 LCWGS samples to create a reference panel for imput—
+ation. Extrapolating from Figure 1, it seems unlikely it would be
+tractable to run Beagle on a cohort of this size. One possible use of
+MarViN would be to quickly generate an initial estimate of geno—
+types, which could then be supplied as starting values to a more
+sophisticated routine, reducing the number of iterations the latter
+needs to perform. MarViN might also be an ideal routine for inter—
+mediate coverage (%15 X) projects.
+
+The reduced accuracy of MarViN compared to Beagle at lower
+frequency variation is likely due to the limitations of modelling the
+population using one vector of allele frequencies and one covariance
+matrix. This simplistic model may not capture more subtle
+
+population substructure. Notably MarViN performs better on the
+more homogeneous UK10K cohort than on the 1000GP cohort
+which has far more population structure (although also has a
+smaller sample size). One possible way to improve this situation
+would be to add more flexibility to the MarViN model by using an
+MVN mixture distribution, but we leave this for future work.
+
+We have also demonstrated the efficacy of genotype refinement
+in the high—coverage scenario, the first such investigation to our
+knowledge. A modest gain in recall for SNPs was achieved at a cost
+of a negligible decrease in precision. We also attempted refining
+indels with this approach, gains in recall were indeed observed but
+were accompanied by unacceptable increases in the false—discovery
+rate (FDR). This may be due to a higher FDR in the 1000GP indels
+and could perhaps be solved via aggressive filtering.
+
+Although the improvements seen on high—coverage data are mod—
+est, we nevertheless believe it noteworthy that results achieved from
+high—coverage data can be improved at all by this method. Moreover
+the efficiency of our method means it adds little additional overhead
+to processing pipelines for WGS data, whereas genotype refinement
+using existing HMM—based methods would be a considerable com—
+putational undertaking.
+
+Acknowledgement
+We thank Stathis Kanterakis for providing GATK results.
+
+Conﬂict of Interest: All authors are employees of Illumina Cambridge Ltd., a
+public company that develops and markets systems for genetic analysis, and
+receive shares as part of their compensation.
+
+References
+
+Auwera,G.A. et al. (2013) From FastQ data to high-conﬁdence variant calls:
+the Genome Analysis Toolkit best practices pipeline. Curr. Protoc.
+Bioinformatics, 11,11.10.1—11.10.33.
+
+Browning,S.R. and Browning,B.L. (2007) Rapid and accurate haplotype
+phasing and missing-data inference for whole-genome association studies
+by use of localized haplotype clustering. Am. ]. Hum. Genet., 81,
+1084—1097.
+
+Delaneau,O. et al. (2012) A linear complexity phasing method for thousands
+of genomes. Nat. Methods, 9, 179—181.
+
+Delaneau,O. et al. (2013) Improved whole-chromosome phasing for disease
+and population genetic studies. Nat. Methods, 10, 5—6.
+
+Delaneau,O., Marchini,]., 1000 Genomes Project Consortium. et al. (2014)
+Integrating sequence and array data to create an improved 1000 Genomes
+Project haplotype reference panel. Nat. Commun. 5, 3934.
+
+DePristo,M.A. et al. (2011) A framework for variation discovery and
+genotyping using next-generation DNA sequencing data. Nat. Genet, 43,
+491—498.
+
+Durbin,R. (2014) Efﬁcient haplotype matching and storage using the positional
+Burrows Wheeler transform (PBWT). Bioinformatics, 30, 1266—1272.
+
+Fuchsberger,C. et al. (2015) minimac2: faster genotype imputation.
+Bioinformatics, 3 1, 782—784.
+
+Howie,B. et al. (2012) Fast and accurate genotype imputation in genome-wide
+association studies through pre-phasing. Nat. Genet., 44, 955—959.
+
+Huang,]. et al. (2015) Improved imputation of low-frequency and rare vari-
+ants using the UKlOK haplotype reference panel. Nat. Commun., 6,.
+
+Li,H. (2013). Aligning sequence reads, clone sequences and assembly contigs
+with BWA-MEM. arXiv preprint arXiv:13 03.3997. https://sourceforge.net/
+p/bio-bwa/mailman/message/30894287/.
+
+Li,H. (2015). Fermikit: assembly-based variant calling for Illumina resequenc-
+ing data. Bioinformatics, 31, 3694—3696.
+
+Li,H. et al. (2009) The sequence alignment/map format and SAMtools.
+Bioinformatics, 25, 2078—2079.
+
+ﬁm'spzumol‘pmﬂo'sopeuuowtotq/ﬁdnq
+
+2312
+
+R.Arthur et al.
+
+ 
+
+Li,N. and Stephens,M. (2003) Modelling linkage disequilibrium and identify-
+ing recombination hotspots using SNP data. Genetics, 165, 2213.
+
+Li,Y. et al. (2011) Low-coverage sequencing: implications for design of com-
+plex trait association studies. Genome Res., 21, 940—951.
+
+Marchini,]. et al. (2007) A new multipoint method for genome-wide associ-
+ation studies by imputation of genotypes. Nat. Genet., 39, 906—913.
+
+McCarthy,S. et al. (2015) A reference panel of 64,976 haplotypes for genotype
+imputation. doi: 10.1101/035170.
+
+Menelaou,A. and Marchini,]. (2013) Genotype calling and phasing using
+next-generation sequencing reads and a haplotype scaffold. Bioinformatics,
+29, 84—91.
+
+The 1000 Genomes Project Consortium. (2010) A map of human genome vari-
+ation from population-scale sequencing. Nature, 467, 1061—1073.
+
+The 1000 Genomes Project Consortium. (2012) An integrated map of genetic
+variation from 1,092 human genomes. Nature, 491, 56—65.
+
+The 1000 Genomes Project Consortium. (2015) A global reference for human
+genetic variation. Nature, 526, 68—74.
+
+UK10K Consortium. et al. (2015) The UK10K project identiﬁes rare variants
+in health and disease. Nature, 526, 82—90.
+
+Wen,X. and Stephens,M. (2010) Using linear predictors to impute allele
+frequencies from summary or pooled genotype data. Ann. Appl. Stat., 4,
+115 8.
+
+/3.IO'S[BIImOfp.IOJXO'SOIJBLUJOJIIIOICI”Idllq
+

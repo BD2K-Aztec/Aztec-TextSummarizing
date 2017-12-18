@@ -1,0 +1,881 @@
+Bioinformatics, 2016, 1—9
+
+doi: 10.1093/bioinformatics/btw385
+
+Advance Access Publication Date: 26 June 2016
+Original Paper
+
+ 
+
+ 
+
+Sequence analysis
+
+GeneCodeq: quality score compression and
+improved genotyping using a Bayesian
+framework
+
+Daniel L. Greenfield”, Oliver Stegle2 and Alban Rrustemi1
+
+1PetaGene, ldeaspace, 3 Charles Babbage Rd, Cambridge CBS UGT, UK and 2European Molecular Biology Laboratory,
+European Bioinformatics Institute, Wellcome Trust Genome Campus, Hinxton, Cambridge C810 180, UK
+
+*To whom correspondence should be addressed.
+Associate Editor: Inanc Birol
+
+Received on October 8, 2015; revised on May 31, 2016; accepted on June 15, 2016
+
+Abstract
+
+Motivation: The exponential reduction in cost of genome sequencing has resulted in a rapid
+growth of genomic data. Most of the entropy of short read data lies not in the sequence of read
+bases themselves but in their Quality Scores—the confidence measurement that each base has
+been sequenced correctly. Lossless compression methods are now close to their theoretical limits
+and hence there is a need for lossy methods that further reduce the complexity of these data with—
+out impacting downstream analyses.
+
+Results: We here propose GeneCodeq, a Bayesian method inspired by coding theory for adjusting
+quality scores to improve the compressibility of quality scores without adversely impacting geno—
+typing accuracy. Our model leverages a corpus of k—mers to reduce the entropy of the quality
+scores and thereby the compressibility ofthese data (in FASTO or SAM/BAM/CRAM files), resulting
+in compression ratios that significantly exceeds those of other methods. Our approach can also be
+combined with existing lossy compression schemes to further reduce entropy and allows the user
+to specify a reference panel of expected sequence variations to improve the model accuracy. In
+addition to extensive empirical evaluation, we also derive novel theoretical insights that explain
+the empirical performance and pitfalls of corpus—based quality score compression schemes in gen—
+eral. Finally, we show that as a positive side effect of compression, the model can lead to improved
+genotyping accuracy.
+
+Availability and implementation: GeneCodeq is available at: github.com/genecodeq/eval
+
+Contact: dan@petagene.com
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+1 Introduction
+
+Over the past decade, unprecedented advances in next generation
+sequencing (NGS) technologies have led to a dramatic reduction
+in sequencing cost (Wetterstrand, 2015) and much faster data pro-
+duction rates (Illumina, 2014). These technological advances are fos-
+tering increasingly wide-ranging applications in biotechnology,
+public healthcare (Berg et (11., 2011) and personalized medicine
+(Fernald et (11., 2011). Furthermore, as genomic sequencing data
+
+has grown exponentially, they have outpaced advances in some in-
+formation technologies that they indirectly rely on: computing
+power and storage (Berger et (11., 2013; Stephens et (11., 2015). In
+particular, genome sequencing results in a large storage footprint for
+each genome. Thus, storing and transferring raw sequencing infor-
+mation is becoming prohibitively expensive (Baker, 2010) and ef-
+fective compression schemes of raw sequencing data are
+indispensable.
+
+(C7 The Author 2016. Published by Oxford University Press. All rights reserved. For Permissions, please e-mail: journals.permissions@oup.com l
+
+/310‘srcumo[p10}xo‘sopcuHOJIItotq/ﬁdnq
+
+Das and Vikalo, 2012 Ewing
+and Green, 1998
+
+DePristo (#111,, 2011
+Li, 2011
+
+Benoit at (11., 2015 Cox at (11.,
+2012 Grabowski at (11., 2015
+
+Yu Ct (11., 2014
+
+Bonfield and Mahoney, 2013
+
+Illumina, 2011
+
+Canovas
+
+Illumina, 2014
+at (11., 2014
+
+Canovas at (11., 2014
+
+Malysa
+
+(#111, 2015 Ochoa (#111, 2013
+
+Fritz (#111,, 2011
+
+Yu Ct (11., 2014
+2015
+
+Benoit at (11., 2015
+
+Ash, 1965 Barg, 1993
+
+Sample Genome
+
+M
+
+Reference Genome
+
+Siam->1
+orur urds
+
+randoml
+select
+
+randoml
+
+select
+
+Fig. 1
+
+noisy
+sequencing
+
+mutation
+process
+
+noisy
+sequencing
+
+/3.IO'S[BIImOfp.IOJXO'SOpBLUJOJIIlOlq/ﬂdnq
+
+GeneCodeq: quality score compression in a Bayesian framework
+
+ 
+
+When applying this approach to NGS, we consider both the se—
+quence of the received read as well as the quality scores for each
+base. We use these additional data as additional evidence for the
+likelihood of a sequencing error. This estimate is then refined in the
+light of all the remaining evidence, which includes the sequence con—
+text of the entire read and its quality scores as well as the read k—mer
+corpus, which is derived from the reference.
+
+Relationship to coding theory
+
+The model that underlies GeneCodeq is related to coding theory. In
+the general case of transmitting binary data over a noisy medium,
+forward Error Correction (Ash, 1965) can be used to correct mul—
+tiple bit errors. The key idea is that outgoing data is encoded using a
+dictionary of carefully constructed binary strings called codewords,
+ideally accounting for the specifics of the noisy channel. When a par—
+ticular codeword is transmitted, the original transmitted codeword
+can be recovered with high probability, even in the presence of bit
+errors. The key component to enable accurate decoding is to define
+a dictionary of error tolerant codewords. For example, if the
+Hamming distance is used to determine the likelihood that the signal
+on the other end corresponds to one codeword versus another, it is
+desirable to define a dictionary where individual codewords have
+maximal pairwise Hamming distances to each other (Ash, 1965 ).
+
+In NGS we also have the objective to identity errors and recover
+the true source sequence. However, unlike applications in Coding
+Theory, the codewords are not constructed but instead defined by a
+corpus, derived from e.g. a reference or sample genome (Fig. 1).
+Nonetheless, we can use the analytical framework of Coding Theory
+to solve the decoding task. Although this approach could also be
+used to uncover the most likely true sequence, we are not interested
+in error correction. Instead, GeneCodeq uses the noisy channel
+model to estimate the likelihood of sequencing error and in particu—
+lar to identify bases where errors are unlikely. Intuitively, the ability
+to reject a sequencing error is strongly affected by the Hamming
+Distance between the source k—mer and its Hamming neighbour—
+hood in the dictionary. Those k—mers which have high Hamming
+Distance to all other k—mers are easier to identify, which in turn in—
+forms the probability of a sequence error.
+
+2.1 GeneCodeq model
+
+GeneCodeq assumes that an unknown Sample Genome (Z) is gener—
+ated from a known Reference Genome (C) with per base mutation
+rate m. We use a simple mutational model that assumes that each
+mutation event is independent and identically distributed, with a
+value for m informed by GWAS studies (see Supplementary
+Materials for more details). It is well known that mutation rates
+vary considerably across the genome. More complex mutational
+models could be straightforwardly incorporated in the model, and
+this would be an area worthy of future exploration. Using the refer—
+ence genome, we generate a corpus of N k—mers that forms a diction—
+ary of codewords C : (C1. . . . . CN) with alphabet size four (i.e. A,
+C, G or T), where Ci.) denotes base i of the ith codeword. The corres—
+ponding unobserved sequences in the sample genome is denoted as
+Z,, where the base ZL,‘ differs from Ci.) due to mutations.
+
+We purposefully model each read independently from other
+reads, which simplifies the overall model and is consistent with the
+notation of independent sampling of reads (or fragments) from the
+source genome. Hence, the model can be fully described when con—
+sidering a single observed read. Let k denote the total number of
+bases in the observed read R with R, denoting the jth base.
+Additionally, we observe information about the sequence
+
+uncertainty for each base 6 : (e1. . . . , 5k), which are derived from
+the corresponding quality scores.
+
+Our objective is to infer the posterior probability of sequencing
+error at each base in order to then adjust the corresponding quality
+scores. To achieve this, we start with a model that assumes that we
+know which particular source codeword Cw, for w E (1.....N)
+gave rise to the observed read R. We denote the presence of a se—
+quence error with Boolean variable E, (i.e. where R, is not identical
+to the true sample sequence ZW). In this model, we represent the
+mutational error as Pr(Zw,,')Cw,,'. m) and the error process of
+sequencing as Pr(R,')Zw,,'. By). The joint probability of the observed
+read and the true uncorrupted sample sequence factorize, which re—
+flects the assumption that mutations and sequence errors are
+independent:
+
+12
+Pr(R,z,,,E)Cw, m, e) : HPr(z,,,,~)C,,,~, m)Pr(R,~)z,,,~,E,)Pr(E,)e,).
+/:1
+
+(1)
+
+The prior probability of a sequencing error based on the quality
+score 6, is given by the Bernoulli distribution Pr(E,~ : true)e,~) : a).
+Note that while the distribution for mutational errors is identical
+and independent across base pairs, the sequencing error is independ—
+ent across base pairs but not identically distributed, as the model ac—
+counts for base pair specific differences in quality scores 6,.
+
+The derivation in Equation (1) assumes that the true source code—
+word Cw is known. In principal, one would need to marginalize over
+all possible codewords. In order to retain computational efficiency,
+we use a greedy search method to limit the space of codewords to be
+considered (see Section 2.3). For more details and illustration dia—
+grams on this model, please consult the section on GeneCodeq
+Methodology in the Supplementary Material.
+
+Unlike Leon, our approach does not attempt to identify the true
+sequence variants Z“, in the process. Although the integration of
+variant calling and compression of quality scores may have practical
+advantages, there is the risk of circularity when reproducing the
+compressed read data.
+
+When it comes to sequencing errors, we also assume the errors on
+one base are independent from other bases, given their observed qual—
+ity scores. This assumption is accurate if the quality scores internally
+reflect the known biases of read error, which for some platforms such
+as Illumina tend to accumulate at reads ends. In principle, it would be
+straightforward to include more complex error models that account
+for the relative biases of specific sequencing platforms.
+
+2.2 Statistical details
+We here provide the core statistical elements. For a complete deriv—
+ation, please consult the Supplementary Material.
+
+We again start by assuming that true source codeword Cw for
+the read R was known. For brevity, we will denote this source code—
+word by S : Cw.
+
+As mentioned, we are not interested in explicitly recovering the
+true sample genome Z“, and hence, we collapse both the mutational
+error and the sequencing error process, resulting in the following
+conditional distribution, which factorizes across base pairs:
+
+Pr(R)S) : H Pr(R,~ (Sy)with a per base pair distribution (2)
+i
+
+1
+m)(1 — 61‘) +§mel' ifR,‘ I S;
+Pr(R1151) :
+
+1 2
+(1 — m)E/' +—m(1 — 61') +—m&l'  55 Si.
+
+(
+l
+3 3 9
+
+ﬁm'srcumol‘pquo'sopcuuoptrotq/ﬁdnq
+
+D. Greenfield et al.
+
+ 
+
+Given a particular R,, e, and S,, the probability of sequencing
+error E, follows from Equation (3) as (see derivation in
+
+Supplementary Material):
+ME}
+3 — 3m — 361' + 47716}
+6/(3 - m)
+36, + 3m — 4me,
+
+ifR, : S,-
+PI'(E,‘)R,‘, 61',  Z 
+
+apes
+
+Then since S is unknown, we can determine the probability
+across all possible S 6 (C1. . . . . CN) by utilizing the rest of the read
+and sequencing error rates (i.e. quality scores):
+
+N
+Pr(E,lR, e, C) : ZPr(E,lR,-, 6,, s,- : C,-,-)Pr(s : Cin, e, C). (5)
+i:1
+The posterior probability of the source codeword originating
+from C, then follows from Bayes theorem:
+
+Pr(RlS : C,-, e, C)Pr(S : Cile, C)
+
+Pr(Rle, C) (6)
+
+Pr(S : CAR, 6, C):
+It is worth noting that the posterior probability of assigning the
+read to a particular source codeword accounts for the full informa—
+tion within the read and does not factorize across base pairs.
+Assuming that reads can originate from any codeword in the corpus
+with equal probability, then Pr(S : Cile, C) :  Please see the
+Supplementary Material for how this approach appropriately han—
+dles the case of duplicate k—mers/codewords, as are typically found
+in real genomes, by allowing duplicate codewords in the corpus.
+Expanding the denominator in Equation (6) and eliminating com—
+mon terms, this yields:
+
+Pr(S : Cin, e, c) i  (7)
+
+_ Engels : Ch, 6, C) '
+17
+
+Combining Equation (5) with Equation (7) gives the posterior
+probability of sequencing error that can be calculated from all the
+knowns R, e and C:
+
+ZPI‘(E,‘)RI', 61', S,‘ I  2 Ci, 6, 
+
+Pr(E,)R, e, C) : " (8)
+
+ 
+
+ZPr(R)S : Ch, 6, C)
+b
+
+With ~3.2 billion codewords, this calculation is resource intensive
+when completed by brute force, making it rather impractical.
+However, an upper—bound estimate can be found much faster by rec—
+ognizing that the contribution of reference codewords decreases ex—
+ponentially according to their Hamming distance from the read. Let
+L be the set of local indices s.t.
+
+memo—R) < B
+VigL,lCi—R)ZB
+
+for some Hamming Distance B (see Methodology in Supplementary
+Material). This means we separate codewords into local and back—
+ground codewords according to distance, with the bulk of code—
+words being in the background set. Because the contribution of each
+background codeword is small, we can then try to estimate the con—
+tribution of background codewords without directly calculating it.
+Let I} be an upper—bound estimate, such that:
+
+p 2 21’4st : C,-, e, C).
+i¢L
+
+Let )1 denote the probability of a base change (whether due to
+mutation or sequencing). To obtain an upper—bound estimate [3 for
+the background contribution, we assume each of the background
+codewords is at distance B, which produces the worst—case contribu—
+tion. The average probability of these codewords Pr(RlS : C,) is
+then scaled to encompass all N codewords in the corpus, and not
+just a subset of background codewords, leading to a value that is
+typically a very large overestimate and thus conservative in practice
+(see Supplementary Material):
+
+[3 : NW1 — ink—B 2 21’4st : C,). (9)
+i¢L
+The above assumes that a, the probability of a base change
+(whether due to mutation or sequencing), is constant for each base
+position. A more accurate calculation uses a per base probability a,
+where the B mismatches are uniformly distributed over the bases in
+the read. An approach based on dynamic programming is used to
+calculate a more accurate background contribution I}, and this is
+what is used for the results presented with this work (see section
+Calculating the value of I} in Supplementary Material).
+Therefore, an upper—bound estimate of each base’s read error
+can be represented with:
+
+ZPI‘(E,‘)RI', 61', S,‘ I  2 Ci, 6,  ‘1' (l),
+Pr(E,)R, e, C) g ‘EL
+
+ 
+
+Engels; Ch, 6, C) ’
+heL
+(1 0)
+where d), E % I}.
+Let P, denote the RHS of the inequality in Equation (10). This
+upper bound P, yields a lower—bound for the associated quality score
+for each base, which we encode using the Phred scheme:
+
+Q; = _1010g10P/7
+
+where Q, is the corresponding Phred quality score for upper bound
+error probability P,.
+
+This lower bound is dependent on the depth of the codeword
+search, where a deeper search can result in a higher value for the
+bound. In the limiting case, where the search covers all codewords,
+this bound becomes equal to the actual quality score for the poster—
+ior probability. In other words, the usage of the lower bound leads
+to a conservative approach. The posterior probability of a sequenc—
+ing error is by construction biased upwards and hence the boosting
+of quality scores is conservative. In practice, this means that
+increased depth of the codeword search may lead to additional com—
+pressibility at the price of higher computational cost. However, the
+approximate nature of the algorithm will not falsely boost quality
+score values. Furthermore, the inequality in Equation (10) is only in—
+formative for replacing the observed quality score with a higher
+value, and is uninformative for replacing it with a lower value.
+
+Note that the use of Hamming—distance for the search means
+that the presence of an indel in a read may result in large Hamming
+distances from the reference corpus, yielding no results up to a rea—
+sonable search distance. In this case, GeneCodeq will be unable to
+calculate a better posterior probability of sequencing error, leaving
+the read untouched.
+
+In principle, the approach could potentially be extended by future
+work to use edit—distance instead, which enables the accounting of in—
+sertions and deletions from both mutations as well as sequencing
+errors. Further details of how such an approach might work is
+explored in the Edit Distance section of the Supplementary Material.
+
+[310'spzumofp105xo'sopeuHOJIItotq/ﬁdnq
+
+Fig. 2
+
+Fig. 2
+
+Fig. 2
+
+Supplcrncntar) l\4atcrial
+
+@Gﬂb swam
+
+Result of sear h
+
+l\4atcrial
+
+Equation (10)
+
+Supplementar)
+
+/310'SIBanoIpJOJxo"sotJBuiJOJutotq//:dnq
+
+D. Greenfield et al.
+
+ 
+
+treated as part of the corpus for the purposes of that read and are
+added to the search result.
+
+Variant calling tools report many spurious variants (false posi—
+tives) that may simply be the result of sequencing errors or other
+uncertainties/problems in the pipeline. To guard against these, we
+only include common variants that are present with a minimum
+variant frequency of la in the reference population, set to try to ex—
+clude 99.99% of spurious variants. See Supplementary Material for
+more details.
+
+2.6 Note on indels
+
+Reads with indel variants (base insertion or deletion) that are not
+present in the corpus are likely to result in large Hamming distances
+to the rest of the corpus. This makes it unlikely for such reads to be
+affected by GeneCodeq, preserving their original quality scores. For
+future work, using Edit distance instead of Hamming distance as a
+metric thus presents an opportunity for further gains in compres—
+sion. It could allow GeneCodeq to also improve genotyping accur—
+acy and compression on sequence data that has a higher indel error
+rate such as those from Ion Torrent and Pacific Biotech sequencers.
+Further details of how such an approach might work is explored in
+the Supplementary Material.
+
+2.7 Analysis of quartz
+
+The Quartz approach uses a corpus of 32—mers in order to sparsify
+the quality scores of matching 32—mers within each read. Although
+there are similarities to GeneCodeq, Quartz is based on a heuristic
+approach and hence the assumptions made are less transparent.
+Using the same modelling framework as used to derive GeneCodeq,
+one can provide a better assessment of Quartz to see under what cir—
+cumstances it can improve compressibility while preserving genotyp—
+ing accuracy, and under what circumstances it can degrade
+genotyping accuracy and fail to improve compressibility. See
+Supplementary Material for more details.
+
+3 Results
+
+We’ve used sequences from NA12878 for evaluation purposes due
+to availability of high quality trio—validated SNP calls to validate
+genotyping accuracy. Unmapped raw reads were obtained for two
+datasets:
+
+° SRR622461, a 1000 Genomes Project (1000 Genomes Project
+Consortium, 2012) dataset with 18.3 gigabases at 5 X coverage.
+
+° NA12878], a public dataset from the Garvan Institute with
+122.6 gigabases at 30>< coverage (see Supplementary Materials
+for details).
+
+Resulting variant calls from genotyping were compared to the
+Illumina Platinum set (http://www.illumina.com/platinumgenomes),
+which served as a gold standard. In the Supplementary Material we
+also provide results for additional datasets.
+
+The raw FASTQ files were processed with GeneCodeq, Quartz
+(Yu et al., 2015), R-Block (Canovas et al., 2014), P-Block (Canovas
+et al., 2014), QVZ (Malysa et al., 2015), Qualcomp (Ochoa et al.,
+2013), Leon (Benoit et al., 2015) and Illumina 8-bin quantization
+(Illumina, 2011). We used the GATK best practices workflow and
+the samtools recommended workflow, with and without Base—
+Quality—Score—Recalibration (BQSR). In addition to running
+GeneCodeq in its default mode, we also explored its behaviour with
+a reference—only corpus (see Section 3.2 for more details), as well as
+in combination with other approaches—Illumina 8-bin, P-Block
+
+and R-Block (see Section 3.4 for more details). For comparison,
+Quartz was also run with a reference—only corpus, and in combin—
+ation with Illumina 8-bin quantization.
+
+We found that the BQSR stage produces a greater variable
+change to genotyping accuracy than most of the lossy compression
+algorithms do alone (pre—BQSR). This makes it difficult to separate
+and properly assess the impact of lossy compression alone on post—
+BQSR results. On the lossless dataset, applying BQSR resulted in a
+significant drop in genotyping accuracy. Combinations of BQSR
+with lossy compression also resulted in lower genotyping accuracy
+versus the original across almost all methods. However, since BQSR
+had a large variable impact, sometimes the lossy compressed post—
+BQSR results appeared better than the lossless post—BQSR results,
+skewing relative comparisons. There are strong indications that this
+is due to flaws with BQSR itself rather than due to the lossy com—
+pression. A detailed discussion, included additional results, can be
+found in the Supplementary Material.
+
+The improvements with GeneCodeq are seen across each com—
+bination of workflows, for brevity the main results shown here are
+with the GATK best practices workflow excluding BQSR. Similar
+results are seen with the samtools recommended workflow, which
+can be found in the Supplementary Material, along with BQSR
+results.
+
+Variant calls that resulted from the datasets and produced using
+these workflows, were ranked by their confidence levels (quality of
+the variant call) to generate receiver operating characteristic (ROC)
+curves. This approach avoids choosing a specific quality threshold
+and hence is well suited to compare alternative methods (see also Yu
+et al., 2015 where a similar approach is used). However, if two
+ROC curves have different domains (i.e. a different set of variants
+for the x—axis) then they are not directly comparable to one another.
+For the results here and in the supplementary material, the ROC
+curves and area under the curve (AUC) were calculated with a com—
+mon domain. As additional quality metrics, we also report precision,
+recall and F—score metrics. See Supplementary Material for more de—
+tails on the evaluation approach for all these metrics.
+
+To estimate the impact in compressibility, both the raw and
+modified quality scores were compressed with bzipZ (http://www.
+bzip.0rg), unless a custom entropy coder was already integrated into
+the lossy compression (i.e. QVZ, Qualcomp and Leon). We chose
+bzipZ because under its default options it consistently yielded super—
+ior compression numbers compared to 7zip (http://www.7—zip.org)
+and gzip (http://www.gzip.org). We note, however, that 7zip in its
+PPMd mode can perform even better, and these results are included
+in the Supplementary Material. This includes significantly better
+7zip re—compressed results for Leon which ordinarily uses the poorer
+performing zlib for its internal compression.
+
+Table 1 reports quality score compression rates and genotyping
+accuracy metrics for these approaches. Figure 3 shows a scatter plot
+summarizing the best results in Table 1, depicting the genotyping ac—
+curacy and compressibility.
+
+3.1 Non—corpus based approaches
+
+The non—corpus based approaches with Illumina 8-bin, P-Block, R-
+Block, QVZ and Qualcomp consistently resulted in poorer genotyp—
+ing performance compared to the raw data. For each of the param—
+eterizable approaches P-Block, R-Block, QVZ and Qualcomp, we
+observed that at higher compression ratios, the genotyping AUC and
+F—scores degraded, demonstrating a tradeoff between compression
+and genotyping accuracy. With these non—corpus approaches, we
+note that AUC is typically lower than when using the raw
+
+ﬁle‘smumofpmyo‘sopcuHOJIItotq/ﬁdnq
+
+ 
+
+     
+
+Table 1
+CC (CcncCodcq) 0.7879 0.6822
+CC w. ref corpus 0.6816
+87bin 4» CC
+PeBlock p : 2 + CC 0.682
+Item [7 : 4 + CC
+ReBlock 1.15 4» CC
+Quartz
+0.9325
+0.9329
+0.9325
+0.93 32
+0.6810
+0.6810
+Table 1
+
+ 
+
+Supplementary ma
+terial
+
+Table 1
+
+/810'sleumofp103xo"soueuuoqutotqﬂ:dnq
+
+D. Greenfield et al.
+
+ 
+
+Supplementary Material for details) and present the comparison here.
+Generally, we observed that both Quartz and GeneCodeq improved
+genotyping accuracy compared to the raw data when including
+sequencing variants (Fig. 3). Additionally, we observed that
+GeneCodeq exhibits a larger improvement when compared to Quartz.
+
+When variants are included as part of the corpus, we see that
+Quartz and GeneCodeq both improved in their AUC, and margin—
+ally improved in F—score compared to the reference—only corpus. The
+change in AUC in both cases is significantly more than when apply—
+ing the reference—only corpus. This suggests that for both
+approaches, Quartz and GeneCodeq, the main factor that contrib—
+utes to improved genotyping accuracy is information about known
+sequence variants.
+
+With this dataset, only the Quartz and GeneCodeq approaches
+result in better genotyping accuracy, and of these GeneCodeq has
+both superior compression and genotyping accuracy. Looking just at
+the compression numbers overall, we see that compression for
+GeneCodeq is a factor of 1.24 better than for Quartz.
+
+3.4 Combining GeneCodeq with non—corpus lossy
+compression
+
+Since GeneCodeq leaves some quality scores untouched, the bulk of
+the remaining entropy lies in those bases or reads where there is in—
+sufficient evidence to saturate them, and indeed some reads are com—
+pletely untouched as a result. This means that the principle of
+GeneCodeq is complementary to most (non—corpus based) lossy
+compression schemes, suggesting that combinations of different
+schemes may offer further improvements.
+
+When applying GeneCodeq after Illumina 8—binning
+(i18h+ GeneCodeq), we observe a markedly low entropy of 0.163
+bits per quality score under hzipZ while retaining a higher AUC and
+F—score compared to the raw dataset. We also explored combining
+Quartz with Illumina 8—binning, which although improved Quartz
+compression, degraded both AUC and F—score metrics to be worse
+than that of the raw sequence data.
+
+When combining GeneCodeq with the P-Block scheme, we see
+that improvements in AUC and F—score can be retained at even
+higher compression ratios, with compression of 10:1 for the combin—
+ation of P-Block with p : 4 followed by GeneCodeq. This combin—
+ation is a factor of 2.6 better in bits/QS compared to Quartz while
+still having superior AUC, F—score, Precision and Recall values com—
+pared to the raw dataset.
+
+3.5 Full sequence data compression
+
+It is instructive to see how well the full sequence data (i.e. both sequence
+data and quality scores) is compressed using standard sequence com—
+pression approaches as a result of this reduction in quality—score en—
+tropy. Taking the datasets referred above, and looking at file sizes of
+standard compression formats for sequence data (namely gzip, BAM
+and CRAM) we can explore the impact of GeneCodeq on these com—
+plete datasets. Table 2 shows file sizes for these different approaches,
+and we observe that the combination of CRAM with GeneCodeq is a
+factor of 3.6—4.6 times smaller than the gzip—compressed FASTQ files
+of the raw dataset, and under half the size of the CRAM file for the raw
+dataset. The combination of GeneCodeq with P—Block demonstrates
+how further size reduction can be realized.
+
+3.6 Throughput and memory consumption
+
+Single—threaded throughput on an Intel® i7—4790K CPU was
+5 .57MiB/s with up to 24GiB of memory consumption on a sample
+human FASTQ file. Since reads are processed independently, the
+
+Table 2. Whole Genome Compression (inclusive of both sequence
+data and quality scores)
+
+ 
+
+ 
+
+Dataset FASTQ FASTng BAM CRAM v2
+SRR622461 39.96113 8.65G1B 11.06113 4.90GiB
+w. GeneCodeq 39.96113 5.58GiB 7.58GiB 2.396113
+w. PB4+GeneCodeq 39.96113 5.156113 7.14GiB 2.006113
+NA12878J 270GiB 73.7GiB 67.3G1B 36.8G1B
+w. GeneCodeq 2706113 50.56113 38.76113 15.9GiB
+
+ 
+
+We see signiﬁcant compression beneﬁts when applying GeneCodeq for
+gzip-compressed FASTQ, BAM and CRAM formats. Note that the BAM and
+CRAM formats also include some additional tags from alignment and indel
+
+realignment.
+
+overall throughput can be trivially improved by using a multi—
+threaded implementation of the GeneCodeq algorithm without fur—
+ther memory consumption. For further details please consult the
+Throughput and Memory consumption section of the
+Supplementary Material.
+
+4 Discussion
+
+We have described a new method for adjusting base quality scores,
+which is inspired by coding theory. Our approach leverages avail—
+able evidence under a Bayesian statistical model to infer posterior es—
+timates of sequencing errors using a known reference corpus and a
+noisy channel transmission model. This approach requires a suitable
+corpus either derived from a reference or existing sample(s) in order
+to apply the statistical model. Given such a corpus, we find that this
+approach yields significantly higher compression and improves over—
+all genotyping accuracy when compared to previous corpus—based
+compression methods such as Quartz, as well as to all other existing
+lossy compression approaches. Indeed when combined with the P-
+Block lossy compression approach, for the SRR622461 dataset we
+see quality score compression ratios of 10:1 whilst preserving the
+genotyping accuracy of the raw dataset. Other combinations with
+GeneCodeq may also be interesting to explore in future.
+
+Notably, even on datasets that have been Illumina 8-hin
+quantized (also see Supplementary Material), we find that applying
+GeneCodeq can result in improved AUC, Precision and F—score re—
+sults indicating better genotyping accuracy compared to the raw
+dataset. This means that GeneCodeq is well suited to process and
+possibly enhance sequencing datasets generated by machines such as
+Illumina’s HiSeq X that use this quantization by default. However,
+we note that, unsurprisingly, the largest gains in genotyping accur—
+acy arise as a result of utilizing a corpus of known variants extracted
+from the 1000 Genomes Project (carefully excluding the test samples
+from the corpus set). When used with a corpus containing only refer—
+ence genome information without variants, we note that genotyping
+accuracy may still be improved, albeit only slightly, compared to the
+raw dataset. This means that while the approach preserves genotyp—
+ing accuracy for variants not in the corpus (such as rare variants), it
+works significantly better when it knows about potential variants.
+
+The Supplementary Material includes results from other datasets
+and genotyping pipelines also demonstrating considerable gains in
+compression whilst preserving genotyping accuracy with GeneCodeq.
+
+Acknowledgements
+
+The authors Wish to thank the anonymous reviewers for their helpful feed-
+back, as well as Idoia Orchoa-Alvarez and Mikel Hernaez for their assistance
+
+ﬁm'sreumol‘pquo'sopeuuoptrotq/ﬁdnq
+
+GeneCodeq: quality score compression in a Bayesian framework
+
+ 
+
+and discussions on variant calling pipelines, and Yun William Yu for his help
+with reproducing results from Quartz.
+
+Fu ndi ng
+This research was conducted under a R&D Smart Grant from Innovate UK.
+
+Conﬂict of Interest: Daniel Greenﬁeld and Alban Rrustemi were employees of
+Fonleap Ltd during this research.
+
+References
+
+1000 Genomes Project Consortium (2012) An integrated map of genetic vari-
+ation from 1,092 human genomes. Nature, 491, 56—65.
+
+Ash,R. (1965 ). Information Theory. Interscience Tracts in Pure and Applied
+Mathematics. Interscience Publishers, New York.
+
+Baker,M. (2010) Next—generation sequencing: adjusting to data overload.
+Nat. Methods, 7, 495—499.
+
+Barg,A. (1993) At the dawn of the theory of codes. Math. Intell., 15, 20—26.
+
+Benoit,G. et al. (2015) Reference-free compression of high throughput
+sequencing data with a probabilistic de bruijn graph. BMC Bioinformatics,
+16, 288.
+
+Berg,].S. et al. (2011) Deploying whole genome sequencing in clinical practice
+and public health: meeting the challenge one bin at a time. Genet. Med., 13,
+499—504.
+
+Berger,B. et al. (2013) Computational solutions for omics data. Nat. Rev.
+Genet., 14, 333—346.
+
+Bonﬁeld,].K. and Mahoney,M.V. (2013) Compression of FASTQ and SAM
+format sequencing data. PLoS One, 8, e59190.
+
+Cénovas,R. et al. (2014) Lossy compression of quality scores in genomic data.
+Bioinformatics, 30, 2130—2136.
+
+Cox,A.]. et al. (2012) Large-scale compression of genomic sequence databases
+with the burrows—wheeler transform. Bioinformatics, 28, 1415—1419.
+
+Das,S. and Vikalo,H. (2012) Onlinecall: fast online parameter estimation and
+base calling for illumina’s next-generation sequencing. Bioinformatics, 28,
+1677—16 83.
+
+DePristo,M.A. et al. (2011) A framework for variation discovery and genotyp-
+ing using next-generation DNA sequencing data. Nat. Genet., 43, 491—498.
+
+Ewing,B. and Green,P. (1998) Base-calling of automated sequencer traces
+using phred. II. Error probabilities. Genome Res., 8, 186—194.
+
+Fernald,G.H. et al. (2011) Bioinformatics challenges for personalized medi-
+cine. Bioinformatics, 27, 1741—1748.
+
+Fritz,M.H.Y. et al. (2011) Efﬁcient storage of high throughput DNA sequenc-
+ing data using reference-based compression. Genome Res., 21, 734—740.
+
+Grabowski,S. et al. (2015) Disk-based compression of data from genome
+sequencing. Bioinformatics, 31, 1389—1395.
+
+Illumina (2011). Quality scores for next-generation sequencing. Technical re-
+port. Illumina Inc.[Please provide publisher location for the reference
+Illumina 2011, 2014.]
+
+Illumina (2014). HiSeq X product sheet, Illumina Inc.
+
+Li,H. (2011) A statistical framework for SNP calling, mutation discovery, as-
+sociation mapping and population genetical parameter estimation from
+sequencing data. Bioinformatics, 27, 2987—2993.
+
+Malysa,G. et al. (2015) QVZ: lossy compression of quality values.
+Bioinformatics, 3 1, 3122.
+
+Ochoa,I. et al. (2013) QualComp: a new lossy compressor for quality scores
+based on rate distortion theory. BMC Bioinformatics, 14, 187.
+
+Stephens,Z.D. et al. (2015) Big data: astronomical or genomical? PLOS Biol.,
+13, e1002195.
+
+Wetterstrand,K.A. (2015) DNA sequencing costs: data from the NHGRI
+Genome Sequencing Program (GSP),www.genome.gov/sequencingcosts.
+
+Yu,Y.W. et al. (2014). Traversing the k-mer landscape of NGS read datasets
+for quality score sparsiﬁcation. In Sharan,R. (ed). Research in
+Computational Molecular Biology. Springer, pp. 385—399
+
+Yu,Y.W. et al. (2015) Quality score compression improves genotyping accur—
+acy. Nat. Biotechnol., 33, 240—243.
+
+ﬁm'sreumol‘pquo'sopeuuoptrotq/ﬁdnq
+

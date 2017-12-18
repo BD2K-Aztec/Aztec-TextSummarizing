@@ -1,0 +1,1005 @@
+Biofnformaties, 32, 2016, i234—i242
+doi: 10.1 093/bioinformatics/btw276
+ISM B 2016
+
+ 
+
+Read-based phasing of related individuals
+
+Shilpa Garg1'2'3, Marcel Martin4 and Tobias Marschall1'2'*
+
+1Center for Bioinformatics, Saarland University, Saarbriicken, Germany, 2Max Planck Institute for Informatics,
+Saarbriicken, Germany, 3Saarbriicken Graduate School of Computer Science, Saarland University, Saarbriicken,
+Germany and 4Science for Life Laboratory, Department of Biochemistry and Biophysics, Stockholm University,
+SE-17121 Solna, Sweden
+
+*To whom correspondence should be addressed.
+
+Abstract
+
+Motivation: Read—based phasing deduces the haplotypes of an individual from sequencing reads
+that cover multiple variants, while genetic phasing takes only genotypes as input and applies the
+rules of Mendelian inheritance to infer haplotypes within a pedigree of individuals. Combining
+both into an approach that uses these two independent sources of information—reads and pedi—
+gree—has the potential to deliver results better than each individually.
+
+Results: We provide a theoretical framework combining read—based phasing with genetic haplotyp—
+ing, and describe a fixed—parameter algorithm and its implementation for finding an optimal solu—
+tion. We show that leveraging reads of related individuals jointly in this way yields more phased
+variants and at a higher accuracy than when phased separately, both in simulated and real data.
+Coverages as low as 2x for each member of a trio yield haplotypes that are as accurate as when
+
+ 
+
+analyzed separately at 15x coverage per individual.
+
+Availability and Implementation: https://bitb ucket.org/whats ha p/whats hap
+
+Contact: t.marschall@mpi—inf.mpg.de
+
+ 
+
+1 Introduction
+
+Humans are diploid and determining the sequences of both homolo-
+gous copies of each chromosome is desirable for many reasons. These
+two sequences per chromosome are known as haplotypes. The process
+of obtaining them is known as haplotyping or phasing, two terms that
+we will use interchangeably. Haplotype-resolved genetic data can be
+used, for instance, for population genetic analyses of admixture, mi-
+gration and selection, but also to study allele-specific gene regulation,
+compound heterozygosity and their roles in human disease. We refer
+the reader to Tewhey et al. (2011) and Glusman et al. (2014) for de-
+tailed reviews on the relevance of haplotyping.
+
+General Approaches for Haplotyping. There are three major
+approaches to phasing. First, haplotypes can be inferred from geno-
+type information of large cohorts based on the idea that common
+ancestry gives rise to shared haplotype tracts, as reviewed by
+Browning and Browning (2011). This approach is known as statis—
+tical or population—based phasing. It can be applied to unrelated in-
+dividuals and only requires genotype data, which can be measured
+at low cost. While very powerful for common variants, this tech-
+nique is less accurate for phasing rare variants and cannot be applied
+at all to private or de nor/o variants. Second, haplotypes can be
+determined based on genotype data of related individuals, known as
+genetic haplotyping (Glusman et (11., 2014). To solve the phasing
+problem, one seeks to explain the observed genotypes under the
+
+© The Author 2016. Published by Oxford University Press.
+
+constraints imposed by the Mendelian laws of inheritance, while
+being parsimonious in terms of recombination events. For larger
+pedigrees, such as parents with many children, this approach yields
+highly accurate phasings (Roach et (11., 2011). On the other hand, it
+is less accurate for single mother-father-child trios and has the in-
+trinsic limitation of not being able to phase variants that are hetero-
+zygous in all individuals. Third, the sequences of the two haplotypes
+can be determined experimentally, called molecular haplotyping.
+Many techniques do not resolve the full-length haplotypes but yield
+blocks of varying sizes. Approaches furthermore largely differ in the
+amount of work, DNA and money they require. On one end of the
+scale, next-generation sequencing (NGS) instruments generate local
+phase information of the length of a sequenced fragment at ever-
+decreasing costs. Another approach consists in breaking both hom-
+ologous chromosomes into (larger) fragments and separating them
+into a number of pools such that each pool is unlikely to contain
+fragments from the same locus of both haplotypes. This can, for in-
+stance, be achieved by dilution followed by bar-coded short-read
+sequencing. To achieve molecular haplotyping over the range of a
+full chromosome, protocols have been invented to physically separ-
+ate the two homologous chromosomes, for example by microscopy-
+based chromosome isolation, fluorescence-activated sorting, or
+microfluidics-based sorting. These and other experimental tech-
+niques for molecular haplotyping have been surveyed by Snyder
+
+i234
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution Non-Commercial License (http://creativecommons.org/Iicenses/by-nc/4.U/),
+which permits non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact
+
+journals.permissions@oup.com
+
+[310‘SIEUInolpJOJXO‘SOQEIIIJOJIIIOIQ/[Idnq
+
+Read—based phasing of related individuals
+
+i235
+
+ 
+
+et al. (2015 ). They are of great interest because they facilitate phas—
+ing of rare variants for single individuals. Rare variants have been
+postulated to contribute considerably to clinical traits and are hence
+of major interest.
+
+Haplotype Assembly. When many haplotype fragments are avail—
+able for one individual, for instance from sequencing, one can at—
+tempt to reconstruct the full haplotypes or at least to obtain larger
+blocks. This process is known as haplotype assembly, single-individ-
+ual haplotyping, or read-based phasing (in case the fragments indeed
+stem from sequencing reads). It requires reads that span two or
+more heterozygous variants. In order to be successful, reads covering
+as many pairs of consecutive heterozygous variants as possible are
+desirable. At present, third generation sequencing platforms, as mar—
+keted by Pacific Biosciences (PacBio) and Oxford Nanopore, be—
+come more widespread and offer reads spanning thousands to tens
+of thousands of nucleotides. Although error—rates are much higher
+than for common second generation technologies, the longer reads
+provide substantially more phase information and hence render
+them promising platforms for read—based phasing.
+
+We adapt the common assumption that all variants to be phased
+are bi—allelic and non—overlapping. Then, the input to the haplotype
+assembly problem can be specified by a matrix with entries from
+{0,1,—}, having one row per read and one column per variant.
+Entries of 0 or 1 indicate that the read in that row gives evidence for
+the reference or alternative allele for the variant in that column, re—
+spectively. An entry of ‘—’ signifies that a variant is not covered by
+that read. In case all reads are error—free and mapped to correct pos—
+itions, the set of rows in that matrix admits a bipartition such that
+each of the two partitions is conflict free. Here, two rows are defined
+to be conflicting if they exhibit different non—dash values in the same
+column; that is, one entry is 0 and the other one is 1. If such a bipar—
+tition exists, the matrix is called feasible.
+
+To formalize the haplotype assembly problem in the face of
+errors, we define operations on the input matrix and ask for the min—
+imum number of operations one needs to apply to render it feasible.
+Different such operations have been studied, in particular removal
+of rows, resulting in the Minimum Fragment Removal (MFR) prob—
+lem, removal of columns, resulting in the Minimum SNP Removal
+(MSR) problem, and flipping of bits, resulting in the Minimum
+Error Correction (MEC) problem. All three problems are NP—hard
+(Cilibrasi et al., 2007; Lancia et al., 2001). Flipping of bits corres—
+ponds to correcting sequencing errors and hence the MEC problem
+has received most attention in the literature and is most relevant in
+practice. A wealth of exact and heuristic approaches to solve the
+MEC problem exists. Exact approaches, which solve the problem
+optimally, include integer linear programming (Chen et al., 2013b;
+Fouilhoux and Mahjoub, 2012), and fixed—parameter tractable
+(FPT) algorithms (He et al., 2010; Patterson et al., 2015; Pirola
+et al., 2015). Refer to the reviews by Schwartz (2010) and Rhee
+et al. (2015) for further related approaches.
+
+Here, we build upon our previous approach WhatsHap
+(Patterson et al., 2014, 2015) and generalize it to jointly handle
+sequencing reads of related individuals. WhatsHap is an FPT ap—
+proach that solves the (weighted) MEC problem optimally in time
+exponential in the maximum coverage, but linear in the number of
+variants. In particular the runtime does not explicitly depend on the
+read length. These properties make it particularly apt for current
+long—read data. This has also been observed by Kuleshov (2014),
+who approached the weighted MEC problem in a message—passing
+framework and, by doing so, independently arrived at the same DP
+algorithm used in WhatsHap. The exponential runtime in the max—
+imum coverage does not constitute a problem in practice because
+
+reads can be removed in regions of excess coverage without loosing
+much information. The evaluation by Patterson et al. (2015) sug—
+gests that pruning data to a maximum coverage of 15 X yields excel—
+lent results while an even higher coverage does not deliver a big
+additional improvement.
+
+Hybrid Approaches. The ideas underlying population—based
+phasing, genetic haplotyping, and read—based phasing have been
+combined in many ways to create hybrid methods. Delaneau et al.
+(2013), for instance, use local phase information provided by
+sequencing reads to enhance their population—based phasing ap—
+proach SHAPEIT. Exploiting pedigree information for statistical
+phasing has also been demonstrated to significantly improve the
+inferred haplotypes (Chen et al., 2013a; Marchini et al., 2006).
+Using their heuristic read—based phasing approach HapCompass,
+Aguiar and Istrail (2013) note that combining reads from parent—
+offspring duos increases performance in regions that are identical by
+descent (IBD). Beyond this approach, we are not aware of prior
+work to leverage family information towards read—based phasing.
+
+Contributions. Here, we introduce a unifying formal framework
+to fully integrate read—based and genetic haplotyping. To this end,
+we define the Weighted Minimum Error Correction on Pedigrees
+Problem, termed PedMEC, which generalizes the (weighted) MEC
+problem and accounts for Mendelian inheritance and recombination.
+This problem is NP—hard. We generalize the WhatsHap algorithm
+for solving this problem optimally and thereby show that PedMEC is
+fixed—parameter tractable. When the maximum coverage is bounded,
+the runtime of our algorithm is linear in the number of variants and
+does not explicitly depend on the read length, hence inheriting the
+favorable properties of WhatsHap.
+
+We target an application scenario where related individuals are
+sequenced using error—prone long—read technologies such as PacBio
+sequencing. As a driving question motivating this research, we ask
+how much coverage is needed for resolving haplotypes in related in—
+dividuals as opposed to single or unrelated individuals. Our focus is
+on phasing and we do not consider the genotyping step, which can
+either be done from the same data or from orthogonal and poten—
+tially cheaper data sources such as microarrays or short—read
+sequencing. On simulated and real PacBio data, we show that
+sequencing each individual in a mother—father—child trio to 5 X
+coverage is sufficient to establish a high—quality phasing. This is in
+stark contrast to state—of—the—art single—individual read—based phas—
+ing, which yields worse results even for 15>< coverage with respect
+to both error rates and numbers of phased variants. We furthermore
+demonstrate that our technique also exhibits favorable properties of
+genetic haplotyping approaches: Because of genotype relationships
+between related individuals, we are able to infer correct phases even
+between haplotype blocks that are not connected by any sequencing
+reads in any of the individuals.
+
+Example. Figure 1 shows seven SNP positions covered by reads in
+three related individuals. It illustrates how the ideas of genetic and
+read—based haplotyping complement each other. All genotypes at SNP
+3 are heterozygous. Thus, its phasing cannot be inferred by genetic
+phasing, that is, using only the given genotypes and not the reads.
+SNP 4, in contrast, is not covered by any read in the child. When only
+using reads in the child (corresponding to single—individual read—based
+phasing), no inference can be made about the phase of SNP 4 and nei—
+ther about the phase between SNP 3 and SNP 5. By observing that all
+seven child genotypes are compatible with the combination of brown
+and green haplotypes from the parents, however, these phases can be
+easily inferred. This example demonstrates that jointly using pedigree
+information, genotypes and sequencing reads is very powerful for es—
+tablishing phase information.
+
+[310'sp2umofp105xo'sopeuHOJIItotq/ﬁdnq
+
+Cilibrasi et al.,
+2007 Greenberg et al., 2004
+
+Cilibrasi et al., 2007
+
+Table 1
+
+/810's113umo_fp103x0"soiJBmJOJuioiW/zdnq
+
+Read—based phasing of related individuals
+
+i237
+
+ 
+
+In addition, we want the haplotypes to respect the constraints
+given by the pedigree. Recall that in each parent, the two homolo—
+gous chromosomes recombine during meiosis to give rise to a hap—
+loid gamete that is passed on to the offspring. Therefore, each
+haplotype of a child should be representable as a mosaic of the two
+haplotypes of the respective parent with few recombination events.
+To control the number of recombination events, we assume a per—
+site recombination cost of X(k) to be provided as input. Controlling
+the recombination cost per site is important because recombination
+is not equally likely to happen at all points along a chromosome.
+Instead, recombination hotspots exist, where recombination is much
+more likely to occur (and should hence be penalized less strongly in
+our model). The cost X(k) should be interpreted as the (phred—
+scaled) probability that a recombination event occurs between vari—
+ant k — 1 and variant k. To formalize the inheritance process, we de—
+fine transmission vectors tmac, tf_.c E {0, 1}M for each triple
+(m,f,c) E T. The values tm_,c(k) and tf_.c(k) tell which allele at site
+k is transmitted by mother and father, respectively. The haplotypes
+we seek to compute have to be compatible with transmission vec—
+tors, defined formally as follows.
+
+DEFINITION 3: (Transmission vector compatibility) For a given trio
+(m,f,c) E T, the haplotypes hg,,h},,,h?,h%,hg,hg E {0,1}M are
+
+compatible with the transmission vectors tmac, tf_,c E {0, 1}M if
+
+0 i _‘C :
+hg(k)_{h:,(k) .f tm (k) 0
+hm(k) if tm_.5(k):1
+
+and
+h/(le) if tf_,c(k):0
+
+kl
+
+193 (k) = .
+fag) if and) z 1
+
+forallk E {1,...,M}.
+
+With this notion of transmission vectors, recombination events
+are characterized by changes in the transmission vector, that is, by
+positions k with tm_.c(k — 1) 9E tm_.c(k) or tf_,c(k — 1) 9E tf_,c(k).
+Given our recombination cost vector X, the cost associated to a
+transmission vector can be written as follows (in slight abuse of
+notation).
+
+DEFINITION 4: (Transmission cost) For a transmission vector
+tp_.c E {0,1}M with p E {m,f} and a recombination cost vector
+X 6 NM, the cost of tp_,c is defined as
+
+M
+XUp—w) : 21%er — 1) 55 lip—mam] ' (Wk),
+12:2
+
+where [[S]] : 1 ifstatement S is true and 0 otherwise.
+
+To state the problem of jointly phasing all individuals in I for—
+mally, it is instrumental to consider the set of matrix entries to be
+flipped explicitly. We will therefore introduce a set of index pairs
+E,- C {1, . . . ,R,} X {1, . . . ,M} where (ﬁle) E E, if and only if the bit
+in row/ and column k of matrix 7:, is to be flipped.
+
+PROBLEM 3: (Weighted Minimum Error Correction on Pedigrees,
+PedMEC) Let a set of individuals I : {1, . . . ,N}, a set of relation-
+ships T on I, recombination costs X 6 NM, and, for each individual
+
+}R‘ XM and correspond-
+
+i E I, a sequencing read matrix 7:, E {0, 1, —
+ing weights W, E NR‘XM be given. Determine a set of matrix entries
+to be flipped E, C {1, . . . ,R,} X {1, . . . ,M} to make 7:, feasible and
+
+two corresponding haplotypes ho h-1 E {0,1}M for each individual
+
+171
+
+ie I as well as two transmission vectors tmac,tf_,c E {0,1}M for
+each trio (m,f,c) E T such that
+
+Z Z w,(/,k)+ Z Madam/mfg)
+
+ieI (j,lz)eE, (m.f.c)ET
+
+takes a minimum, subject to the constraints that all haplotypes are
+compatible with the corresponding transmission vectors, if existing.
+
+Note that for the special case of I : {1} and T : Q, PedMEC
+is identical to wMEC. Therefore, the PedMEC problem is also NP—
+hard. As discussed in Section 1, we are specifically interested in an
+application scenario where the genotypes are already known. By
+using genotype data, we aim to most beneficially combine the merits
+of genetic haplotyping and read—based haplotyping. We therefore
+extend the PedMEC problem to incorporate genotypes and term the
+resulting problem PedMEC—G.
+
+PROBLEM 4: (PedMEC with genotypes, PedMEC—G) Let the same
+input be given as for Problem 3 (PedME C) and, additionally, a geno-
+type vector gi E {0,1,2}M for each individual i E I. Solve the
+PedMEC problem under the additional constraints that h? + h,-1 : g,
+for all iEI, where ‘+’ refers to a component-wise addition of
+vectors.
+
+For the classical MEC problem, additionally assuming that all
+sites to be phased are heterozygous is common (Chen et al., 2013b).
+This variant of the MEC problem is a special case of PedMEC—G
+withI : {1} and T : Q andg1(k) : 1 for all k.
+
+3 Algorithm
+
+Solving MEC and wMEC. WhatsHap (Patterson et al., 2015) is a
+dynamic programming (DP) algorithm to optimally solve the
+wMEC problem. It runs in 0(25 - M) time, where M is the number
+of variants to be phased and c is the maximum physical coverage
+(which includes internal segments of paired—end reads). The general
+idea is to proceed column—wise from left to right while maintaining
+a set of active reads. Each read remains active from its first non—dash
+position to its last non—dash position in 7:. Let the set of active
+reads in column k be denoted by A(k). Note that c : maxk{)A(k))}.
+For each column k of 7:, we fill a DP table column C(k,-) with
+2W“) entries, one entry for each bipartition B of the set of active
+reads A(k). Each entry C(k, B) is equal to the cost of solving wMEC
+on the partial matrix consisting of columns 1 to k of 7: under the as—
+sumption that the sought bipartition of the full read set
+A(1) U . . . U A(k) extends B according to the below definition.
+
+DEFINITION 5: (Bipartition extension) For a given set A and a subset
+A’ C A, a bipartition B : (P, Q) ofA is said to extend a bipartition
+B’ : (P’,Q’) ofA’ ifP’ C Pand Q’ C Q.
+
+By this semantics of DP table entries C(k, B), the minimum of
+the last column minB{C(M, B)} is the optimal wMEC cost.
+
+Algorithm Overview: Solving PedMEC and PedMEC-G. In the
+following, we will see how this idea can be extended for solving
+PedMEC and PedMEC—G. The basic idea is to use the same tech—
+nique on the union of the sets of active reads across all individuals
+ie I, while adding some extra book—keeping to satisfy the add—
+itional constraints imposed by pedigree and genotypes. Let Ai(k) be
+the set of active reads in column k of 73,-. We now define
+A(k) : ‘U Ai(k). A bipartition B : (P,Q) of A(k) now induces
+bipartitigfis for each individual: 3,- : (P n Aid), Q n Ai(k)).
+
+ﬁm'sreumol‘piqxo'sopeuHOJHIotq/ﬁdnq
+
+i238
+
+S.Garg et al.
+
+ 
+
+As before, we consider all bipartitions of A(k) for each column
+k, but now additionally distinguish between all possible transmis—
+sion values. We assume the set of trio relationships I to be (arbitrar—
+ily) ordered and use a tuple t E {0, 1}2lTl to specify an assignment of
+transmission values. Such an assignment t can later (during back—
+tracing) be translated into the sought transmission vectors:
+Assuming t to be an optimal such tuple at column k, its relation to
+the transmission vectors is given by
+
+t: (tm1—m‘1  tfl—xcl  tmz—‘Cg  tfg—‘Cg  - - 
+
+The transmission tuples give rise to one additional dimension of
+our DP table for PedMEC(—G), as compared to the DP table for
+wMEC. For each column k, we compute table entries C(k,B, t) for
+all 2Wk)‘ bipartitions of reads and all 22‘“ possible transmission
+
+2lA(kll+2lTl entries in this column.
+
+tuples, for a total of
+
+Computing Local Costs. Along the lines of Patterson et al.
+(2015 ), we first describe how to compute the cost incurred by flip—
+ping matrix entries in each column, denoted by Ac(k, B, t), and then
+explain how to combine them with entries in C(k — 1, -,  to com—
+pute the cost C(k,B,t). The crucial point for dealing with reads
+from multiple individuals in a pedigree is to realize that matrix
+entries from haplotypes that are identical by descent (IBD) need to
+be identical (or need to be flipped to achieve this). For unrelated in—
+dividuals (i.e. T : Q), none of the haplotypes are IBD, giving rise to
+2)I) sets of reads for the 2)I) unrelated haplotypes. These 2)I) sets
+of reads are given by B and the cost Ac(k, B, t) can be computed by
+flipping all matrix entries of reads within the same set to the same
+value.
+
+For a non—empty T, the transmission tuple t tells which parent
+haplotypes are passed on to which child. In other words, t identifies
+each child haplotype to be IBD to a specific parent haplotype. We
+can therefore merge the corresponding sets of reads since all reads
+coming from haplotypes that are IBD need to show the same allele
+and need to be flipped accordingly. In total, we obtain 2)I) — 2)T)
+sets of reads, since each trio relationship implies merging two pairs
+of sets. We write 8(k, B, t) to denote this set of sets of reads induced
+by bipartition B and transmission tuple t in column k. The cost WES
+of flipping all entries in a read set S E 8(k,B, t) to the same allele
+a 6 {0,1} is given by
+
+Wis : Z [WK/J?) 55 all - Wilde),
+
+(WES
+
+where we identify reads in S by a tuple (i, j), telling that it came
+from individual i and corresponds to row j in 73,. For PedMEC, i.e.
+if no constraints on genotypes are present, every set S can
+potentially be flipped to any allele a 6 {0,1}. Hence, the cost is
+given by
+
+Ac k,B,t : min WM) 7 (1)
+( ) “dausjmn Seségﬂ [2.5
+
+that is, we minimize the sum of costs incurred by each set of reads
+S E 8(k, B, t) over all possible assignments of alleles to read sets. For
+PedMEC—G, this minimization is constrained to only consider allele
+assignments consistent with the given genotypes. To ensure that
+valid assignments exist, we assume the input genotypes to be free of
+Mendelian conflicts.
+
+Computing a Column of Local Costs. To compute the whole col—
+umn Ac(k, -, -), we proceed as follows. In an outer loop, we enumer—
+ate all 22lTl values of the transmission tuple t. For each value of t, we
+perform the following steps: We start with bi—partition B : (A(k),
+
+Q) and compute all WES for all sets S E 8(k, B, t) and all a 6 {0,1},
+which can be done in O()A(k)) +  time. Next we enumerate all
+bipartitions in Gray code order, as done previously (Patterson et al.,
+2015 ). This ensures that only one read is moved from one set to an—
+other in each step, facilitating constant time updates of the values
+Wis. The value of Ac(k,B, t) is then computed from the Wis’s ac—
+cording to Equation (1), which takes 0(22m - )I time. Computing
+the whole column Ac(k, -,  hence takes 0(22m -(2lA(k)l +22lIl - 
+time.
+
+DP Initialization. The first column of the DP table, C(1, -, -), is
+initialized by setting C(1,B,t) :: Ac(1,B,t) for all bipartitions B
+and all transmission tuples t.
+
+DP Recurrence. Recall that C(k, B, t) is the cost of an optimal so—
+lution for input matrices restricted to the first k columns under the
+constraints that the sought bipartition extends B and that transmis—
+sion happened according to t at site k. Entries in column C(k + 1,-,-)
+should hence add up local costs incurred in column k+1 and costs
+from the previous column. To adhere to the semantics of
+C(k+1,B,t), only entries in column k whose bipartitions are com-
+patible with B are to be considered as possible ‘predecessors’ of
+C(k + 1 , B, t).
+
+DEFINITION 6: (Bipartition compatibility) Let B : (P, be a
+bipartition of A and B’ : (P’,Q’) be a bipartition of A’. We say
+that B and B’ are compatible, written B 2 B’, if Pﬂ (AﬂA’) :
+P’ﬂ (A ﬂA’)andQﬂ(AﬂA’) :Q’ﬂ(AﬂA’).
+
+Two bipartitions are therefore compatible when they agree on
+the intersection of the underlying sets. Besides ensuring that biparti—
+tions are compatible, we need to incur recombination costs in case
+the transmission tuple t changes from k to k + 1. Formally, entries in
+column k + 1 are given by
+
+C(k + LB. t) : Ac(k + 1,3, t)
+{C(k,B’, t’) + dH(t, t’) - X(k + 1)},
+
++ min
+B’ 6 8mm) :B’ :B
+
+r e {o.1}2‘7‘
+(2)
+
+where B(A(k)) denotes the set of all bipartitions of A(k) and dH is
+the Hamming distance. The distance dH(t,t’) hence gives the
+number of changes in transmission vectors and thus the term
+dH(t, t’) - X(k + 1) gives the recombination cost to be added.
+Projection Columns. To ease computing C(k + 1,B,t) via
+Equation (2), we use the same technique described by Patterson
+et al. (2015) and define intermediate projection columns CHUQ, -, 
+They can be thought of as being between columns k and k+1.
+Consequently, they are concerned with bipartitions of the intersec—
+tion of read sets A(k) ﬂA(k + 1) and hence contain
+
+2lA(klnA(k+1ll+2lTl entries, which are given by
+
+Cf‘(k,B’,t) min {C(k,B,t)}. (3)
+
+: B(A(k)):B:B’
+
+These projection columns can be created while computing C(k,-,-)
+at no extra (asymptotic) runtime. Using these projection columns,
+Equation (2) becomes
+
+C(k + 1,B,t) : Ac(k + 1,B,t)
+
++ min ‘ ‘{Cﬂ(k,B ﬂA(k), t’) + dH(t,t’) - X(k + 1)},
+re{o.1}”
+
+(4)
+
+where BﬂA(k):: (PﬂA(k),QﬂA(/€)) for B:(P,Q). We have
+therefore reduced the runtime of computing this minimum to
+C(22)“).
+
+ﬁm'sreumol‘piqxo'sopeuHOJHIotq/ﬁdnq
+
+Read—based phasing of related individuals
+
+i239
+
+ 
+
+Runtime. Computing one column of local costs, Ac(k, -, -), takes
+0(22lTl - (2lA(k)l +22m -  time, as discussed above. For each
+entry, we use Equation (4) to compute the aggregate value of cost
+incurred in present and past columns. Over all columns, we achieve a
+runtime of 0(M - (22lTlTCUIle) + 24lTUC)), where c : maxk{)A(l€))}
+is the maximum coverage.
+
+Backtracing. An optimal bipartition and transmission vectors
+can be obtained by recording the indexes of the table entries that
+gave rise to the minima in Equations (4) and (3) when filling the DP
+table and then backtracing starting from the optimal value in the
+last column. Optimal haplotypes are subsequently obtained using
+the bipartition and transmission vectors.
+
+4 Experimental setup
+
+To evaluate the performance of our approach, we considered both
+real and simulated datasets.
+
+4.1 Real data
+
+The Genome in a Bottle Consortium (GIAB) has characterized seven
+individuals extensively using eleven different technologies (Zook
+et al., 2014). The data is publicly available. Here we consider the
+Ashkenazim trio, consisting of three related individuals: NA24143
+(mother), NA24149 (father) and NA24385 (son). We obtained a
+consensus genotype call set (NIST_CallsIn2Technologies_
+05182015) provided by GIAB, containing variants called by two
+independent technologies. For our benchmark, we consider all bi—
+allelic SNPs on Chromosome 1 called in all three individuals,
+amounting to 141 256 in total, and use the provided (unphased)
+genotypes.
+
+Ground Truth via Statistical Phasing. To generate a ground truth
+phasing for comparison, we used the population—based phasing tool
+SHAPEITv2—r837 (Delaneau et al., 2014) with default parameters.
+The program was given the 1000 Genomes reference panel (https://
+mathgen.stats.ox.ac.uk/impute/1000GP_Phase3.tgz), the corres—
+ponding genetic map (http://www.shapeit.fr/files/genetic_map_b37.
+tar.gz), and the unphased genotypes as input. SNPs present in the
+GIAB call set but absent in the reference panel were discarded, re—
+sulting in 140 744 phased SNPs, of which 58 551 were heterozygous
+in mother, 57 152 in father and 48 023 in child. We refer to this set
+of phased SNPs as ground truth phased variants. We emphasize that
+this phasing is solely based on genotypes and does not use phase in—
+formation present in the reads in any way and hence is completely
+independent. In the following, we refer to the original genotypes
+from the GIAB call set (without phase information) restricted to this
+set of SNPs as ground truth unphased genotypes, which we use as in—
+put for read—based phasing experiments described below.
+
+PacBio Data. For each individual, we downloaded aligned
+Pacific Biosciences (PacBio) reads (ftp://ftp—trace.ncbi.nlm.nih.gov/
+gia b/ftp/data/AshkenazimTrio/ (HG002_NA243 85_son ) HG003_NA
+24149_father)HG004_NA24143_mother)/PacBio_MtSinai_NIST/
+MtSinai_blasr_bam_GRCh37/), which had an average coverage of
+42.3>< in mother, 46.8>< in father and 60.2>< in child, respectively.
+The average mapped read length across mother was 8328 bp, father
+was 8471 bp and child was 8687 bp. For each individual, we separ—
+ately downsampled the aligned reads to obtain datasets of 2><, 3><,
+4><, 5><, 10>< and 15>< average coverage.
+
+10X Genomics Data. The GemCode platform marketed by
+10XGenomics uses a barcoding technique followed by pooled short—
+read sequencing and data analysis through a proprietary software so—
+lution to resolve haplotypes. Data from this platform is available
+
+from the GIAB project and represents phase information obtained
+completely independently from either statistical phasing or
+PacBio reads. We downloaded the corresponding files (ftp://ftp—trace.
+ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/(HG002_NA24385_
+son)HG003_NA24149_father)HG004_NA24143_mother)/10XGe
+nomics) for comparison purposes.
+
+4.2 Simulated data
+
+Despite the high—quality dataset provided by GIAB, we sought to
+complement our experiments by a simulated dataset. While the
+population—based phasing we use as ground truth is arguably accur—
+ate due to a large reference panel and the high—quality genotype data
+used as input, it is not perfect. Especially variants with low allele fre—
+quency present challenges for population—based phasers.
+
+Virtual Child. As basis for our simulation, we use the haplotypes
+of the two parents from our ground truth phased dataset. We gener—
+ated two haplotypes of a virtual child by applying recombination
+and Mendelian inheritance to the four parent haplotypes. In reality,
+recombination events are rare: All of Chromosome 1 spans a genetic
+distance of approximately 292 cM, corresponding to 2.9 expected
+recombination events along the whole chromosome. To include
+more recombinations in our simulated dataset, we used the same
+genetic map as above, but multiplied recombination rates by 10.
+The recombination sites are sampled according to the probabilities
+resulting from applying Haldane’s mapping function to the genetic
+distances between two variants. In line with our expectation, we ob—
+tained 26 and 29 recombination sites for mother and father, respect—
+ively. The resulting child had 41 676 heterozygous variants.
+
+Simulating PacBio Reads. We aimed to simulate reads that
+mimic the characteristics of the real PacBio dataset as closely as pos—
+sible. For this simulation, we incorporate the variants of each indi—
+vidual into the reference genome (hg19) to generate two true
+haplotypes for each individual in our triple. We used the PacBio—
+specific read simulator pbsim by Ono et al. (2013) to generate a
+30>< dataset for Chromosome 1. The original GIAB reads were pro—
+vided to pgsim as a template (via option ——sample—fastq) to generate
+artificial reads with the same length profile. Next, we aligned the
+reads to the reference genome using BWA—MEM 0.7.12—r1039 by Li
+(2013) with option —x pacbio. As before for the real data, the aligned
+reads for each individual were downsampled separately to obtain
+datasets of 2><, 3><, 4><, 5 X, 10>< and 15>< average coverage.
+
+4.3 Compared methods
+
+Our main goal is to analyze the merits of the PedMEC—G model in
+comparison to wMEC; in particular with respect to the coverage
+needed to generate a high—quality phasing. The algorithms to solve
+wMEC and PedMEC—G described in Section 3 have been imple—
+mented in the WhatsHap software package (https://bitbucket.org/
+whatshap/whatshap), distributed as Open Source software under the
+terms of the MIT license. We emphasize that WhatsHap solves
+wMEC and PedMEC—G optimally. Since the focus of this paper is
+on comparing these two models, we do not include other methods
+for single—individual haplotyping. We are not aware of other trio—
+aware read—based phasing approaches that PedMEC—G could be
+compared to additionally.
+
+The runtime depends exponentially on the maximum coverage.
+Therefore we prune the input datasets to a target maximum cover-
+age using the read—selection method introduced by Fischer and
+Marschall (2016), which is implemented as part of WhatsHap. This
+target coverage constitutes the only parameter of our method. For
+PedMEC—G, we prune the maximum coverage to 5 X for each
+
+ﬁm'sreumol‘piqxo'sopeuHOJHIotq/ﬁdnq
+
+i240
+
+S.Garg et al.
+
+ 
+
+individual separately. For wMEC, we report results for 5>< and 15 X
+target coverage. The respective experiments are referred to as
+PedMEC-G-5, wMEC-5 and wMEC-15. For wMEC, we use the
+additional ‘all heterozygous’ assumption (see Section 3), to also give
+it the advantage of being able to ‘trust’ the genotypes, as is the case
+for PedMEC-G. Both wMEC and PedMEC-G were provided with
+the ground truth unphased genotypes for the respective dataset.
+PedMEC-G was additionally provided with the respective genetic
+map (original 1000G genetic map for real data and scaled by factor
+10 for simulated data).
+
+As described above, the ground truth phasing was generated by
+SHAPEIT with default parameters, implying that SHAPEIT treated
+the three samples as unrelated individuals. For comparison pur-
+poses, we re-ran SHAPEIT and provided it with pedigree informa-
+tion. We refer to the resulting phased dataset as SHAPEIT—trio.
+Moreover, we ran duoHMM (v0.1.7) by O’Connell et al. (2014) on
+the resulting files to further improve the phasing.
+
+4.4 Performance metrics
+
+We compare each phased individual to the respective ground truth
+haplotypes separately and only consider sites heterozygous in this
+individual.
+
+Phased SNPs. For read-based phasing of a single individual
+(wMEC), we say that two heterozygous SNPs are directly connected
+if there exists a read covering both. We compute the connected com-
+ponents in the graph where SNPs are nodes and edges are drawn be-
+tween directly connected SNPs. Each connected component is called
+a block. For read-based phasing of a trio (PedMEC), we draw an
+edge when two SNPs are connected by a read in any of the three in-
+dividuals. In both cases, we count a SNP as being phased when it is
+not the left-most SNP in its block (for the left-most SNP, no phase
+information with respect to its predecessors exists). All other SNPs
+are counted as unphased. Below, we report the average fraction of
+unphased SNPs over all three family members.
+
+Phasing Error Rate. For each block, the first predicted haplotype
+is expressed as a mosaic of the two true haplotypes, minimizing the
+number of switches. This minimum is known as the number of
+switch errors. Note that the second predicted haplotype is exactly
+the complement of the first one, due to only considering heterozy-
+gous sites. When two switch errors are adjacent, they are subtracted
+from the number of switch errors and counted as one flip error. The
+phasing error rate is defined as the sum of switch and flip errors div-
+ided by the number of phased SNPs.
+
+Three-Way Phasing Comparison. To simultaneously compare
+phasings from three different methods (e.g. SHAPEIT,
+10XGenomics and PedMEC-G-5), we proceeded as follows. For an
+individual, we considered all pairs of consecutive heterozygous
+SNPs that have been phased by all three methods. For each of these
+pairs, either all three methods agree or two methods agree (since
+only two possible phases exist). Below, we discuss the fraction of
+these different cases in relation to the total number of considered
+SNP pairs.
+
+5 Results
+
+We report the results of wMEC-5, wMEC-15 and PedMEC-G-5 for
+both datasets, real and simulated. All combinations of the three
+methods, two datasets and six different average coverages (2><, 3><,
+4><, 5><, 10>< and 15><) were run. The predicted phasings are com-
+pared to the ground truth phasing for the respective dataset. That is,
+for the real dataset, we compare to the population-based phasing
+
+produced by SHAPEIT; for the simulated dataset, we compare to
+the true haplotypes that gave rise to the simulated reads. Figure 2
+shows the fraction of unphased SNPs in comparison to the phasing
+error rate (see Section 4.4) for all conducted experiments. A perfect
+phasing would be located in the bottom left corner.
+
+The Influence of Coverage. Increasing the average coverage is
+beneficial for phasing. For all three methods (wMEC-5, wMEC-15
+and PedMEC-G-5) and both datasets, the phasing error rate and the
+fraction of unphased SNPs decrease monotonically when the aver-
+age coverage is increased, as is clearly visible in Figure 2. The effect
+is much more drastic for wMEC than for PedMEC, however.
+Apparently, wMEC needs more coverage to compensate for
+PacBio’s high error rate while PedMEC can resort to exploiting fam-
+ily information to resolve uncertainty.
+
+The Value of Family Information. When operating on the same
+input coverage, PedMEC-G-5 clearly outperformed wMEC-5 and
+even wMEC-15 in all cases tested. This was true for phasing
+error rates as well as for the fraction of phased positions. On the
+real dataset with average coverage 10>< for instance, wMEC-5 and
+
+(a)
+
+0'"
+
+(b)
+
+o.
+o
+(D
+o
+
+,. a
+
+G"
+
+Fig. 2. Simulated dataset (top) and real dataset (bottom): phasing error rate
+(X—axis) versus completeness in terms of the fraction of unphased SNPs (y-
+axis) for PedMEC-G-5 (solid line), wMEC-5 (dashed line) and wMEC-15 (dotted
+line). Average coverage (per individual) of input data is encoded by circles of
+different sizes
+
+ﬁm'sreumol‘prqxo'sopeuHOJHIotq/jﬂnq
+
+Figure 3
+
+O’Connell et al., 2014
+
+Figure 2
+
+Figure 4
+
+53x\Ewogmoizmnnw.oxmoHEoﬁsm_w.on\
+
+Figure 3
+
+i242
+
+S.Garg et al.
+
+ 
+
+handling current datasets swiftly. In the future, we plan to further op—
+timize the implementation of I/O subroutines and provide automatic
+chromosome—wise parallelization of data processing.
+
+6 Discussion
+
+We have presented a unifying framework for integrated read—based
+and genetic haplotyping. By generalizing the WhatsHap algorithm
+(Patterson et al., 2015 ), we provide a fixed—parameter tractable
+method for solving the resulting NP—hard optimization problem,
+which we call PedMEC. When maximum coverage and number of
+individuals are bounded, the algorithm’s runtime is linear in the
+number of phased variants and independent of the read length, mak—
+ing it well suited for current and future long—read sequencing data.
+This is mirrored by the fact that the runtime is dwarfed by the time
+required for reading the input files in practice. PedMEC can use any
+provided costs for correcting errors in reads as well as for recombin—
+ation events. By using phred—scaled probabilities as costs, minimiz—
+ing the cost can be interpreted as finding a maximum likelihood
+phasing in a statistical model incorporating Mendelian inheritance,
+read error correction and recombination.
+
+Testing the implementation on simulated and real trio data, we
+could show that the method is notably more accurate than phasing
+individuals separately, especially at low coverages. Beyond enhanced
+accuracy, our method is also able to phase a greater fraction of het—
+erozygous variants compared to single—individual phasing.
+
+Being able to phase more variants is a key benefit of the integrative
+approach. Whereas read—based phasing can in principle only phase
+variants connected by a path through the covering reads, adding pedi—
+gree information enables even phasing of variants that are not covered
+in all individuals since the algorithm can ‘fall back” to using genotype
+information. Figure 1 illustrates the increased connectivity while phas—
+ing a trio, resulting in more phased variants in practice.
+
+Genetic haplotyping alone cannot phase variants that are hetero—
+zygous in all individuals, emphasizing the need for an integrative ap—
+proach as introduced here. We demonstrate that such an approach
+indeed yields better result and recommend its use whenever both
+reads and pedigree information are available. Most remarkingly, the
+presented approach is able to deliver outstanding performance even
+for coverages as low as 2>< per individual, on par with performance
+delivered by single—individual haplotyping at 15 X coverage per
+individual.
+
+Future work. We plan to implement phasing of de novo variants
+observed in the child, which would be impossible with pure genetic
+haplotyping but is straightforward with our approach.
+
+Since runtime is exponential in the maximum physical coverage,
+pruning of datasets is required in practice. The read selection ap—
+proach currently implemented in WhatsHap (Fischer and Marschall,
+2016) aims to retain reads that both cover and connect many vari—
+ants at the same time, in particular for heterogeneous combinations
+of datasets such as paired—end or mate—pair reads together with long
+reads. For pedigrees, each dataset is currently pruned individually,
+but results would likely improve if pedigree structure was taken into
+account in this step. Finally, since we show that it is possible and
+beneficial to integrate both read—based and genetic phasing, the next
+obvious question is whether it is possible to modify our unified the—
+oretical framework to one that also includes statistical phasing.
+
+Acknowledgement
+
+We thank Sarah 0. Fischer for developing the read selection routine in
+WhatsHap.
+
+Funding
+
+M.M. is supported by a grant from the Knut and Alice Wallenberg
+Foundation to the Wallenberg Advanced Bioinformatics Infrastructure.
+
+Conﬂict of Interest: none declared.
+
+References
+
+Aguiar,D. and Istrail,S. (2013) Haplotype assembly in polyploid genomes and
+identical by descent shared tracts. Bioinformatics, 29, i352—i360.
+
+Browning,S.R. and Browning,B.L. (2011) Haplotype phasing: existing meth-
+ods and new developments. Nat. Rev. Genet., 12, 703—714.
+
+Chen,W. et al. (2013a) Genotype calling and haplotyping in parent-offspring
+trios. Genome Res., 23, 142—151.
+
+Chen,Z.Z. et al. (2013b) Exact algorithms for haplotype assembly from
+whole-genome sequence data. Bioinformatics, 29, 1938—1945.
+
+Cilibrasi,R. et al. (2007) The complexity of the single individual SNP haplo-
+typing problem. Algorithmica, 49, 13—36.
+
+Delaneau,O. et al. (2013) Haplotype estimation using sequencing reads. Am.
+]. Hum. Genet., 93, 687—696.
+
+Delaneau,O. et al. (2014) Integrating sequence and array data to create an improved
+1000 Genomes Project haplotype reference panel. Nat. Commun., 5, 3934.
+
+Fischer,S.O. and Marschall,T. (2016) Selecting reads for haplotype assembly.
+Biorxiv, 046771.
+
+Fouilhoux,P. and Mahjoub,A.R. (2012) Solving VLSI design and DNA
+sequencing problems using bipartization of graphs. Comput. Optim. Appl.,
+5 1, 749—78 1.
+
+Glusman,G. et al. (2014) Whole—genome haplotyping approaches and gen-
+omic medicine. Genome Med., 6, 73.
+
+Greenberg,H.]. et al. (2004) Opportunities for combinatorial optimization in
+computational biology. INFORMS]. Comput., 16, 211—231.
+
+He,D. et al. (2010) Optimal algorithms for haplotype assembly from whole-
+genome sequence data. Bioinformatics, 26, i183—i190.
+
+Kuleshov,V. (2014) Probabilistic single-individual haplotyping. Bioinformatics,
+30, i379—i385.
+
+Lancia,G. et al. (2001). SNPs problems, complexity, and algorithms. In: Meyer
+auf der Heide,F. (ed) Algorithms — ESA 2001, Number 2161 in Lecture
+Notes in Computer Science. Springer, Berlin, Heidelberg, pp. 182—193.
+
+Li,H. (2013). Aligning sequence reads, clone sequences and assembly contigs
+with BWA-MEM. arXiv preprint arXiv:1303.3997.
+
+Marchini,]. et al. (2006) A comparison of phasing algorithms for trios and un-
+related individuals. Am. Hum. Genet., 78, 437—450.
+
+O’Connell,]. et al. (2014) A general approach for haplotype phasing across the
+full spectrum of relatedness. PLOS Genet., 10, e1004234.
+
+Ono,Y. et al. (2013) PBSIM: PacBio reads simulator—toward accurate genome
+assembly. Bioinformatics, 29, 119—121.
+
+Patterson,M. et al. (2014). WhatsHap: Haplotype assembly for future-
+generation sequencing reads. In: Sharan,R. (ed.) Proceedings of the 18th
+Annual International Conference on Research in Computational Molecular
+Biology (RECOMB), Number 8394 in Lecture Notes in Computer Science.
+Springer International Publishing, pp. 237—249.
+
+Patterson,M. et al. (2015) WhatsHap: Weighted haplotype assembly for
+future-generation sequencing reads. Comput. Biol., 22, 498—509.
+
+Pirola,Y. et al. (2015) HapCol: accurate and memory-efﬁcient haplotype as-
+sembly from long reads. Bioinformatics, btv495.
+
+Rhee,].K. et al. (2015) Survey of computational haplotype determination
+methods for single individual. Genes Genomics, 1—12.
+
+Roach,]. et al. (2011) Chromosomal haplotypes by genetic phasing of human
+families. Am. Hum. Genet., 89, 382—397.
+
+Schwartz,R. (2010) Theory and algorithms for the haplotype assembly prob-
+lem. Commun. Inf Syst., 10, 23—38.
+
+Snyder,M.W. et al. (2015) Haplotype-resolved genome sequencing: experi-
+mental methods and applications. Nat. Rev. Genet., 16, 344—35 8.
+
+Tewhey,R. et al. (2011) The importance of phase information for human gen-
+omics. Nat. Rev. Genet., 12, 215—223.
+
+Zook,].M. et al. (2014) Integrating human sequence data sets provides a re-
+source of benchmark SNP and indel genotype calls. Nat. Biotechnol, 32,
+246—25 1.
+
+ﬁm'sreumol‘prqxo'sopcuHOJHIotq/jﬂnq
+

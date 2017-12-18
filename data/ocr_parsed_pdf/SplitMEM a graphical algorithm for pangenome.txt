@@ -1,0 +1,1110 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 24 2014, pages 3476—3483
+doi:10. 1093/bioinfonnatics/btu756
+
+ 
+
+Genome analysis
+
+Advance Access publication November 13, 2014
+
+SplitMEM: a graphical algorithm for pan-genome analysis with
+
+suffix skips
+
+Shoshana Marcus‘, Hayan Lee“2 and Michael C. Schatzl'2'*
+
+1Simons Center for Quantitative Biology. Cold Spring Harbor Laboratory, Cold Spring Harbor, NY 11724, USA and
+2Department of Computer Science, Stony Brook University, Stony Brook, NY 11794, USA
+
+Associate Editor: Gunnar Ratsch
+
+ 
+
+ABSTRACT
+
+Motivation: Genomics is expanding from a single reference per spe-
+cies paradigm into a more comprehensive pan -genome approach that
+analyzes multiple individuals together. A compressed de Bruijn graph
+is a sophisticated data structure for representing the genomes of
+entire populations. It robustly encodes shared segments, simple
+single-nucleotide polymorphisms and complex structural variations
+far beyond what can be represented in a collection of linear sequences
+alone.
+
+Results: We explore deep topological relationships between suffix
+trees and compressed de Bruijn graphs and introduce an algorithm,
+splitMEM, that directly constructs the compressed de Bruijn graph in
+time and space linear to the total number of genomes for a given
+maximum genome size. We introduce sufﬁx skips to traverse several
+suffix links simultaneously and use them to efficiently decompose
+maximal exact matches into graph nodes. We demonstrate the utility
+of splitMEM by analyzing the nine-strain pan-genome of Bacillus
+anthracis and up to 62 strains of Escherichia coli, revealing their
+core-genome properties.
+
+Availability and implementation: Source code and documentation
+available open-source http://splitmem.sourceforge.net.
+
+Contact: mschatz@cshl.edu
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on April 6, 2014; revised on November 3, 2014; accepted on
+November 9, 2014
+
+1 INTRODUCTION
+
+1.1 Background
+
+Genome sequencing has rapidly advanced in the past 20 years.
+The ﬁrst free living organism was sequenced in 1995, and since
+then, the number of genomes sequenced per year has been grow-
+ing at an exponential rate (Liolios et al., 2006). Today, there are
+currently nearly 20 000 genomes sequenced across the tree of life,
+including reference genomes for hundreds of eukaryotic and
+thousands of microbial species. Reference genomes play an im-
+portant role in genomics as an exemplar sequence for a species
+and have been extremely successful at enabling genome
+
+ 
+
+*To whom correspondence should be addressed.
+
+resequencing projects, gene discovery and numerous other im-
+portant applications. However, reference genomes also suffer in
+that they represent a single individual or a mosaic of individuals
+as a single linear sequence, making them an incomplete catalog
+of all the known genes, variants and other variable elements in a
+population. Especially in the case of structural and other large-
+scale variations, this creates an analysis gap when modeling the
+role of complex variations or gene ﬂow in the population. For
+the human genome, for example, multiple auxiliary databases
+including dbSNP, deAR, DGV and several others must be
+separately queried through several different interfaces to access
+the population-wide status of a variant (MacDonald et al., 2014).
+
+The ‘reference-centric’ approach in genomics has been estab-
+lished largely because of technological and budgetary concerns.
+Especially in the case of mammalian-sized genomes, it remains
+prohibitively expensive and technically challenging to assemble
+each sample into a complete genome de novo, making it substan-
+tially cheaper and more accessible to analyze a new sample rela-
+tive to an established reference. However, for some species,
+especially medically or otherwise biologically important micro-
+bial genomes, multiple genomes of the same species are available.
+In the current version of National Center for Biotechnology
+Information (NCBI) GenBank, 296 of the 1471 bacterial species
+listed have at least two strains present, including 9 strains of
+Bacillus anthracis (the etiologic agent of anthrax), 62 strains of
+Escherichia coli (the most widely studied prokaryotic model
+organism) and 72 strains of Chlamydia trachomatis (a sexually
+transmitted human pathogen). This was done because the differ-
+ent genomes may have radically different properties or substan-
+tially different gene content despite being of the same species:
+most strains of E.c0li are harmless, but some are highly patho-
+genic (Rasko et al., 2011b).
+
+When multiple genomes of the same or closely related species
+are available, the ‘pan-genome’ of the population can be con-
+structed and analyzed as a single comprehensive catalog of all the
+sequences and variants in the population (Tettelin et al., 2005).
+Several techniques and data structures have been proposed for
+representing the pan-genome, i.e. Rasko et al. (2008). The most
+basic is a linear concatenation of the reference genome plus any
+novel sequences found in the population appended to the end or
+stored in a separate database such as deAR. The result is a
+relatively simple linear sequence but also loses much of the value
+of population-wide representation, necessitating auxiliary tables
+to record the status of the concatenated sequences. More signiﬁ-
+cantly, a composite linear sequence may have ambiguity or loss
+in information of how the population variants relate to each
+
+ 
+
+3476 © The Author 2014. Published by Oxford University Press. All rights reserved. For Permissions, please e—mail: journals.permissions@oup.com
+
+112 /310's112u1n0fp10}x0"sorJBuiJOJurorq/ﬁduq 11101} papaolumoq
+
+91oz ‘Og anﬁnV uo ::
+
+SplitMEM
+
+ 
+
+other, especially at positions where the sequences of the individ-
+uals in the population diverge, i.e. branch points between se-
+quences shared among all the strains to any strain-speciﬁc
+sequences and back again.
+
+A much more powerful representation of a pan-genome is to
+represent the collection of genomes in a graph: sequences that are
+shared or unique in the population can be represented as nodes,
+and edges can represent branch points between shared and
+strain-speciﬁc sequences (Fig. 1). More speciﬁcally, the de
+Bruijn graph is a robust and widely used data structure in
+genomics for representing sequence relationships and for pan-
+genome analysis (Iqbal et al., 2012). In the case of a pan-
+genome, we can color the de Bruijn graph to record which of
+the input genome(s) contributed each node. This way the com-
+plete pan-genome will be represented in a compact graphical
+representation, such that the shared/strain—speciﬁc status of any
+substring is immediately identiﬁable, along with the context of
+the ﬂanking sequences. This strategy also enables powerful topo-
+logical analysis of the pan-genome not possible from a linear
+representation.
+
+As originally presented, the de Bruijn graph encodes each dis-
+tinct length k substring as a node and includes a directed edge
+between substrings that overlap by k i 1 base pairs. However,
+many of the nodes and edges of a de Bruijn graph can be ‘com—
+pressed’ whenever the path between two nodes is non-branching.
+Doing so often leads to a substantial savings in graph complexity
+and a more interpretable topology: in the case of a pan-genome
+graph, after compression nodes will represent variable length
+strings up to divergence in shared/strain—specific status or se-
+quence divergence after a repeated sequence. The compressed
+de Bruijn graph is therefore the preferred data structure for
+pan-genome analysis, but it is not trivial to construct such a
+graph without ﬁrst building the uncompressed graph and then
+
+ 
+
+:I:—
+I?
+'——
+
+DOW}
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 1. Overview of a graphical representation of a pan-genome. The four
+input genomes (A—D) are decomposed into segments shared or speciﬁc to
+the individuals in the population with edges maintaining the adjacencies
+of the segments
+
+identifying and merging compressible edges, all of which requires
+substantial overhead. Here, we present a novel space and time
+efﬁcient algorithm called splitMEM for constructing the com-
+pressed de Bruijn graph from a generalized sufﬁx tree of the
+input genomes. Our approach relies on the deep relationships
+between the topology of the sufﬁx tree and the topology of the
+compressed de Bruijn graph and leverages a novel construct we
+developed called suﬂix skips that makes it possible to rapidly
+navigate between overlapping sufﬁxes in a sufﬁx tree. We
+apply these techniques to study the pan-genomes of all nine
+available strains of B.anthracis and all 62 available strains of
+E.c0li to map and compare the ‘core genomes’ of these popula-
+tions. All the source code and documentation for the analysis are
+available open-source at http://splitmem.sourceforge.net.
+
+1.2 Problem deﬁnition
+
+The de Bruijn graph representation of a sequence contains a
+node for each distinct length k substring, called a k-mer. Two
+nodes are connected by a directed edge u —> v for every instance
+where the k—mer represented by v occurs immediately after the
+k—mer represented by u at any position in the sequence. In other
+words, there is an edge if it occurs at position i and v occurs at
+position i-l- 1. By construction, adjacent nodes will overlap by
+k i 1 characters, and the graph can include multiple edges con-
+necting the same pair of nodes or self-loops representing over-
+lapping tandem repeats. This definition of a de Bruijn graph
+differs from the traditional deﬁnition described in the mathem-
+atical literature that requires the graph to contain all length-k
+strings that can be formed from an alphabet rather than just
+those present in the sequence. The formulation of the de Bruijn
+graph used in this article is commonly used in the sequence as-
+sembly literature, and we follow the same convention (Kingsford
+et al., 2010). Notably, the original genome sequence, before
+decomposing it into k—mers for the graph, corresponds to an
+Eulerian path through the de Bruijn graph Visiting each edge
+exactly once. In the case of the pan-genome, we first concatenate
+the individual genomes together separated by a terminal charac-
+ter and discard any nodes or edges spanning the terminal char-
+acter. The nodes are colored to indicate which genome(s) the
+node originated from, so that each individual genome can be
+represented by a walk of nodes of consistent color.
+
+A de Bruijn graph can be ‘compressed’ by merging non-
+branching chains of nodes into a single node with a longer se-
+quence. Suppose node u is the only predecessor of node v and v is
+the only successor of it. They can thus be unambiguously com-
+pressed without loss of sequence or topological information by
+merging the sequence of u with the sequence of v into a single
+node that has the predecessors of u and the successors of v. After
+maximally compressing the graph, every node will terminate at a
+‘branch-point’, meaning every node has in-degree 3 2 or its
+single predecessor has out-degree 3 2 and every node has out-
+degree 3 2 or its single successor has in-degree 3 2. The com-
+pressed de Bruijn graph has the minimum number of nodes with
+which the path labels in the compressed graph are the same as in
+the uncompressed graph (Kingsford et al., 2010). In this way, the
+compressed de Bruijn graph of a pan-genome will naturally
+branch at the boundaries between sequences that diverge in
+their amount of sharing in the population.
+
+ 
+
+3477
+
+112 /310's112u1n0fp10}x0"sorJBuiJOJurorq/ﬁduq 11101} pQPBOIII/lAOG
+
+91oz ‘Og isnﬁnv uo ::
+
+S.Marcus et al.
+
+ 
+
+The compressed de Bruijn graph is normally built from its
+uncompressed counterpart, necessitating the initial construction
+and storage of a much larger graph. In the limit, a basic con-
+struction algorithm may need to construct and compress n nodes,
+while ours would directly output just a single node. In practice,
+the compressed graph of real genomic data is often orders of
+magnitude smaller than the uncompressed, although the exact
+savings is data dependent.
+
+In this article, we present an innovative algorithm that directly
+constructs the compressed de Bruijn graph by exploiting the
+relationships between the compressed de Bruijn graph and
+the sufﬁx tree of the sequences. Our algorithm achieves overall
+0(nlog g) time and space complexity for an input sequence of
+total length n with the longest genome in the set of length g.
+Thus, for typical applications of applying splitMEM to a set of
+genomes of similar size, the runtime is linear with respect to the
+total number of genomes (Section 3.1). Alternatively, we also
+present a slower algorithm in the Supplementary Material that
+constructs the compressed de Bruijn graph from the set of exact
+self-alignments of length 3 k in the genome. The alignment-based
+algorithm considers each alignment in turn and decomposes the
+graph nodes to represent smaller substrings when alignments are
+found to overlap one another. At worst, the number of pairwise
+alignments in a genome can be quadratic. Both algorithms have
+the same underlying intuition, and the faster sufﬁx-tree approach
+was inspired by the alignment-based algorithm.
+
+1.3 Sufﬁx tree, sufﬁx array and maximal exact matches
+
+The sufﬁx tree is a data structure that facilitates linear time so-
+lutions to many common problems in computational biology,
+such as genome alignment, finding the longest common substring
+among genomes, all-pairs sufﬁxiprefix matching and locating all
+maximal repetitions (Gusfield, 1997). It is a compact trie that
+represents all sufﬁxes of the underlying text. The sufﬁx tree for
+T=t1t2 - - - in is a rooted, directed tree with n leaves, one for each
+sufﬁx. A special character ‘$’ is appended to the string before
+construction of the sufﬁx tree to guarantee that each sufﬁx ends
+at a leaf in the tree. Each internal node, except the root, has at
+least two children. Each edge is labeled with a nonempty sub-
+string of T and no two edges out of a node begin with the same
+character. The path from the root to leaf i spells sufﬁx TIi . . . n].
+
+The sufﬁx tree can be constructed in linear time and space with
+respect to the string it represents (Ukkonen, 1995). Sufﬁx links
+are an implementation technique that enable linear time and
+space sufﬁx tree construction algorithms. Sufﬁx links facilitate
+rapid navigation to a distant but related part of the tree. A sufﬁx
+link is a pointer from an internal node representing a string xS to
+another internal node representing string S, where x is a single
+character and S is a possibly empty string.
+
+A closely related data structure, called a suﬂix array, is an
+array of the integers in the range 1 to n specifying the lexico-
+graphic order of the n sufﬁxes of string T. It can be obtained in
+linear time from the sufﬁx tree for T by performing a depth-ﬁrst
+traversal that traverses siblings in lexical order of their edge
+labels. (Gusﬁeld, 1997) For any node u in the sufﬁx tree, the
+subtree rooted at it contains one leaf for each sufﬁx in a contigu-
+ous interval in the sufﬁx array. That interval is the set of sufﬁxes
+
+beginning with the path label from the root to node u (Kasai
+et al., 2001).
+
+Maximal exact matches (MEMs) are exact matches within a
+sequence that cannot be extended to the left or right without
+introducing a mismatch. By construction, MEMs are internal
+nodes in the sufﬁx tree that have left-diverse descendants, i.e.
+leaves that represent sufﬁxes that have different characters pre-
+ceding them in the sequence. As such, the MEM nodes can be
+identiﬁed in linear time by a bottom-up traversal of the tree,
+tracking the set of character preceding the leaves of the subtree
+rooted at each node. Because each MEM is an internal node in
+the sufﬁx tree, there are at most n maximal repeats in a string of
+length n (Gusﬁeld, 1997). Our algorithm computes the nodes in
+the compressed de Bruijn graph by decomposing the MEMs and
+extracting overlapping components that are of length 3 k.
+
+1.4 Existing methodologies
+
+We introduce new concepts and algorithms for directly con-
+structing the compressed de Bruijn graph to represent a pan-
+genome. Several alternative tools achieve similar goals, although
+their speciﬁc objectives differ, along with their algorithmic tech-
+niques. The first analysis of a pan-genome was in 2005 by
+Tettelin et al. (2005) evaluating the composition of six strains
+of Streptococcus agalactiae. They aligned the gene sequences in
+their draft assemblies using FASTA (Pearson and Lipman, 1988)
+to discover the ‘core genome’ of genes present in all strains versus
+strain-speciﬁc genes. Their approach was directed only at the
+gene sequences and their frequency in the population but did
+not attempt to analyze the ﬂanking regulatory regions or the
+rest of the genomes.
+
+Since then, several alternative approaches have constructed
+graphical representations of entire pan-genomes such as ours,
+including other approaches that also use de Bruijn graphs as
+the basis of their analysis. Importantly, all of the previous pan-
+genome analysis algorithms using de Bruijn graphs start with an
+exhaustive analysis of individual k—mers, i.e. the uncompressed
+de Bruijn graph, while instead we compute the compressed de
+Bruijn graph directly from the MEMs identiﬁed in the sufﬁx tree.
+For example, Sibelia (Minkin et al., 2013) begins by constructing
+the uncompressed de Bruijn graph and then iteratively reﬁnes it
+to identify inexact relationships such as small indels and single-
+nucleotide polymorphisms in addition to exact alignments
+between the genomes. A recent article by Cazaux et al. (2014)
+presents an algorithm for identifying the nodes and edges in a
+compressed de Bruijn graph in linear time from the sufﬁx tree of
+a sequence, although this also requires exhaustively evaluating
+each k-mer in the sequence. They also do not present an imple-
+mentation of the abstract algorithm they describe. Other
+approaches, such as HAL (Hickey et al., 2013), can be used to
+encode multiple sequence alignments of different genomes by
+decomposing the multiple sequence alignment into a set of
+pair-wise alignments encoded as ‘breakpoint graphs’.
+
+An area of recent focus surrounding de Bruijn graphs is to
+reduce their space consumption, such as by using Bloom Filters
+or other concise data structures that can represent the graph in as
+little as 211 bits, e.g., Bowe et al. (2012), Chikhi and Rizk (2013),
+Chikhi et al. (2014) and Rodland (2013). However, these tech-
+niques do not directly extend to pan-genome analysis since their
+
+ 
+
+3478
+
+112 /310's112u1n0fp10}x0"sorJBuiJOJurorq/ﬁduq 11101} pQPBOIII/lAOG
+
+91oz ‘Og isnﬁnv uo ::
+
+SplitMEM
+
+ 
+
+space-efﬁciencies require they only store a limited amount of
+information, typically just the topology and ﬁxed length k-mer
+sequences of the de Bruijn graph. Our analysis requires other
+attributes, especially the original genome position(s) of each
+node and variable length node sequences, which are fundamen-
+tally not supported by these techniques (Chikhi et al., 2014).
+Without them, we cannot compute major properties of the
+pan-genome from the graph, such as the number of genomes
+that contribute to each node’s sequence, the number of genomes
+sharing a particular gene or the nearest neighbor in the graph
+whose sequence is in the core genome.
+
+2 METHODS
+
+In this section, we describe our algorithm for constructing the com-
+pressed de Bruijn graph for a genome in 0(nlog g) time and space. It
+is outlined in Algorithm 1. The basis of our algorithm is deriving the set
+of compressed de Bruijn graph nodes from the set of MEMzk nodes in
+the sufﬁx tree, i.e. internal nodes that represent MEMs of length 3 k in
+the genome. The underlying algorithm was inspired by the use of the
+sufﬁx tree to compute matching statistics as described by Gusﬁeld
+(1997).
+
+Note that each node in the compressed de Bruijn graph is labeled by a
+maximal genomic substring of length 3 k for which there are no internal
+overlaps, with the same or with a different genomic substring, of length
+3 k. As in the uncompressed counterpart, edges connect substrings that
+have a suffix-preﬁx match of length k 7 1 in the genome. The nodes in the
+compressed de Bruijn graph fall into two categories: uniqueNodes repre-
+sent a unique subsequence in the pan-genome and have a single start
+position and repeatNodes represent subsequences that occur at least
+twice in the pan-genome, either as a repeat in a single genome or a seg-
+ment shared by multiple genomes in the pan-genome population.
+uniqueNodes can be thought of as nodes that link between repeatNodes.
+As such, our graph construction algorithm begins by identifying the set of
+repeatNodes, from which it constructs the necessary edges and
+uniqueNodes along the way.
+
+The set of MEMzk and the repeatNodes represent the same subse-
+quences of the genome, although there is not a one-to-one correspond-
+ence, especially in the case of overlapping or nested MEMs (Fig. 2).
+A MEMzk may need to be split into several repeatNodes when it has
+subsequences of length 3 k in common with itself or another MEMzk.
+Some repeatNodes are exactly MEMs in the genome, whereas other
+repeatNodes are parts of a MEM that lie between two embedded
+MEMs. Any maximal subsequence of length 3 k that is shared among
+MEMs is necessarily a MEM. Consequently, our algorithm processes the
+set of MEMzk and split them into repeatNodes by extracting common
+subsequences of minimum length k among them. Whenever a MEM is
+split to remove a shared repeatNode, the split results in at least one
+MEM as a resulting segment and the other segment can be unique to
+this MEM.
+
+2.1 Algorithm
+
+The splitMEM algorithm uses a suffix tree of the genome to efﬁciently
+compute the set of repeatNodes. It builds a suffix tree of the pan-genome
+in linear time following Ukkonen’s algorithm (Ukkonen, 1995). It then
+marks internal nodes of the sufﬁx tree that represent MEMs (or maximal
+repeats) of length 3 k, in the suffix tree using linear time techniques of
+MUMmer (Kurtz et al., 2004) and preprocess the sufﬁx tree for constant-
+time lowest marked ancestor (LMA) queries in linear time. Then it con-
+structs the set of repeatNodes by iterating through the set of MEMzk in
+the sufﬁx tree.
+
+ 
+
+ 
+
+(a) overlapping MEMS
+
+_ _'
+- --|
+
+(b) MEM contained in middle of MEM
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+(c) tandem repeat
+
+Fig. 2. Different overlapping conﬁgurations of MEMs in a sequence. The
+colored blocks represent MEMs in a genomic sequence. Different colors
+are used for distinct MEMs
+
+The challenge lies in identifying regions that are shared among
+MEMzks and decomposing MEMzks into the correct set of
+repeatNodes. If m1 and m2 are MEMzks and m1 occurs within m2, then
+m1 is a preﬁx of some suffix of m2. Thus, splitMEM can use the suffix
+links to iterate through the sufﬁxes of m2 along with LMA queries to ﬁnd
+the longest MEMzks that occurs at the beginning of each suffix. Each
+MEM is broken down to repeatNodes once, and any embedded MEMs
+are extracted without examination. Thus, the subsequences that are
+shared among several MEMs are only decomposed once. We describe
+an efficient technique for constructing the set of repeatNodes in
+Section 2.2.
+
+As an example, Figure 3 shows the situation where a MEMzk con-
+tains another MEMzk within it. Two new repeat nodes are created for
+xyzor/S. One is the preﬁx ending after the ﬁrst kil characters of or
+(shown as ’or) and the other is the sufﬁx beginning with the last k 7 1
+characters of or (shown as or’). The smaller MEMzk or is dealt with
+separately.
+
+The positions at which the MEMs occur in the genome, and hence the
+start positions of the repeatNodes, can be quickly computed by consider-
+ing the distance from the internal node to each leaf in its subtree and the
+genomic intervals that they represent. To make this computation efﬁcient,
+we build a sufﬁx array for the pan-genome and store at each suffix tree
+node its corresponding interval in the sufﬁx array.
+
+Once the algorithm has computed all the repeatNodes, it sorts the set of
+genomic starting positions that occur in each node, so that it can con-
+struct the necessary set of edges between them in a single pass over this
+list. It also creates uniqueNodes to bridge any gaps between adjacent
+repeatNodes in the sorted list. It does this by iterating through the
+sorted list of start positions, startPos stored in each node. Suppose
+startPos[i]=s. It calculates the successive start position, succi, from s
+and the length of the node containing s. If succ, is a start position of
+an existing node, it must be at position i -l- 1 in the sorted list and cannot
+occur within a repeatNode. If startPos[i -l- 1] is a different value, the algo-
+rithm creates a uniqueNode to bridge the gap between startPos[i] and
+startPos[i -l- 1]. Then it creates an edge to join start position s to its suc-
+
+ 
+
+3479
+
+112 /310'S[BIIJHO[pJOJXO'SOIJBLUJOJIIIOIq/ﬂduq 11101} pchOIII/noq
+
+91oz ‘Og isnﬁnv uo ::
+
+S.Marcus et al.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Fig. 3. Part of the sufﬁx tree for a genome (left) with the corresponding part of the compressed de Bruijn graph (right). Two MEMs in the suffix tree and
+the sufﬁx links that are followed to decompose the larger MEM to at least three repeat nodes, the purple nodes in the graph on the right. x, y and z are
+
+characters. or, ,8 and y are strings. Suffix links are displayed in red
+
+cessor, whether it is in a repeatNode or a uniqueNode. If a uniqueNode was
+created, it also creates an edge to connect the new uniqueNode to its
+successor at startPos[i -l- 1].
+
+The total length of all MEMs can be quadratic in the genome. Yet
+the total time complexity of Algorithm 1 is dependent on the
+total length of all repeat nodes, which is bounded by the genome
+size. Algorithm 1 runs in 0(nlog g) time and O(n-l-|CDG|) space,
+where |CDG| is the size of the compressed de Bruijn graph. We describe
+a technique in the next subsection that enables Algorithm 1 to achieve
+this time complexity.
+
+2.2 Computing repeatNodes quickly with sufﬁx skips
+
+In this section, we describe an 0(nlog g) time algorithm for deriving the
+set of repeatNodes from MEMzks in the suffix tree. It simulates the steps
+of iteratively traversing sufﬁx links and performing an LMA query at
+each node traversed. In its basic form, as depicted in Figure 3, this process
+takes a total of 0(n2) time, linear in the total length of all MEMs in the
+genome.
+
+To accelerate the process to 0(nlog g) time, we introduce suffix skips
+to generalize sufﬁx links. Sufﬁx skips trim c characters from the beginning
+of the path from the root to an internal node and navigate to the corres-
+ponding internal node in 0(log c) time, instead of the 0(c) time to itera-
+tively traverse c sufﬁx links (see Supplementary Fig. S2). Sufﬁx skips are
+similar to the pointer jumping technique used in many parallel algorithms
+(Jaja, 1992).
+
+To compute the sufﬁx skips, the algorithm creates a table of sufﬁx
+skip pointers at each node u, with |_log 2(strdepth(u))j entries, where
+strdepth(u) is the length of the path from the root to node u. Entry i
+corresponds to the node that can be reached by traversing 2i sufﬁx links
+from the node, 0 5 i 5 |_log 2(strdepth(u))j. The table is initialized with
+the original suffix link in entry 0 and then iteratively updated, so that
+entry i of node u is assigned entry i 7 1 of the node pointed to by node
+u’s i7 1th pointer, i.e. u —> sufﬁxSkip[i] = u —> suffixSkip[i 7 1] —>
+sufﬁxSkip[i 7 1]. We use a breadth ﬁrst search to compute the ﬁrst level
+of suffix skips, suffixSkip[l]. As i increases, the set of nodes that has
+
+suffix skips at level i shrinks exponentially, as can be seen in
+Supplementary Tables S2 and SS. As the nodes that need to be updated
+on iteration i are distributed throughout the middle of the tree, we
+maintain an array of pointers to just those nodes. We remove a node
+from the array after all of its needed suffix skips have been computed,
+thus rapidly shrinking the number of nodes that need to be updated in
+each iteration and greatly reducing the total time as opposed to a
+breadth ﬁrst search at every iteration.
+
+Supplementary Algorithm SS describes the use of suffix skips in an
+0(nlog g) time procedure for deriving the repeatNodes from MEMs in
+the suffix tree. The algorithm iterates through the set of internal nodes
+that are marked as MEMs. For a MEM that is not a child of the root,
+we extend the node to include the path from the root to the internal
+node. The ﬁrst LMA query identiﬁes a potential preﬁx MEM. Then,
+embedded MEMs are identiﬁed by LMA queries and extracted by tra-
+versing suffix skips. A repeatNode is created to bridge gaps between
+embedded MEMs. If at any point a marked ancestor is found that
+extends to the end of the entire MEM, the process is complete.
+Otherwise, the last step is to create a repeatNode that spans the remain-
+ing suffix of the MEM.
+
+We observe that a node is a MEM if its ancestors are all
+MEMs. This allows us to save additional time when we decompose
+MEMs into repeatNodes. We use depth-ﬁrst search to iterate over the
+suffix tree nodes to ﬁnd MEMzks. Upon reaching a node u that
+has string depth 3k and is not a MEM, we bypass the subtree
+rooted at u.
+
+We store auxiliary tables along with the suffix skips, so that our
+algorithm can take advantage of suffix skips without potentially missing
+any nested MEMs. Along with each suffix skip stored at a node, we
+maintain a pointer to the bypassed LMA that is closest to the end of
+the destination node along with its base pair proximity to the end of the
+node. The speedup of suffix skips yields an algorithm with 0(nlog g)
+time complexity but requires an additional 0(nlog g) working space. To
+conserve space, we only store suffix skips and auxiliary tables for nodes
+that can be traversed to decompose MEMs into repeatNodes, i.e. in-
+ternal nodes that have string depth less than or equal to that of the
+
+ 
+
+3480
+
+112 /310'S[BIIJHO[pJOJXO'SOIJBLUJOJIIIOIq/ﬂduq 11101} pchOIII/noq
+
+91oz ‘Og isnﬁnv uo ::
+
+SplitMEM
+
+ 
+
+longest MEMzk and can be on the path of sufﬁx links from a MEMzk
+to the root
+
+ 
+
+Algorithm 1 Construct compressed de Bruijn graph from sufﬁx tree
+
+ 
+
+Input: genome sequence, k.
+Output: compressed forward de Bruijn graph of genome.
+
+Compute set of repeatNodes.
+
+Build suffix tree of genome
+
+Mark internal nodes in the suffix tree that represent MEMs of length 3 k
+Preprocess sufﬁx tree for LMA queries
+
+Split MEMs to repeatNotks.
+for all marked nodes do
+|> ﬁnd k-mers shared with other MEMs or this MEM
+while node.strdepth 3 k do
+if node has marked ancestor then
+create repeatNode to represent substring of MEM skipped by
+sufﬁx link traversal since last internal MEM was removed
+follow sufﬁx links to trim LMA from node
+continue traversing suffix links for any marked ancestors encoun-
+tered during sufﬁx link traversal, if they extend further
+else
+follow sufﬁx link
+end if
+end while
+create repeatNode representing sufﬁx of MEM that extends past last
+embedded MEM
+end for
+
+Sort list of start positions in repeatNodes, with pointers to corresponding
+nodes.
+
+Compute outgoing edges for each node. Construct uniqueNodes along the
+way.
+for all startPos[i] = s do
+compute start position of successor j
+if startPos[i-l- 1] E j then
+create edge from node with s to node with j
+else
+create uniqueNode representing the subsequence from j until
+startPos[i-l- 1]
+create edge from node with s to node with j
+end if
+end for
+
+ 
+
+3 RESULTS
+
+We implemented Algorithm 1 along with Supplementary
+Algorithm S3 in C-l- -l- and made it available open-source as
+the splitMEM software. The code has been optimized for pan-
+genome and multi-k-mer analysis, such that it can construct the
+graphs for several values of k iteratively without rebuilding the
+sufﬁx tree. All testing was executed on a single core of a 64 core
+Xeon E5-4650 server running at 2.70GHz and a total of 1.5 TB
+of RAM at Cold Spring Harbor Laboratory.
+
+Using the software, we built compressed de Bruijn graphs for
+the pan-genomes of main chromosomes of two species: the nine
+strains of B.anthracis and an arbitrary selection of nine strains of
+E.coli using the k-mer lengths 25, 100 and 1000 bp (accessions
+listed in Supplementary Table S1). The three different k-mer
+lengths provide different contexts for localizing the graphs:
+
+Table 1. E.coli and Banthracis pan-genome graph characteristics
+
+ 
+
+Species K Nodes Edges Avg. Time Space
+degree (min) (GB)
+
+ 
+
+Banthracis 25 103 926 138 468 1.33 7:03 27.18
+Banthracis 100 41 343 54 954 1.32 6:59 27.18
+Banthracis 1000 6627 8659 1.30 7:33 27.18
+
+E.coli 25 494 783 662 081 1.33 5:21 21.57
+E.coli 100 230 996 308 256 1.33 4:56 21 .57
+E.coli 1000 11900 15 695 1.31 3:45 21.57
+
+ 
+
+shorter values provide higher resolution, whereas longer values
+will be more robust to repeats and link variations in close prox-
+imity into a single event. The overall characteristics of the pan-
+genome graphs are presented in Table 1 and renderings of the
+graphs are depicted in Supplementary Figures SiSlO.
+
+The pan-genome graphs of the two species have similar topol-
+ogies, although for a given value of k the E.c0li graph has 24
+times as many nodes and edges than B.anthracis. In both cases,
+the node length distributions are exponentially distributed as
+shown in Supplementary Figures S11 and S12. For example,
+the mean node length for B.anthracis with k-mers of length 100
+is 382 bp and extending to as long as 451 679 bp. The sharp peak
+at 199 bp occurs from an enrichment of mutations where subpo-
+pulations or individual strains in the population differ by isolated
+single nucleotides more than k -l- 1bp apart. At these sites, a
+‘bubble’ will form in the graph with a pair of nodes that are
+2 * k — l-bp long capturing all of the k-mers that intersect the
+variant. Mutations of more than a single base form bubbles with
+nodes that are 2 * k — 1 -l- v—bp long, where v is the length of the
+variant. Copy number and other structural variants lead to more
+complex graph topologies but are all encoded in the pan-genome
+graph.
+
+Figure 4 shows the levels of population-wide genome sharing
+among the nodes of the compressed de Bruijn graphs of the pan
+genomes with varying k-mer lengths. The sharing in B.anthracis
+is much higher than in E.c0li across the levels of genome sharing.
+This follows naturally from the high diversity of E.coli strains
+(Rasko et al., 2008), while many of the available sequences of B.
+anthracis were closely related and sequenced to track the origin
+of the Amerithrax anthrax attacks (Rasko et al., 2011a).
+
+A major strength of a graphical pan-genome representation is
+that in addition to determining the shared or genome-specific
+sequences, the graph also encodes the sequence context of the
+different segments. We deﬁne the core genome to be the subse-
+quences of the pan-genome that occur in at least 70% of the
+underlying genomes. We computed the distance of each non-
+core node to the core genome in python using NetworkX with
+a branch-and-bound search intuited by Dijkstra’s algorithm for
+shortest path. Note a breadth-ﬁrst search is not sufﬁcient as two
+nodes can be further apart in terms of hops, while they are ac-
+tually closer neighbors with respect to base-pair distance along
+the path separating them. It traverses all distinct paths emanating
+from the source node until either a core node is reached or the
+current node was found to already have been Visited by some
+
+ 
+
+3481
+
+112 /3.10'spzu.mofp10}x0"sorJBuiJOJurorq/ﬁduq 11101} pQPBOIIIAAOG
+
+91oz ‘Og isnﬁnv uo ::
+
+S.Marcus et al.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+m w. I k=25
+D
+g I k=100
+g are I k=1000
+»— O
+0
+“all a.
+3 :5
+I:
+0
+9 ‘1
+g o J l
+1 2 3 4 5 6 7 B 9
+Per Node Genome Sharing Level
+2". I k=25
+m I k=100
+'8 a, I k=1000
+2 =5
+'6
+o N
+g" o‘
+E
+m
+0 CI
+0.
+q I. D.
+D
+‘l 2 3 4 5 E 7 3 9
+
+Per Node Genome Sharing Level
+
+Fig. 4. Levels of genome sharing in the nodes of the pan-genome graphs
+of 9 strains of Banthracis (top) and E.coli (bottom). The plots show the
+fraction of nodes that have each level of sharing
+
+shorter path. Once a path is found from the source node to the
+core genome, it uses this distance to bound the maximum search
+distances of the other candidate paths.
+
+Using this approach, we performed both a forward search
+among descendants and a backward search among predecessors
+to identify the distance to the closest core node and chose the
+minimum of these two distances in the two pan-genome graphs.
+This search takes 0(m) time per source node, where m is the
+number of distinct edges in the graph. Thus, this computation
+takes a total runtime of 0(m * Z) over all 3 nodes in the graph.
+To keep the search tractable, we limited the search to a 1000-hop
+radius around each node. Supplementary Figure S13 shows the
+distribution of distances in the graphs. Overall, for B.anthracis,
+most of the nodes were in the core genome because the strains are
+so similar or there was a very short path to the core genome. In
+contrast, the results for E.c0li show the distribution of distances
+to the core genome follows an exponential distribution, suggest-
+ing a complex evolutionary history of mutations.
+
+3.1 Scaling considerations
+
+We also ran splitMEM on an increasing number of strains of
+E.coli until we included all 62 strains that are available at NCBI
+(accessions are listed in Supplementary Table S4). As seen in
+Figure 5, the time and space complexity of the software is
+linear in the total number of genomes analyzed. More speciﬁc-
+ally, the running time of our algorithm is 0(nlog |maxMEM|),
+where the length of the longest MEM, |maxMEM| <n, is
+bounded by the size of the longest single strain, g and not the
+entire length of the pan-genome. As the running time and space
+requirements grow linearly with the number of genomes, these
+results suggest that our server could have processed over 500
+strains of E.coli and in <12 h.
+
+Time {mlnutesl Space [GB]
+
+8
+
+ 
+
+Fig. 5. The running time and peak memory of splitMEM on the pan-
+genome graphs of increasing numbers of E.coli strains with k-mer length
+of 25. Each point represents the minimum value recorded over ﬁve trials
+to reduce measurement noise introduced by competing activity of the
+server. The line represents the linear regression of the points
+
+To put the results into context, we also applied the Sibelia
+algorithm (Minkin et al., 2013) to the same 62 strain dataset
+on the same hardware. Sibelia also showed approximately
+linear time and space requirements for increasing numbers of
+strains, although there was a clear space-time tradeoff between
+the two algorithms: splitMEM was considerably faster at the cost
+of requiring additional RAM (Supplementary Fig. S4).
+
+4 DISCUSSION
+
+Comparative genomics has been and continues to be one of our
+most powerful tools for understanding the genome of a species.
+Now that genomic data are becoming more abundant, we are
+beginning to shift away from reference genomes and see the rise
+of pan-genomics. Already hundreds of microbial species have
+multiple complete genomes available, and through the rise of
+long read sequencing technologies from PacBio and other com-
+panies, we expect a rapid growth in the availability of additional
+complete genomes (Roberts et al., 2013). Sequences that are
+highly conserved or segregating across the population can
+reveal clues about their phenotypic roles, and a comprehensive
+pan-genomic approach allows us to directly measure conserva-
+tion in the context of the ﬂanking sequences. The graphical pan-
+genome approach also consolidates all available information
+about complex structural variations and gene ﬂow into a uniﬁed
+framework.
+
+Our new splitMEM algorithm efﬁciently computes a graphical
+representation of the pan-genome by exploiting the deep rela-
+tionships between sufﬁx trees and compressed de Bruijn
+graphs. MEMs are readily identiﬁed in a sufﬁx tree and through
+the splitMEM algorithm are efﬁciently transformed into the
+nodes and edges of a compressed de Bruijn graph. This algorithm
+effectively uniﬁes the most widely used sequence data structures
+in genomics into a single family containing sufﬁx trees, sufﬁx
+arrays, FM-indexes and now compressed de Bruijn graphs. To
+accomplish this goal, we have proposed a new construct, called
+sufﬁx skips, that generalizes the well-established concept of sufﬁx
+links to interrelate more distantly related portions of the sufﬁx
+tree.
+
+To demonstrate the utility of the algorithm, we have applied it
+to analyze the pan-genomes of all 9 B.anthracis and all 62 E.c0li
+genomes. Interestingly, when comparing a sample of nine E.c0li
+genomes with the nine B.anthracis genomes, the distributions of
+the lengths of the nodes in the two pan-genome graphs are
+
+ 
+
+3482
+
+112 /310'S[BHJDO[pJOJXO"SOIJBHIJOJIIIOlq/ﬂdnq 11101} pQPBOIIIAAOG
+
+91oz ‘Og isnﬁnv uo ::
+
+SplitMEM
+
+ 
+
+similar, whereas other properties are markedly different, such as
+the distributions of the levels of sharing or the distance to the
+core genomes. This suggests that we have only narrowly explored
+the genomic variability of B.anthracis, and future experimental
+work remains to examine the functional signiﬁcance of the vari-
+able regions.
+
+Future work remains to improve splitMEM and further
+unify the family of sequence indices. Although our current im-
+plementation can easily scale to dozens or hundreds of gen-
+omes on a common server, most desired are techniques to
+reduce the space consumption for even larger numbers of gen-
+omes. It is not directly possible to apply recent approaches
+using Bloom filters or other techniques to save space (Chikhi
+et al., 2014) but is an interesting research problem to consider.
+We are also currently investigating techniques to construct a
+pan-genome from the FM-index building on the algorithms of
+the String Graph Assembler (Simpson and Durbin, 2012) for
+assembling a genome from short reads. These do not directly
+apply either without an exhaustive consideration of every k-
+mer in the genomes, but there may be ways to generalize our
+algorithm from sufﬁx trees. We also aim to research additional
+downstream analysis algorithms for the pan-genome, especially
+developing a sequence aligner which can align directly to the
+graph structure. Finally, we also aim to extend the splitMEM
+algorithm to become more robust in the presence of incomplete
+genomes, so that fragmented draft genomes can be more read-
+ily analyzed.
+
+ACKNOWLEDGEMENTS
+
+The authors would like to acknowledge Steven Skiena, Art
+Delcher, Adam Phillippy, Cole Trapnell, Mihai Pop and
+Steven Salzberg for helpful discussions leading to this work.
+
+Funding: This project was supported in part by National
+Institutes of Health award [R01-HG006677] and National
+Science Foundation awards [DBI-126383 and DBI—1350041 to
+M.C.S.].
+
+Conflict of Interest: none declared.
+
+REFERENCES
+
+Bowe,A. et al. (2012) Succinct de bruijn graphs. In: Proceedings of the 12th
+International Conference on Algorithms in Bioinformatics, Ljubljana, Slovenia.
+Springer—Verlag, Berlin, Heidelberg, pp. 2257235.
+
+CazauX,B. et al. (2014) From indexing data structures to de bruijn graphs. http://hal—
+lirmm.ccsd.cnrs.fr/lirmm—00950983.
+
+Chikhi,R. and Rizk,G. (2013) Space—efﬁcient and exact de bruijn graph representa—
+tion based on a bloom ﬁlter. Algorithm Mol. Biol., 8, 22.
+
+Chikhi,R. et al. (2014) On the representation of de bruijn graphs. In: RECOMB.
+Vol. 8394, pp. 35755.
+
+Gusﬁeld,D. (1997) Algorithms on Strings, Trees, and Sequences7Computer Science
+and Computational Biology. Cambridge University Press, New York, NY.
+
+Hickey,G. et al. (2013) Hal: a hierarchical format for storing and analyzing multiple
+genome alignments. Bioinformatics, 29, 134171342.
+
+Iqbal,Z. et al. (2012) De novo assembly and genotyping of variants using colored de
+Bruijn graphs. Nat. Genet., 44, 2267232.
+
+Jaja,J. (1992) An Introduction to Parallel Algorithms. Addison—Wesley, Boston, MA.
+
+Kasai,T. et al. (2001) Linear—time longest—common—prcﬁx computation in sufﬁx
+arrays and its applications. In: CPM. pp. 1817192.
+
+Kingsford,C. et al. (2010) Assembly complexity of prokaryotic genomes using short
+reads. BM C Bioinformatics, ll, 21.
+
+Kurtz,S. et al. (2004) Versatile and open software for comparing large genomes.
+Genome Biol., 5, R12.
+
+Liolios,K. et al. (2006) The genomes on line database (gold) v.2: a monitor of
+genome projects worldwide. Nucle’w Acids Res., 34 (Suppl. 1), D3327D334.
+MacDonald,J.R. et al. (2014) The database of genomic variants: a curated collection
+of structural variation in the human genome. Nucleic Acids Res., 42,
+
+D98(rD992.
+
+Minkin,I. et al. (2013) Sibelia: a scalable and comprehensive synteny block gener—
+ation tool for closely related microbial genomes. In: WABI. pp. 2157229.
+
+Pearson,W.R. and Lipman,D.J. (1988) Improved tools for biological sequence com—
+parison. Proc. Natl Acad. Sci. USA, 85, 244472448.
+
+Rasko,D.A. et al. (2008) The pangenome structure of Escherichia coli: comparative
+genomic analysis of E. coli commensal and pathogenic isolates. J. Bacteriol.,
+190, 6881$893
+
+Rasko,D.A. et al. (2011a) Bacillus anthracis comparative genome analysis in support
+of the amerithrax investigation. Proc. Natl Acad. Sci. USA, 108, 502775032.
+
+Rasko,D.A. et al. (2011b) Origins of the E. coli strain causing an outbreak of
+hemolyticuremic syndrome in Germany. New Engl. J. Med., 365, 7097717.
+
+Roberts,R. et al. (2013) The advantages of smrt sequencing. Genome Biol., 14, 405.
+
+Radland,E.A. (2013) Compact representation of k—mer de bruijn graphs for genome
+read assembly. BMC Bioinformatics, 14, 313, doi: 10.1186/1471—2105—14—313.
+
+Simpson,J.T. and Durbin,R. (2012) Efﬁcient de novo assembly of large genomes
+using compressed data structures. Genome Res., 22, 5497556.
+
+Tettelin,H. et al. (2005) Genome analysis of multiple pathogenic isolates of strepto—
+coccus agalactiae: implications for the microbial pan—genome. Proc. Natl Acad.
+Sci. USA, 102, 1395(kl3955.
+
+Ukkonen,E. (1995) On—line construction of sufﬁx trees. Algorithmica, 14, 2497260.
+
+ 
+
+3483
+
+112 /310'spzu.mofp10}x0"soiwuiJOJuioiq/ﬁduq 11101} papeolumoq
+
+91oz ‘Og isanV uo ::
+

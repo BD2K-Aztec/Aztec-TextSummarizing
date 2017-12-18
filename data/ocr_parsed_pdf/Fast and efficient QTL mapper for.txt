@@ -1,0 +1,890 @@
+Bioinformatics, 32(10), 2016, 1479—1485
+
+doi: 10.1093/bioinformatics/btv722
+
+Advance Access Publication Date: 26 December 2015
+Original Paper
+
+ 
+
+Gene expression
+
+Fast and efficient QTL mapper for thousands of
+molecular phenotypes
+
+Ham Ongen1’2'3’f. Alfonso Buil1'2’3'f, Andrew Anand Brown1'2'3’4.
+Emmanouil T. Dermitzakis1'2'3'* and Olivier Delaneau1'2'3'*
+
+1Department of Genetic Medicine and Development, University of Geneva Medical School, Geneva, Switzerland,
+2Institute for Genetics and Genomics in Geneva (iGE3), University of Geneva, Geneva, 1211, Switzerland, 3Swiss
+Institute of Bioinformatics, Geneva, 1211, Switzerland and 4NORMENT, KG Jebsen Centre for Psychosis Research,
+Institute of Clinical Medicine, University of Oslo, NonNay
+
+*To whom correspondence should be addressed
+TThe authors wish it to be known that, in their opinion, the first two authors should be regarded as joint First Authors.
+Associate Editor: lnanc Birol
+
+Received on 10 July 2015; revised on 13 November 2015; accepted on 7 December 2015
+
+Abstract
+
+Motivation: In order to discover quantitative trait loci, multi—dimensional genomic datasets com—
+bining DNA—seq and ChiP—/RNA—seq require methods that rapidly correlate tens of thousands of
+molecular phenotypes with millions of genetic variants while appropriately controlling for multiple
+testing.
+
+Results: We have developed FastQTL, a method that implements a popular cis—QTL mapping strat—
+egy in a user— and cluster—friendly tool. FastQTL also proposes an efficient permutation procedure
+to control for multiple testing. The outcome of permutations is modeled using beta distributions
+trained from a few permutations and from which adjusted P—values can be estimated at any level of
+significance with little computational cost. The Geuvadis & GTEx pilot datasets can be now easily
+analyzed an order of magnitude faster than previous approaches.
+
+Availability and implementation: Source code, binaries and comprehensive documentation of
+
+ 
+
+FastQTL are freely available to download at http://fastqtl.sourceforge.net/
+Contact: emmanouil.dermitzakis@unige.ch or olivier.delaneau@unige.ch
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+1 Introduction
+
+Genome—wide association studies have shown that most common
+trait—associated variants fall into non—coding genomic regions and
+likely alter gene regulation (Maurano et (11., 2012; Nica et (11.,
+2010). This has motivated large—scale studies to catalog candidate
+regulatory variants (quantitative trait loci; QTLs) associated with
+various molecular phenotypes (i.e. quantitative molecular traits with
+a genomic location) across various populations (Lappalainen et (11.,
+2013), cell (Fairfax et (11., 2012) and tissue types (GTEx
+Consortium, 2015; Ongen et (11., 2014). Mapping QTLs in this con—
+text usually consists of finding statistically significant associations
+between phenotype quantifications and nearby genetic variants; task
+
+©The Author 2015. Published by Oxford University Press.
+
+commonly undertaken using linear regressions (GTEx Consortium,
+2015). Alternative approaches have also been developed to increase
+discovery power by accounting for confounding factors (Fusi et (11.,
+2012), integrating functional annotations (Gaffney et (11., 2012), lev—
+eraging allelic imbalance (van de Geijn et (11., 2015) or aggregating
+measurements across multiple tissues (Flutre et (11., 2013). In prac—
+tice, this requires millions of association tests in order to scan all
+possible phenotype—variant pairs in cis (i.e. variants located within a
+specific window around a phenotype), resulting in millions of nom—
+inal P—values. Matrix eQTL (Shabalin, 2012) has recently emerged
+as a ‘gold standard’ for this task (GTEx Consortium, 2015;
+Lappalainen et (11., 2013) by taking advantage of efficient matrix
+
+1479
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution License (http://creativecommons.org/licenses/by/4.U/), which permits
+unrestricted reuse, distribution, and reproduction in any medium, provided the original work is properly cited.
+
+112 /310'S[BIIJUO[pJOJXO"SOTJBHIJOJulolq/ﬂduq 11101} popcolumoq
+
+91oz ‘Og anﬁnv 110 ::
+
+1 480
+
+H. Ongen et aI.
+
+ 
+
+operation implementations to perform the many association tests in
+acceptable running times. Due to the large number of tests per—
+formed per phenotype, multiple testing has to be accounted for to
+assess the significance of any discovered candidate QTL. A first
+naive solution to this problem is to correct the nominal P—values for
+the number of tested variants using the Bonferroni method.
+However, due to the specific and highly variable nature of each gen—
+omic region being tested in terms of allele frequency and linkage dis—
+equilibrium (LD), the Bonferroni method usually proves to be overly
+stringent and results in many false negatives. To overcome this issue,
+a commonly adopted approach (Montgomery et (11., 2010) is to ana—
+lyze thousands of permuted datasets for each phenotype in order to
+empirically characterize the null distribution of associations (i.e. the
+distribution of P—values expected under the null hypothesis of no as—
+sociations). Then, we can easily assess how likely an observed asso—
+ciation obtained in the nominal pass originates from the null,
+resulting in an adjusted P—value. In practice, performing permuta—
+tions in this context requires fast methods able to absorb such sub—
+stantial computational loads in reasonable running times. Even
+though Matrix eQTL has been used so far in multiple large—scale
+studies (GTEx Consortium, 2015; Lappalainen et (11., 2013), it still
+suffers from a main drawback which makes its practical application
+relatively laborious and time consuming: there is no efficient built—in
+permutation scheme forcing users to develop their own and there—
+fore to use non—optimal multiple—testing correction methods. So far,
+a commonly employed permutation strategy relies on performing a
+fixed number of permutations per phenotype (1000—10 000) to con—
+trol the running times at the cost of accurately assessing the statis—
+tical significance of the most strongly associated QTLs. Here, we
+present FastQTL, a user— and cluster—friendly QTL mapper, which
+improves upon Matrix eQTL by implementing a fast and efficient
+permutation scheme in which the null distribution of associations
+for a phenotype is modeled using a beta distribution. This allows us
+to approximate the tail of the null distribution relatively well using
+only few permutations, and then to accurately estimate adjusted
+P—values at any significance level in short running times.
+
+2 Methods
+
+2.1 Overview
+
+FastQTL performs linear regressions between genotypes and mo—
+lecular phenotypes with or without covariates in order to find the
+best nominal association for each phenotype (see Section 2.2). Then,
+it can correct for the multiple correlated variants tested via three dif—
+ferent permutation schemes: (1) a direct permutation scheme that
+relies on a fixed number of permutations (see Section 2.3), (2) an
+adaptive permutation scheme which maintains a reasonable compu—
+tational load by tailoring the number of permutations to the signifi—
+cance of the association (see Section 2.4) and (3) a beta
+approximation which models the permutation outcome via a beta
+distribution (see Section 2.5). For (1) and (2), an adjusted P—value
+per phenotype is calculated as the proportion of null associations
+found to be more significant than the nominal one. For (3), we
+model this null distribution of most significant P—values for a pheno—
+type with a beta distribution, learning the parameters from a few
+permutations (typically 100—1000) by maximum likelihood estima—
+tion. As a result, we obtain a reasonably good approximation of the
+tail of null distribution to estimate small adjusted P—values at any
+significance level (i.e. without lower bound). In a final stage, a false
+discovery rate (FDR) procedure as implemented in the R/qvalue
+(Storey and Tibshirani, 2003) package is used on the set of adjusted
+
+P—values obtained either from (1), (2) or (3) to extract all significant
+phenotype—variant pairs at a given FDR, usually chosen to be 5% or
+10% (see Section 2.6). All this, plus other optional functionalities,
+have been implemented in the FastQTL software package (see
+Section 2.7).
+
+2.2 Finding a candidate QTL per phenotype
+
+For simplicity, we will focus on a single molecular phenotype P
+quantified in a set of N samples. Let G be the set of genotype dos—
+ages at L variant sites located within a cis—window of i W Mb of
+the genomic location of P. To discover the best candidate QTL for
+P, FastQTL measures Pearson product—moment correlation coeffi—
+cients between P and all L variants in G, stores the most strongly
+correlated variant q e G as candidate QTL, and assesses its signifi—
+cance by calculating a nominal P—value p" with standard significance
+tests for Pearson correlation. Note that this is equivalent to testing
+for [i yé 0 in a linear model P= [1g + 6 with [i estimated by least
+squares fitting. Of note, this method is also used by Matrix eQTL to
+speed up linear regression (Methods 3.1 86 3.2 of Shabalin, 2012).
+Then, two multiple—testing levels are accounted for to determine the
+whole—genome significance of this nominal P—value and thereby to
+consider the corresponding variant q as a QTL: multiple genetic
+variants are tested per phenotype and multiple phenotypes are tested
+genome—wide. Following common usage, FastQTL uses permuta—
+tions to correct for the former (see Sections 2.3—2.5) and FDR esti—
+mation to control for the latter (see Section 2.6).
+
+2.3 Direct permutation scheme
+
+The choice of a proper global significance threshold for nominal
+P—values is very difficult due to the fact that we test multiple variants
+per phenotype, correlated because of LD, across a wide allele
+frequency spectrum, while all this varies from one phenotype to an—
+other. To account for this, significance of a candidate QTL is as—
+sessed via permutations. Specifically, we repeat the cis—window scan
+procedure for R random permutations of P, leaving the genotype
+data G unchanged to preserve the correlation between variants.
+Each time, we store the strongest correlation; the goal is to produce
+a sample from the distribution of the strongest correlation under the
+complete null hypothesis of no genetic associations. Then, the
+observed correlation is compared with this empirical null distribu—
+tion to obtain an adjusted P—value characterizing the significance of
+the candidate QTL. When very few null correlations are found to be
+stronger than the observed one, it means that reaching this correl—
+ation level by chance is very unlikely and therefore that the QTL
+candidate is likely to be true. More formally, if r correlations in the
+null distribution are found to be stronger than the observed, signifi—
+cance of the QTL candidate is assessed by calculating the following
+empirical adjusted P—value [2,; of association (Phipson and Smyth,
+2010):
+
+ir+1
+_R+1
+
+ 
+
+Pd (1)
+By definition, such an adjusted P—value cannot be smaller than
+1/(R + 1); meaning that a large number of permutations are needed
+to get precise estimates of small adjusted P—values, thereby increas—
+ing the computational burden. For instance, reaching P—values of
+~10’3 requires thousands of permutations while billions are needed
+to get P—values of ~10’9. In practice, it is very difficult to go beyond
+a few thousand permutations genome—wide with this approach,
+which forces us to work with adjusted P—values in the range of 1073
+to 1.0. To alleviate this limitation, we improved the direct
+
+112 /310'S[BIIJHO[pJOJXO'SOIJBLUJOJIIIOIq/ﬂduq 11101} pQPBOIII/lAOG
+
+9103 ‘Og anﬁnv 110 ::
+
+Fast and efficient QTL mapper
+
+1481
+
+ 
+
+permutation scheme with two complementary methods (see Sections
+2.4 and 2.5).
+
+2.4 Adaptive permutation scheme
+From Equation (1), one can see that good estimation of insignificant
+adjusted P—values can be achieved with few permutations while
+many more are needed to estimate highly significant ones.
+Therefore, we implemented an alternative permutation scheme that
+adapts the number of permutations to the significance level of the
+variant—phenotype pairs (Hubner et (11., 2005). The resulting ap—
+proach saves time at insignificant hits and invests more for signifi—
+cant ones, thereby maintaining a reasonable overall computational
+cost. Specifically, this adaptive scheme permutes P until a given
+number B (typically 100) of null correlations stronger than the
+observed one are found. To prevent this strategy running too long
+for the most significant variant—phenotype pairs, the algorithm can—
+not perform more than M (typically 100 000) permutations in total.
+Then, an adjusted P—value of association for a candidate QTL is
+derived using:
+min(r, B) + 1
+pa : min(R,M) + 1 (2)
+
+This strategy still remains unable to provide adjusted P—values
+below 1/(M + 1), though M can scale up to 100 000 in practice and
+thus provide good estimations for adjusted P—values down to
+~10’5.
+
+2.5 Beta approximation
+
+To provide adjusted P—values at any significance level without actu—
+ally performing all required permutations, we developed an approxi—
+mation method based on the beta distribution. It is well established
+that order statistics of independent uniformly distributed random
+variables are beta—distributed (Jones, 2009). Therefore, we hypothe—
+sized that the P—values obtained through permutations are also beta—
+distributed (Dudbridge and Koeleman, 2004). More formally, the
+kth smallest value obtained when independently drawing 11 times
+from the uniform is distributed as:
+
+U N Beta(k,n) (3)
+
+In our particular problem, we propose to model the smallest
+nominal P—value coming from L tests performed in a permutation
+pass as a beta distributed random variable with shape parameters k
+= 1 and n = L. However, given that nearby variant sites usually ex—
+hibit some relatively high degree of correlation (LD), the L tests per—
+formed are not independent, implying that the effective number of
+tests 11 is lower than the actual number L of variants in cis. Instead
+of fixing the k and 11 parameters a priori, we use a more ﬂexible ap—
+proach in which the parameters are estimated by maximum likeli—
+hood (Galwey, 2009). Specifically, we perform R permutations to
+generate a null set of P—values {p1, . . ., 1m} and then estimate k and
+n by maximizing the following log—likelihood:
+
+R R
+Law l m.  .po : (k—1)Zlnpr+(n—1)Zln(1 —pr>
+1:1 7‘:1
+
+HIGH")
+— Rln[ rum)
+(4)
+Note that this maximization is done using standard numerical
+
+methods implemented in GNU Scientific Library. The underlying
+idea of this approach is to characterize the extreme tail of the null
+
+distribution without directly sampling from it, something that
+would entail a huge computational burden. Finally, we can approxi—
+mate an adjusted P—value [2,, from the best nominal P—value [2,, and
+from the maximum likelihood (ML) fitted beta distribution with:
+
+Pb=P(USPn) (5)
+
+2.6 False discovery rate
+
+Since thousands of molecular phenotypes are tested genome—wide,
+an FDR correction is commonly applied. This estimates the propor—
+tion of false positive findings, known as the FDR, by comparing the
+number of hits declared to the number that would be expected by
+chance. The Benjamini—Hochberg (BH) procedure (Benjamini and
+Hochberg, 1995) is one way of controlling the number of false posi—
+tive results. However, this is too conservative in most of the QTL
+studies where we expect a substantial fraction of the phenotypes to
+be affected by genetic variants. To account for this, it is recom—
+mended instead the use of the FDR procedure described by Storey
+and Tibshirani (ST) (Storey and Tibshirani, 2003) which fits particu—
+larly well in this context. The ST procedure assumes that the set of
+association tests originates from a mixture of both the null and the
+alternative hypothesis and estimates n0, defined as the proportion of
+hypotheses for which the null is true. Implicitly, the BH procedure
+assumes n0 is 1, whereas the ST procedure learns it from the data,
+resulting in more statistically significant hits. Of note, the adjusted
+P—values provided by FastQTL allow the users to easily apply which—
+ever multiple testing correction they favor, from FDR to Bonferroni,
+since it provides adjusted P—values well calibrated on the full P—value
+range.
+
+2.7 Implementation
+
+FastQTL implements in C ++ (see Sections 2.1—2.5) to provide an
+adjusted P—value per phenotype. An FDR procedure (see Section 2.6)
+is then straightforward to apply on the FastQTL output. In addition
+to the functionalities described above, FastQTL also implements
+some additional useful features worth mentioning here:
+
+(1) To make the method more robust to outliers in the phenotype
+data, FastQTL has an option that allows to quantile normalize the
+phenotype quantifications prior to any analysis. This ensures that
+phenotype quantifications are normally distributed with mean 0 and
+standard deviation 1. Quantile normalization is implemented as in
+the R/rntransform function of the GenABEL package (Aulchenko
+et (11., 2007).
+
+(2) Confounding factors such as population stratification and ex—
+perimental batch effects have to be considered to prevent spurious
+associations. To do so, FastQTL can residualize both the genotypes
+and the phenotypes for quantitative and/or qualitative covariates
+prior to any association testing.
+
+(3) FastQTL uses standard file formats: genotype dosages and
+phenotype quantifications are specified in Variant Calling Format
+and UCSC BED format, respectively. All files are required to be
+indexed with Tabix (Li, 2011) to enable fast retrieval of specific gen—
+omic regions.
+
+(4) To split a genome—wide analysis into non—overlapping chunks
+and to run each on a distinct CPU core, FastQTL includes a set of
+user—friendly options. It can either split the data into a given number
+of chunk (——chunk 12 200 to run chunk 12 out of 200) or focus on a
+particular user defined genomic region (——region 20:1—1000000).
+The phenotype and genotype data included in the genomic region is
+then automatically extracted from the cis—window size and analyzed.
+A simple loop going through all possible chunks allows the user to
+
+112 /310'S[BIIJHO[pJOJXO'SOIJBLUJOJIIIOIq/ﬂduq 11101} pQPBOIII/lAOG
+
+9103 ‘Og anﬁnv 110 ::
+
+1 482
+
+H. Ongen et aI.
+
+ 
+
+submit the full analysis on a compute cluster or server. A FastQTL
+example command line to perform a genome—wide analysis is shown
+in command 1.
+
+(1) forcin $(seq1 256); do
+
+(2) fastQTL ——vcf genotypes.vcf.gz
+
+(3) ——bed phenotypes.bed.gz
+(4) ——chunk $c 256
+
+(5) ——permute 1000
+
+(6) ——output results.$c\.txt.gz
+(7) done
+
+(8) zcat results."'.txt.gz l gzip —c > results.txt.gz
+
+Commandl. This shows the BASH script needed to run a gen—
+ome—wide analysis. The genotypes and phenotypes are specified with
+--vcf (line 2) and --bed (line 3), respectively. The analysis is split into
+256 non—overlapping chunks (lines 1 and 4) and is based on 1000
+permutations (line 5). The full outcome is constructed by concate—
+nating the per—chunk outcomes (line 8).
+
+3. Results
+
+To perform a comprehensive evaluation of FastQTL, we used RNA—
+seq and genotype data produced by both the Geuvadis (Lappalainen
+et al., 2013; Supplementary material 1) and the GTEX consortia
+(GTEx Consortium, 2015; Supplementary material 2), two of the
+
+ 
+
+largest eQTL studies performed to date. This comprises a total of 10
+distinct datasets with between 14 and 35K quantified genes
+and 6.8—10.8M variant sites for 83—373 samples (Supplementary
+Table 1).
+
+In the context of this study, the two parameters of the beta distri—
+bution, k and n, can be interpreted as the rank of the associated vari—
+ant and the effective number of independent tests performed in cis,
+respectively. We looked at the ML estimate distributions of these par—
+ameters across all genes in the GEUV_EUR dataset and find first that
+parameter k values tend to center around 1.0, in line with what is ex—
+pected for the top variant (Fig. 1a). Second, we find that the param—
+eter n values show high dispersion (Fig. 1b) and are consistently
+smaller than the actual number of variants being tested in cis (Fig. 1c);
+both suggesting that the beta distribution captures well the redundan—
+cies between variants, a consequence of LD. This also highlights the
+importance of performing permutations instead of using a Bonferroni
+correction based on the number of variants, which would result in a
+substantial proportion of false negative results.
+
+Then, we checked whether the null P—values coming from permu—
+tations are beta distributed again in the GEUV_EUR dataset. To do
+so, we (1) stored for each phenotype the best P—values obtained from
+1000 permutations as observations, (2) estimated k and n by ML
+from the 1000 resulting P—values, (3) simulated 1000 P—values from
+the newly parameterized beta distribution as expectations and (4)
+compared both observations and expectations to assess their
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+(a) Beta parameter k ()3) Beta parameter n (c) Number of variants in cis
+x
+Permutat-unnuniher: Statistics: _PEHII|J131|O|1|"|JITIhei Statistics: 8 —Permutalinn number:
+a — CI 100 v i: we ‘— i:i 100
+I 111 a I 1K 1:- . 1K
+I 10K .- --=<.:  '-  ' I 10K .. I 10K
+u, I 100K "Hogan 50:13.25 35 I max .3 x I 100K
+— — c, a
+a 3: E "
+F: 'a as
+g 9 a E e g .
+D D I E
+3 m x d a
+3 .-
+In — .—
+E?
+8 Ci '0’
+D — + O —
+i i i l l 8 l a i i i i " i i i l
+0.6 0.8 1.0 1.2 1 .é 0 1000 2000 3000 4000 5000 100 1K 10K 100K
+MLE of k MLE of n logID{Number or variants in cis}
+(d) QOpIot {all genes pooled) (e) OQpIot (all genes individually) (1) KS test
+c: _ c- _ ° “90 o a, a a
+§ §
+E on — g °° ' o 8% ‘3 q; A
+A a a? 2 °
+--—v w ' ' N
+9 {'0 _ E "D _ 09 g >i g
+E" 3‘ {903 § v — 3
+l I v--
+Q - V -
+a a 3.“
+8 g N _
+:1 N — a N _
+x x
+LLI w
+c: — o .. D .. —
+i i i i i 1 i i i i i
+D 2 4 B 3 lo 0 2 6 B 10
+
+Observed —|og10[p—values]
+
+Observed —logl Dip—values)
+
+Fig. 1. (a, b) Density plots of the kand n parameter ML estimates made from 100, 1K, 10K and 100K permutations on GEUV7EUR. (c) A scatter plot of the number
+of variant sites tested per gene (cis—window :1Mb of the T88) against the n parameter ML estimates made again from 100, 1K, 10K and 100K permutations
+on GEUV7EUR. (d, e) Quantile—Quantile plots of the best P—values obtained through 1000 permutations (observed) of the GEUV7EUR dataset against simulated
+P—values sampled from the fitted beta distributions (expected). Expected P—values are plotted against the observed ones for all genes pooled together in (d) and
+
+for each gene separately in panel (e). (f) The KS test 710910 P—values comparing observations and expectations for each gene. The red line shows the expected
+
+Bonferroni significance threshold when testing 13 703 genes
+
+112 /310'S[BHJnOprOJXO'SOIJBLUJOJIIIOIq/ﬂduq won popco1umoq
+
+9103 ‘0g isnﬁnv uo ::
+
+Fast and efficient QTL mapper
+
+1483
+
+ 
+
+goodness—of—fit visually (QQ—plots) and statistically (one sample
+Kolmogorov—Smirnov test). Overall, we find very high degrees of
+concordance between results; both when pooling all genes together
+(Fig. 1d) and also when looking at each gene individually (Fig. 1e).
+
+We only find that the beta distribution is not a good fit for two
+genes out of the 13 703 tested (Fig. 1f), these discrepancies are likely
+due to the stochastic nature of the simulations made in step (3). All
+this shows that the beta distribution is a good fit for the smallest
+null P—values generated via permutations and therefore a good can—
+didate to model the permutation process outcome.
+
+We next checked that the adjusted P—values produced via beta ap—
+proximation are well calibrated by comparing them to those directly
+derived from a large number of permutations. We find a very good
+concordance on the full P—value range with some deviations within
+the expected sampling variation range (Fig. 2a, Supplementary Fig.
+1a and b). Of note, the beta approximation provides small adjusted
+P—values that are better calibrated than those provided by the direct
+method (Fig. 2b, Supplementary Fig. 1c and d) and sometimes not
+even accessible (i.e. below the lower bound implied by the number
+of permutations); the smallest adjusted P—value estimated using the
+GEUV_EUR dataset is in the order of N107128 (Supplementary Fig.
+2). Therefore, we subsequently estimated the number of permuta—
+tions that the direct method needs to reach the same level of
+
+ 
+   
+     
+ 
+ 
+ 
+ 
+ 
+   
+
+calibration as the beta approximation at various significance levels.
+To do so, we binned the adjusted P—values obtained from beta ap—
+proximations and estimated for each bin, by exhaustive search, the
+number of permutations required by the direct method to match the
+same sampling variation (Supplementary material 3). We find that
+this number drastically increases as small—adjusted P—values are tar—
+geted (Fig. 2c). For instance, beta approximations made from 1000
+permutations give adjusted P—values of 10’4 as accurately as the dir—
+ect approach with N5 0K permutations.
+
+Then, we looked at the downstream impact of the beta approxi—
+mation on QTL discovery. To do so, we first generated an optimal
+5% FDR eQTL set for GEUV_EUR by running 100 000
+permutations and then measured the sensitivity/specificity ratios of
+reasonable FastQTL configurations to recover this optimal set.
+Specifically, we run from 50 to 5000 permutations using either
+the beta approximation or the direct method to compute adjusted
+P—values. We find that using 500—5000 permutations allows us to
+approximate well the optimal set (Fig. 2d).
+
+We also find that the beta approximation does consistently bet—
+ter than the direct method for the same number of permutations,
+especially when few permutations are used (50 or 100). As a conse—
+quence, using 500 permutations with the beta approximation, for
+example, has the same accuracy to recover the optimal set as the
+
+ 
+
+ 
+
+ 
+
+ 
+
+  
+   
+ 
+ 
+   
+ 
+
+(a) Adiuted p—values (linear scale) (13} Adiuted p—values (log scale) (,3) Equivalent number of permutations
+in“
+D. i: ‘ _
+g ‘— Standard method g u : 1; (a /.
+,9 II Bela approximation -— g _ '
+E 2 — 95% oi E E '° ...::/
+g E. (D E o. -:"B /
+‘2 (D. x u - a ‘1‘ ‘ . . o .-
+x a E a ' ’.
+e 9 ~1- - '6 to — . . '
+E at '- " x"
+E o m B M
+g % N E N ' Adjusled p—values from:
+3 g E. ‘6' ._ _ I 100 permutations
+£1 ‘6' Eu I 1.000 permutations
+a q E. 0 —° 0 _ I 10000 permutations
+D l—l—l—l—l—I i l—l—l—l—I I I I I I I I
+0.0 0.2 0.4 0.6 0.3 1.0 0 2 4 6 8 0 ‘1 2 3 4 5 5
+p—values from 100K permutations —log10{p—values from up to 1M permutations) —|og10[True adjusted p—values]
+(d) Recovering an optimal eQTL set (a) Recovering the GTEx eQTL sets
+0 O
+a. 0.
+3°: 3
+D O
+a: a ,2: 8
+3% a Direct  a
+E at Beta apprm- E at
+‘0 d 50 perm "3 o' I FastQTL
+N 100 perm N I MatrixEOTL
+g 500 perm  ‘ - - 100 perm
+1000 perm - - 500 perm
+g 5000 perm g — 1000 perm
+d o'
+0.00 0.02 0.04 0.06 0.08 0.10 0.00 0.02 0.06 0.08 0.10
+
+l — Speciﬁcity
+
+1 — Specificity
+
+Fig. 2. (a, b) Scatter plots of the adjusted P—values obtained from 1000 permutations via the direct method (in grey) and the beta approximation (in light blue)
+
+against those obtained through the standard permutation scheme with 100K permutations (a) or through the adaptive method with up to 1M permutations (b).
+
+All this was performed on the GEUV7EUR dataset. Adjusted P—values are plotted on both linear (a) and log (b) scales. Expected variation for 1000 permutations is
+
+shown by the 95% confidence intervals in red. (0) The equivalent number of permutations required by the direct permutation scheme to reach the same calibra-
+
+tion as the beta approximation (from 1000 permutations) as a function of the adjusted P—value targeted. The dashed and solid gray lines show the expected accur-
+
+acy of the adaptive permutation scheme that stops when 5 and 10 stronger null signals are found, respectively. (d) The sensitivity—specificity ratio of reasonable
+
+FastQTL runs (beta approximation or direct method with 50—5000 permutations) to recover an optimal eQTL set derived from 100 000 permutations. (e) The
+sensitivity—specificity ratio to recover the nine official eQTL sets released by the GTEx consortium using both Matrix eQTL (direct method) and FastQTL (beta ap-
+
+proximation) with 100, 500 and 1000 permutations
+
+112 /310'S[BHJnOprOJXO"SOIJBHIJOJIIIOICI/ﬂdnq won popco1umoq
+
+9103 ‘0g isnﬁnv uo ::
+
+1 484
+
+H. Ongen et al.
+
+ 
+
+Table 1. FastQTL and Matrix eQTL running times
+
+ 
+
+ 
+
+Number of Matrix FastQTL
+permutations eQTL —
+1000 1000 500 100
+GTEx_AS 337.4 19 10.8 3.5
+GTEx_AT 330.3 21 10.8 3.6
+GTEx_HLV 312.4 15 8 3
+GTEx_L 364.9 25.6 13.1 4
+GTEx_MS 335.9 23.6 12.6 3.9
+GTEx_NT 343.8 18.4 9.5 3.4
+GTEx_SSEL 349.7 20.7 10.8 3.6
+GTEx_T 358.1 22.3 11.8 3.9
+GTEx_WB 340.5 25.5 13.7 4.1
+ALL 3073 191.1 101.1 33
+
+ 
+
+Table 1 shows the running times in CPU hours to produce the results
+shown in Figure 2e; nine GTEx datasets (column 1) processed with 1000
+Matrix eQTL permutations (column 2) and FastQTL with 1000 (column 3),
+500 (column 4) and 100 permutations (column 5 ). Total running times for all
+nine datasets together are shown in the last row.
+
+direct method using 1000 permutations. Interestingly, the beta ap—
+proximation using only 50/ 100 permutations already does very well
+at recovering the optimal eQTL set.
+
+Finally, we investigated the speed and accuracy with which
+Matrix eQTL (direct method) and FastQTL (beta approximation)
+using 100, 500 and 1000 permutations could reproduce the outcome
+of the pilot phase of GTEx; a large—scale eQTL mapping study. Of
+note, we run Matrix eQTL in the most highly effective setting we
+could achieve in order to fully utilize its matrix based design
+(Supplementary material 4). Overall, we find that both FastQTL and
+Matrix eQTL recapitulate the official eQTL set well, especially as the
+number of permutations increases (Fig. 2e). For the same number of
+permutations, we find that the closest eQTL set to the official one is
+consistently provided by FastQTL. Again, it also performs well even
+when only 100 permutations are used to fit the beta distributions. To
+process all nine datasets with 1000 permutations, FastQTL requires
+~191 CPU hours which is ~16 times faster than running the same
+number of permutations with Matrix eQTL (Table 1). When using
+only 100 permutations, this is reduced to only ~33 CPU hours.
+
+4. Conclusion
+
+We present FastQTL, a QTL mapper in cis for molecular pheno—
+types that implements a new permutation scheme to accurately and
+rapidly correct for multiple—testing at both the genotype and pheno—
+type levels. FastQTL has several advantages compared with existing
+methods, making it the ideal candidate to map QTLs for the coming
+wave of large—scale datasets regrouping many different layers of mo—
+lecular phenotypes and near complete collection of variant sites.
+First, permutations are modeled with a beta distribution, parameter—
+ized from a relatively small number of permutations. This results in
+accurate adjusted P—values which could not be feasibly obtained by
+standard or adaptive permutation analysis; for example down to
+10’128 in the Geuvadis dataset. In practice, having well—calibrated
+adjusted P—values on the full range (0, 1) is of crucial importance to
+(1) estimate the number of tests made under the null (quantity
+underlying efficient FDR correction methods) and to (2) meta—
+analyze multiple QTL studies together. Second, the beta approxima—
+tion behaves well enough with only 100 permutations to rapidly
+assess the impact on the analysis of important parameters such as
+cis—window size and covariates like the number of PEER factors
+
+(Stegle et al., 2012). And finally, FastQTL is fast (~16>< faster than
+Matrix eQTL for the same number of permutations) due to an effi—
+cient implementation of linear regressions, optimized C ++ code, ef—
+ficient permutation schemes and rapid data retrieval from indexed
+files, while remaining user and cluster friendly. To summarize,
+FastQTL provides better adjusted P—values than the best method so
+far, Matrix eQTL with a direct permutation scheme, while being sig—
+nificantly faster. In addition, FastQTL also provides a modular base
+onto which new functionalities are being implemented, such as fine
+mapping of causal variants, conditional analysis to discover multiple
+independent QTLs per phenotype and interaction analysis to dis—
+cover sex or disease specific QTLs.
+
+Acknowledgement
+
+The computations were performed at the Vital-IT Swiss Institute of
+Bioinformatics.
+
+Funding
+
+This research is supported by grants from European Commission SYSCOL
+FP7, European Research Council, Louis Jeantet Foundation, Swiss National
+Science Foundation, SystemsX, the NIH—NIMH (GTEx) and Helse Star Qst.
+
+Conﬂict of Interest: none declared.
+
+References
+
+Aulchenko,Y.S. et al. (2007) GenABEL: an R library for genome-wide associ—
+ation analysis. Bioinformatics, 23, 1294—1296.
+
+Benjamini,Y. and Hochberg,Y. (1995) Controlling the false discovery rate: a
+practical and powerful approach to multiple testing. I. R. Stat. Soc., 57,
+289—300.
+
+Dudbridge,F. and Koeleman,B.P. (2004) Efﬁcient computation of signiﬁcance
+levels for multiple associations in large studies of correlated data, including
+genomewide association studies. Am. ]. Hum. Genet., 75, 424—435.
+
+Fairfax,B.P. et al. (2012) Genetics of gene expression in primary immune cells
+identiﬁes cell type—speciﬁc master regulators and roles of HLA alleles. Nat.
+Genet., 44, 502—510.
+
+Flutre,T. et al. (2013) A statistical framework for joint eQTL analysis in mul-
+tiple tissues. PLoS Genet., 9, e1003486.
+
+Fusi,N. et al. (2012) Joint modelling of confounding factors and prominent
+genetic regulators provides increased accuracy in genetical genomics studies.
+PLoS Comput. Biol., 8, e1002330.
+
+Gaffney,D.J. (2012) Dissecting the regulatory architecture of gene expression
+QTLs. Genome Biol., 13, R7 (2012Jan 31)
+
+Galwey,N.W. (2009) A new measure of the effective number of tests, a prac-
+tical tool for comparing families of non—independent signiﬁcance tests.
+Genet. Epidemiol., 33, 559—568.
+
+GTEx Consortium (2015) The Genotype-Tissue Expression (GTEx) pilot ana—
+lysis: multitissue gene regulation in humans. Science, 348, 648—660.
+
+Hubner,N. et al. (2005) Integrated transcriptional proﬁling and linkage
+analysis for identiﬁcation of genes underlying disease. Nat. Genet., 37,
+243—253.
+
+Jones,M.C. (2009) Kumaraswamy’s distribution: a beta-type distribution with
+some tractability advantages. Stat. Methodol., 6, 70—81.
+
+Lappalainen,T. et al. (2013) Transcriptome and genome sequencing uncovers
+functional variation in humans. Nature, 501, 5 06—5 1 1.
+
+Li,H. (2011) Tabix: fast retrieval of sequence features from generic TAB—
+delimited ﬁles. Bioinformatics, 27, 718—719.
+
+Maurano,M.T. et al. (2012) Systematic localization of common disease-
+associated variation in regulatory DNA. Science, 337, 1190—1195.
+
+Montgomery,S.B. et al. (2010) Transcriptome genetics using second gener-
+ation sequencing in a Caucasian population. Nature, 464, 773—777.
+
+Nica,A.C. et al. (2010) Candidate causal regulatory effects by integration of expres-
+sion QTLs with complex trait genetic associations. PLoS Genet., 6, e1000895 .
+
+112 /310'S[BHJnOprOJXO"SOIJBHIJOJHIOIq/ﬂdnq won popco1umoq
+
+9103 ‘0g anBnV uo ::
+
+Fast and efficient QTL mapper
+
+1485
+
+ 
+
+Ongen,H. et al. (2014) Putative cis—regulatory drivers in colorectal cancer.
+Nature, 512, 87—90.
+
+Phipson,B. and Smyth,G.K. (2010) Permutation P—values should never be zero:
+calculating exact P—values when permutations are randomly drawn. Stat.
+Appl. Genet. Mol. Biol., 9, Artic1e39. doi:10.2202/1544-6115.1585.
+
+Shabalin,A.A. (2012) Matrix eQTL: ultra fast eQTL analysis via large matrix
+operations. Bioinformatics, 28, 1353—135 8.
+
+Stegle,O. et al. (2012) Using probabilistic estimation of expression residuals
+(PEER) to obtain increased power and interpretability of gene expression
+analyses. Nat. Protoc., 7, 500—507.
+
+Storey,J.D. and Tibshirani,R. (2003) Statistical signiﬁcance for genomewide
+studies. Proc. Natl Acad. Sci., 100, 9440—9445.
+
+van de Geijn,B. et al. (2015) WASP: allele-speciﬁc software for robust molecu-
+lar quantitative trait locus discovery. Nat. Methods, 12, 1061—1063.
+
+112 /310'S[BHJnOprOJXO"SOIJBHIJOJHIOIq/ﬂdnq won popco1umoq
+
+9103 ‘0g anBnV uo ::
+

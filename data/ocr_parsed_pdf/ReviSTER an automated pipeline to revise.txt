@@ -1,0 +1,598 @@
+BIOINFORMA TICS
+
+0'so;112u110}u101q//2duq
+
+SIBumoprOJX
+
+£10"
+
+ReviSTER
+
+ 
+
+unmapped reads or local alignment approaches, but they do not
+handle reads mapped to incorrect loci. Although lobSTR
+(Gymrek et al., 2012) has been developed to proﬁle short
+tandem repeat loci using its own alignment approach, it is limited
+to only analyzing 276—mer motif repeat loci. To overcome the
+difficulty of variant calling at STR loci in a bacterial genome, we
+applied an iterative backbone remapping and assembly method
+to generate the genome sequence of bacterial field isolates and to
+call their correct variants (Tae et al., 2012b). The method has
+successfully detected INDEL variants including tandem repeat
+variants shorter than the read length, but is not applicable to
+eukaryotic genomes because many variants at diploid genomes
+are heterozygous. Analysis of heterozygous STR variants is even
+more challenging compared with SNPs or short INDELs
+because two different non—reference alleles are frequently dis—
+covered from an STR locus and the alleles at the STR locus
+can be different between individuals (Edwards et al., 1991).
+Here, we describe ReviSTER (Revise Simple Tandem repeat
+Error Reads), which is an automated pipeline using a ‘local map—
+ping reference reconstruction method’ to revise mismapped
+(mapped to incorrect position) or partially misaligned (mapped
+to correct position but one of ends misaligned) reads at STR loci.
+It takes FASTQ—formatted ﬁles, a reference sequence ﬁle and a list
+ﬁle containing STR locations as inputs and uses BWA as an initial
+mapping program. It subsequently realigns reads unmapped by
+BWA (Li and Durbin, 2009) using BLAT (Kent, 2002), and con—
+ducts local assembly with all aligned reads to an STR locus. From
+the local assembled result, new local mapping reference sequences
+are generated, and all mapped reads containing more than one
+mismatch in their alignments and unmapped reads are mapped
+again to the new local mapping references. Reads mapped to the
+local mapping references are relocated to the original reference
+and compared with the original alignments to choose the
+best alignment. The performance of ReviSTER was compared
+with two mapping programs, including BWA and Bowtie2
+(Langmead and Salzberg, 2012), and a realignment program,
+GATK (McKenna et al., 2010), using three different test datasets.
+
+2 METHODS
+
+2.1 Six steps to revise mismapping and misalignment
+
+ReviSTER is a PERL program and uses three programs including BWA,
+BLAT and SAMTools (Li et al., 2009) installed in the user’s environment.
+RevisTER takes FASTQ-formatted ﬁles, a FASTA-formatted reference
+sequence ﬁle and an optional ﬁle containing a list of STR locations as
+inputs (Supplementary Note ‘ReviSTER manual’). If the STR location
+ﬁle is not submitted, it searches for STR loci from the reference ﬁle
+(Supplementary Methods). ReviSTER uses a novel approach called a
+‘local mapping reference reconstruction method’ to revise mismapping
+and misalignment of sequence reads derived from the STR loci (Fig. 1).
+The whole process to revise the read alignments is composed of six steps.
+The ﬁrst step is to map reads to a reference sequence using BWA.
+ReviSTER takes the ‘-n’ option, which is used for BWA mapping to
+record multiple mapping candidates for reads derived from repeat
+sequences. Next, BLAT is used to remap unmapped reads to temporary
+reference sequences, which are extracted from the original reference
+sequence only around a given STR loci. Because BLAT generates
+many false alignments for a read, ReviSTER realigns them and chooses
+the best alignment from several alignment candidates (See ‘Remapping
+unmapped reads using BLAT’). Third, ReviSTER employs a local
+
+assembly step using the reads mapped to each STR locus. It generates
+paths in a graph of reads overlapping at least 30 bases with each other,
+chooses a given number of paths corresponding to allele candidates, ex-
+tracts sequences of the allele candidates and creates local mapping refer-
+ence sequences containing the allele candidates (see ‘Local mapping
+reference reconstruction using a local assembly’). In this step, sequence
+reads containing more than one mismatch/INDEL bases or showing ab-
+normally long pair distances are saved in a separated ﬁle along with
+unmapped reads. Fourth, the reads saved in the separate ﬁle are
+mapped to the local mapping reference sequences by BWA (with the -n
+option). Fifth, mapping positions of a read on the local mapping refer-
+ence sequences are converted to positions on the original reference. Then
+a mapping position with the most optimal pair distance and the lowest
+mismatch number is chosen among all mapping candidates identiﬁed in
+the ﬁrst step and the ﬁfth step (see ‘Selecting an optimized mapping
+position’). The ﬁnal step is to revise reads partially misaligned to STR
+loci, which is an independent process from the previous steps. Some reads
+may have been incorrectly aligned to the STR loci containing long
+INDELs and not be revised by the previous steps. The reads are realigned
+to another read that has been mapped to the same STR locus and sufﬁ-
+ciently span the ﬂanking sequences of the locus (see ‘Realignment of
+partially misaligned reads’).
+
+2.2 Remapping unmapped reads using BLAT
+
+When the allele length of an STR locus is different from a reference,
+sequence reads containing the allele often fail to be mapped because
+mapping programs give large negative alignment penalties for long
+INDELs. To remap the unmapped reads to STR loci, ReviSTER creates
+temporary reference sequences, which are extracted from the original
+reference around STR loci. Each temporary reference sequence includes
+‘max. read length-10’ base left ﬂanking sequence, STR sequence and
+‘max. read length-10’ base right ﬂanking sequence. BLAT [with option
+‘-maxIntron= max (50, max. read length-15) ’] is used to map the reads
+unmapped by BWA. BLAT searches multiple mapping position candi-
+dates for a single query and provides multiple alignment blocks for each
+mapping candidate. Because many STR loci share the same motifs and
+their ﬂanking sequences often exhibit high similarities, many of the
+BLAT alignments are false positives. Additionally, if a read does not
+include sufﬁcient ﬂanking sequence length at both the ends of an STR
+locus, BLAT may produce a partial misalignment. ReviSTER realigns
+each alignment by assigning a low mismatch penalty to INDELs in the
+STR locus to correct the partial misalignment (Supplementary Fig. S5). It
+assigns 1 as the mismatch penalty score for any individual mismatch or
+INDEL bases in ﬂanking sequences but does not assign a penalty of more
+than 2 to any INDEL event in the STR locus regardless its length.
+ReviSTER then chooses a mapping position candidate producing the
+lowest mismatch score for the read.
+
+Because ReviSTER uses the sequences only around STR loci as map-
+ping reference sequences, there is still a high probability that the positions
+of the reads mapped by BLAT are incorrect. This problem is reduced by
+the local mapping reference reconstruction and remapping steps as
+follows.
+
+2.3 Local mapping reference reconstruction using a local
+assembly
+
+Most mapping programs assign higher penalty to a gap opening than a
+mismatch. This frequently leads to the partial misalignment of a read
+mapped to the STR locus. As the length of an INDEL at the locus
+gets longer, there is less chance for the read containing the INDEL to
+be correctly aligned. Also, when two or more STR loci contain the same
+motif repeat sequences and their variants are signiﬁcantly different from
+the reference, mapping programs tend to map a read to a position produ-
+cing the smallest number of mismatch/INDEL bases instead of mapping
+
+ 
+
+1 735
+
+ﬁm'spzumofpmﬂo'sopeuuopnorq/ﬁdnq
+
+ 
+
+duq
+
+/310'S[Buln0[pJOJXO'SOlJBLUJOJIIlOlq”
+
+ReviSTER
+
+ 
+
+include read sequences corresponding to the reference from seven bases
+upstream to seven bases downstream of the STR and are not duplicated,
+are created. And each read in the second group is aligned to the template
+sequences from seven bases upstream of the 3’ end of the STR. Then, a
+template sequence producing the smallest number of mismatch bases in
+their alignment is selected as an alignment template for the read and the
+old alignment for the read is replaced by the new alignment estimated
+from the alignment template. The reads in the third group are also aligned
+to the template sequences corresponding to the reference from the 5’ end
+to seven bases downstream of the STR and their alignments are revised.
+
+This ﬁnal local alignment step can be replaced by GATK using
+‘-GATK’ option.
+
+2.6 Test sets
+
+To evaluate the performance of ReviSTER, we created a simulated dataset
+and also used sequence datasets from Brucella suis 1330 and human gen-
+omes. The ﬁrst dataset was simulated data created as sequence reads of a
+single individual diploid genome. To evaluate the performance of
+ReviSTER for sequence reads mapped to STR loci near replicated regions
+such as transposon elements, we created ﬁve subsets including different
+references with N = {1, 3, 10, 15, 20} by placing the same 400 base sequences
+on the left sides of N STR loci consisting of the same motifs (Supplementary
+Fig. S7A). For each subset, the reference sequence was created from human
+chromosome 1 (build 37) after removing all repeat sequences identiﬁed by
+RepeatMasker (http://repeatmasker.org). Then 31 types of 178-mer motifs
+were used to generate 31 X 3 X N STR loci with 15784 bases ($55 repeats
+of a motif in the sequence) in length, each of which was inserted every 1400
+bases (400 bases as a replicated sequence on the left side and 1000 bases as a
+unique sequence on the right side of the STR sequence). To create sequence
+reads, two allele sequences for each STR locus, of which lengths were ran-
+domly selected within 127120 bases, were created and inserted into 210 base
+DNA fragment sequences completely covering the STR sequence
+(Supplementary Fig. S7B). The 210 base DNA fragment sequences con-
+taining each allele were created every two bases on the reference sequence.
+While the DNA fragment at the left-most side spanned the left two bases of
+the right ﬂanking sequence of the STR locus, the fragment at the right-most
+side spanned the right two bases of the left ﬂanking sequence. Then 100
+base sequences at both the ends of the fragment sequences were used as
+paired-end sequencing reads (Supplementary Fig. S7C). About 3% of al-
+leles were longer than 90 bases, lengths of which are difﬁcult to analyze with
+100 base sequence reads.
+
+To test the performance with haploid genomes, the second dataset was
+created from the sequencing data (SRA: SRA056338) (sequenced by
+Illumina 76 cycle paired-end protocols) of 3.31411? VBI22 (Tae et al.,
+2012a), which is a gram negative bacteria having two chromosomes. Its
+genome has 11 loci containing 8-mer tandem repeats (more than or equal
+to three motif copies), which are highly variable. The left ﬂanking se-
+quences of ﬁve loci among them contain highly similar 90 base sequences
+(Supplementary Fig. S2). Because the average sequence coverage of the
+original raw dataset was approximately 1000>< , we reduced the number of
+reads by randomly selecting 8213 000 sequencing read pairs (16426000
+reads). The genome sequence of 3.31411? 1330 (Tae et al., 2011) was used as
+a reference sequence and an STR list ﬁle was created with eleven 8-mer
+STR loci from the reference. Because the completed genome sequences of
+both strains have been published, the allele lengths of each STR locus in
+both genomes are known. The other STR loci containing 177-mer motifs
+were also compared but there were no loci showing differences between
+the two genomes except three G-homopolymer loci. But the G-homopo-
+lymer loci were not included in the list ﬁle because the sequence coverage
+for the loci was low.
+
+The third dataset was created from the four exon-targeted sequence
+sets of human genomes, HG00641 (SRA: SRR107085), HG01105 (SRA:
+ERR034575), NA06994 (SRA: SRR070528, SRR070819) and NA19153
+(SRA: SRR070660, SRR070846), downloaded from the 1000 genome
+
+project Web site (http: //www.1000genomes.org). Exon-targeted sequence
+data were selected to obtain sufﬁcient read coverage at STR loci, and the
+human genome NCBI build 37 was used as a reference sequence for
+mapping. To create a list of STR loci, TRF v4.04 (Benson, 1999) (with
+‘2 7 5 80 10 14 6’ options) was used to search for repeat sequences
+including incomplete repeat sets. When two STR loci were within 30
+bases, they were merged into one locus; and loci containing at least 10
+bases for l-mer, 12 bases for 2-mer and 15 bases for 3,4,5,6-mer of pure
+repeat sequences (resulting 1 418 122 loci); and shorter than 90 bases were
+selected (1373 574 loci). Then the 30 base ﬂanking sequences on both
+sides of each locus were extracted and mapped as single-end reads by
+BWA to the human reference sequence. Among the selected STR loci, the
+loci of which at least one ﬂanking sequence was assigned the highest
+BWA mapping score (Phred score 37) were selected, which resulted
+1362 903 loci. Among them, 8652 loci overlapping with exon regions
+(Supplementary Table S6), which had been used for exon targeted
+sequencing in the 1000 genome project, were obtained.
+
+The fourth dataset was composed of two sequence datasets from blood
+and saliva samples from a single human individual (SRA: SRR345592,
+SRA: SRR345593) (Illumina 101 cycle paired-end sequencing), which
+contained 1499021500 and 1692 395618 reads, respectively. We used
+1 362903 STR loci for this test.
+
+For the ﬁnal test to compare the genotyping performance before and
+after ReviSTER revised misaligned reads, NCBI release_5_30 of
+Drosophila melanogaster was used as a reference genome sequence and
+simulated sequence reads for the Drosophila reference sequence were
+generated by pIRS (Hu et al., 2012) (Supplementary Results
+‘Genotyping test with simulated data generated by pIRS from the
+Drosophila reference’ for detail).
+
+3 RESULTS
+
+BWA (v0.6.1), Bowtie2 (v2.0.0) and GATK (v1.&9) were used
+for the performance comparison. For BWA and Bowtie2, default
+options were used to map sequence reads to reference sequences.
+For GATK, which realigned the results of two mapping pro—
+grams, options ‘—T IndelRealigner —targetIntervals’ with interval
+ﬁles that contained positions of target STR loci were used.
+ReviSTER used BWA (v0.6.1) and BLAT (v34) as initial map—
+ping programs.
+
+3.1 Performance test with simulated data
+
+Because STR loci are frequently discovered at heads or tails of
+long repeat sequences such as transposon elements, we created
+ﬁve subsets containing different reference sequences with N: {1,
+3, 10, 15, 20} by placing the same 400 bases on the left sides of N
+STR loci to test ReviSTER’s performance for the STR loci near
+replicated regions (Supplementary Fig. S7). Paired—end sequence
+reads of a single individual diploid genome were created for each
+reference (See ‘Test sets’) and mapped by ReviSTER (with
+option ‘—n 10 —p 2’), BWA (two different mapping with default
+options and ‘—e 90 —E 1’ options) and Bowtie2. The BWA options
+‘—e 90 —E 1’ allow alignments with long gap extension. Then
+mapped reads using BWA and Bowtie2 were realigned by
+GATK. To test the performance of the programs with single—
+end sequence reads, reads were also mapped as single—end reads
+by the programs and their mapping positions were compared.
+Because the exact alignment position of each read was known,
+the aligned reads were categorized into four groups including
+‘unmapped’, ‘mismapped’, ‘partially misaligned’ and ‘correctly
+aligned’. When both end positions of a read alignment were
+
+ 
+
+1 737
+
+ﬁm'spzumofpmﬂo'sopeuuopnorq/ﬁdnq
+
+an?kgogmomammowoio~&o:3m7.omm\
+
+ 
+
+ReviSTER
+
+ 
+
+Table 1. The number of read alignments supporting correct, incorrect reference and incorrect non-reference alleles of eleven 8-mer STR loci
+
+ 
+
+ 
+
+ 
+
+ 
+
+Chromosome Position Length in Difference in Number of reads supporting allele lengths
+1330 VB122
+ReviSTER BWA/GATK Bowtie2/GATK
+TP FP Ref FP NonRef TP FP Ref FP NonRef TP FP Ref FP NonRef
+
+1 62810 49 0 113 0 0 114 0 0 114 0 6
+1 64726 91 —40 78 0 0 0 0 0 0 0 0
+1 87040 30 0 182 0 2 182 0 2 182 0 2
+1 438870 44 —16 254 0 0 135 0 0 0 0 3
+1 736270 45 —8 160 0 0 115 0 0 151 0 0
+1 736377 31 +24 73 0 5 0 0 1 0 0 91
+1 1399533 32 +16 96 0 1 0 0 1 0 15 74
+1 73008 23 +8 141 0 0 86 0 0 141 0 0
+2 73070 89 —16 0 0 0 0 0 0 0 0 0
+2 749707 35 +8 113 1 0 55 1 0 112 1 0
+2 976068 35 +16 115 0 2 0 0 2 0 26 38
+Total 1325 1 10 687 1 6 700 42 214
+
+ 
+
+Note: Sequence reads of 3min VB122 were aligned to the genome sequence of 3min 1330 by BWA, Bowtie2 and ReviSTER. The read alignments spanning at least two bases
+
+of both ﬂanking sequences of the STR loci were counted.
+
+TP: True positive, read alignments supporting correct allele lengths.
+FP: False positive, read alignments supporting incorrect allele lengths.
+Ref: Reference allele lengths.
+
+NonRef: Non—reference allele lengths.
+
+detected abundant mismatches at the regions. Bowtie2 aligned
+reads incorrectly most frequently among three programs because
+it gave high strength to aligned bases instead of clipping the
+mismatch abundant alignment ends. ReviSTER did not detect
+the correct allele from only one locus because that allele length in
+B.suis VBI22 was 73 bases, which was close to the raw read
+length (76 bases).
+
+3.3 Human exome sequencing data
+
+Exon—targeted sequence reads of four human genomes
+(HG00641, HG01105, NA06994 and NA19153) were down-
+loaded from the 1000 genome project site (http://www.
+1000genomes.org). To compare the alignment results from
+before and after revision by ReviSTER, we mapped reads
+using BWA with an option —n 10 (default for the other options)
+using two different mapping methods including PE and SE. Then
+ReviSTER used each BWA alignment ﬁle (SAM) as an input to
+revise reads mapped to 8652 STR loci.
+
+Approximately 94% of the targeted STR loci were completely
+covered by at least two reads, which spanned at least five bases of
+both ﬂanking sequences of the loci (We analyzed only reads
+spanning at least ﬁve bases of both ﬂanking sequences to
+reduce false positives in this test). Because allele candidates for
+most loci showed few differences from reference alleles
+(Supplementary Fig. S10), ReviSTER did not revise most read
+alignments for the alleles. On average 24516 reads at 1507 loci
+from PE results and 15041 reads at 1415 loci from SE results
+were revised, respectively (Table 2; for additional exome data,
+Supplementary Tables S2 and S3). ReviSTER revised more read
+alignments when PE was used. The numbers of affected loci and
+
+revised read alignments were proportional to the length of
+sequence reads.
+
+Because it was difﬁcult, given that there is no ‘gold standard’,
+to distinguish true—positive alleles from false—positive alleles for
+STR loci from human genome sequence data, we assumed that
+the results of PE approaches would contain more potentially true
+positives than those from SE. We compared the numbers of
+reads, which were aligned by ReviSTER SE and BWA SE and
+concordant with non—reference allele candidates detected by
+ReviSTER PE and BWA PE for NA19153 to validate improve—
+ment of alignments after ReviSTER’s revision of data from SE
+approaches (Fig. 3). While 78 672 reads aligned by ReviSTER SE
+supported non—reference allele candidates detected by both of
+ReviSTER PE and BWA PE, only 71339 reads aligned by
+BWA SE supported the same allele candidates. The numbers
+of allele candidates commonly detected by different mapping
+approaches are shown in the Supplementary Figure S11.
+
+3.4 Two sequencing datasets from a single human
+individual
+
+We used two sequencing datasets from blood and saliva samples
+from a single human individual. The reads were aligned to the
+human genome reference NCBI build 37 by BWA and realigned
+by GATK. Among 1 362903 STR loci (see ‘Test set’ in
+Methods), 1349170 and 1347 548 loci were completely covered
+by 38 150 693 reads from the blood sample and 39 927 488 reads
+from the saliva samples, respectively. Most of the reads
+(28 836 900 reads from blood and 30 238042 from saliva) sup—
+ported reference alleles. To test the performance of ReviSTER,
+we compared the consistencies of GATK genotyping results in
+
+ 
+
+1 739
+
+ﬁre'spzumofpmJXO'sopeuuowrorq/ﬁdnq
+
+an?kgogmomammowox+o~&o:3m7.omm\
+
+s
+e
+t
+a
+m
+d
+n
+a
+C
+m
+m
+4.
+n
+O
+m
+m
+0
+c
+r
+.m
+.m
+h
+t
+e
+m
+B
+.m
+D.
+P
+a
+m
+d
+n
+m.
+d
+e
+W
+P
+
+333123 3.3?» Un— _._u_..5 Emtouzou
+tea mm .3 am: 7515.! we 535:2
+
+ 
+
+ReviSTER
+
+ 
+
+allele candidates and realign reads for such loci. This issue,
+common to for other mapping and genotyping programs, may
+be reduced as advanced sequencing technologies begin producing
+longer reads than current technologies.
+
+With the traditional resequencing approach, many researchers
+consider mismapping of reads a difficult problem yet to be
+resolved, while a few methods have been developed to revise
+partially misaligned reads. ReviSTER is the first program to
+revise not only partially misaligned reads but also mismapped
+reads to STR loci. Like other programs, its performance can be
+improved in the future. First, its performance is greatly affected
+by the initial mapping results from BWA and BLAT. In our
+comparison, we observed that Bowtie2 showed better perforrn—
+ance than BWA. ReviSTER currently uses BWA for the initial
+mapping (because of the ‘XA’ tags. The information in the tags
+are used only to revise PE), but an additional module to use
+other mapping programs with better performance will be imple—
+mented in near future. Second, in the local mapping reference
+reconstruction step, the current version of ReviSTER searches
+for only exact match of two reads to connect them in a graph to
+reduce the possibility of creating a graph supporting false—posi—
+tive alleles. This may result in not creating any graph with reads
+containing sequencing errors. Time efﬁciency is also a limitation
+of the current version (Supplementary Table S5). It has been
+implemented in PERL, so we would expect signiﬁcant speedup
+in the next version to be implemented in C or C++.
+
+The significant advantage of ReviSTER is fault tolerant auto—
+mation, which is one of the most important functions for
+complex pipelines. ReviSTER has been designed to be fully auto—
+mated and to easily recover an analysis after a process interrup—
+tion by a system failure such as a power failure. When the
+analysis process is restarted, ReviSTER begins the process
+from the unﬁnished step if users type the same command as
+the original run.
+
+ACKNOWLEDGEMENTS
+
+This work was supported by the Medical Informatics and Systems
+Division director’s funds, and the 1000 Genomes Project Dataset
+Analysis Grant from the National Human Genome Research
+Institute of the National Institute of Health [grant number
+1U01HG—005719—01]. DAC (Data Analysis Core) at the Virginia
+Bioinformatics Institute helped sequence data analysis.
+
+Conﬂict of Interest: H.G. is a co—founder of GENOMEON, a
+company which is attempting to commercialize microsatellite
+discoveries.
+
+REFERENCES
+
+Albers,C.A. et al. (2011) Dindel: accurate indel calls from short—read data. Genome
+Re.\'., 21, 9617973.
+
+Batzer,M.A. and Deininger,P.L. (2002) Alu repeats and human genomic diversity.
+Nat Rev. Genet, 3, 37(F379.
+
+Benson,G. (1999) Tandem repeats ﬁnder: a program to analyze DNA sequences.
+Nucleic Aciilx‘ Rent, 27, 5737580.
+
+Edwards,A. et al. (1991) DNA typing and genetic mapping with trimeric and tetra—
+meric tandem repeats. Am. J. Hum. Genet, 49, 74(r756.
+
+Gymrek,M. et al. (2012) lobSTR: a short tandem repeat proﬁler for personal
+genomes. Genome Re.\'., 22, 11541 162.
+
+HanCock,J.M. (1999) Microsatellites and other simple sequences: genomic context
+and mutational mechanisms. In: Goldstein,D.B. and Schlotterer,C. (eds)
+M icroxatellitex: Evolution and applicatiom‘. Oxford University Press, New
+York, pp. 1+9.
+
+Highnam,G. et al. (2012) Accurate human microsatellite genotypes from high—
+throughput resequencing data using informed error proﬁles. Nucleic AL’lLlS
+Rent, 41, e32.
+
+Homer,N. and Nelson,S.F. (2010) Improved variant discovery through local
+re—alignment of short—read next—generation sequencing data using SRMA.
+Genome Biol, 11, R99.
+
+Hu,X. et al. (2012) pIRS: proﬁle—based Illumina pair—end reads simulator.
+Bioinformaticx, 28, 153371535.
+
+Kent,W.J. (2002) BLAT—the BLAST—like alignment tool. Genome Re.\'., 12, 656$64.
+
+Langmead,B. and Salzberg,S.L. (2012) Fast gapped—read alignment with Bowtie 2.
+Nat M61hotlS, 9, 3577359.
+
+Li,H. and Durbin,R. (2009) Fast and accurate short read alignment with Burrows—
+Wheeler transform. Bioinformaticx, 25, 17544760.
+
+Li,H. et al. (2009) The Sequence Alignment/Map format and SAMtools.
+Bioinformaticx, 25, 207872079.
+
+Li,S. et al. (2013) SOAPindel: efﬁcient identiﬁcation of indels from short paired
+reads. Genome Re.\'., 23, 195+200.
+
+Mackay,T.F. et al. (2012) The Droxopltila melanogax'ter Genetic Reference Panel.
+Nature, 482, 1737178.
+
+McIver,L.J. et al. (2011) Evaluation of microsatellite variation in the 1000 Genomes
+Project pilot studies is indicative of the quality and utility of the raw data and
+alignments. Genomics, 97, 193499.
+
+McKenna,A. et al. (2010) The Genome Analysis Toolkit: a MapReduce framework
+for analyzing next—generation DNA sequencing data. Genome Re.\'., 20,
+129771303.
+
+Scally,A. and Durbin,R. (2012) Revising the human mutation rate: implications for
+understanding human evolution. Nat Rev. Genet, 13, 745+753.
+
+Tae,H. et al. (2011) Revised genome sequence of Brucella .x'uix 1330. J. Bacteriol,
+193, 6410.
+
+Tae,H. et al. (2012a) Complete genome sequence of Brucella .x'uis VB122, isolated
+from bovine milk. J. Bacteriol, 194, 910.
+
+Tae,H. et al. (2012b) Improved variation calling via an iterative backbone
+remapping and local assembly method for bacterial genomes. Genomics, 100,
+2717276.
+
+Ye,K. et al. (2009) Pindel: a pattern growth approach to detect break points of large
+deletions and medium sized insertions from paired—end short reads.
+Bioinformaticx, 25, 286572871.
+
+ 
+
+1741
+
+ﬁre'spzumofpmjxo'sopnuuowrorq/ﬁdnq
+

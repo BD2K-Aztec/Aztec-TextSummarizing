@@ -1,0 +1,978 @@
+Bioinformatics, 32, 2016, i70—i79
+doi: 10.1093/bioinformatics/btw294
+ISM B 2016
+
+ 
+
+DeepMeSH: deep semantic representation for
+improving large-scale MeSH indexing
+
+Shengwen Pengl, Ronghui Youl, Hongning Wangz, Chengxiang Zhai3,
+Hiroshi Mamitsuka"5 and Shanfeng Zhu1'6'*
+
+1School of Computer Science and Shanghai Key Lab of Intelligent Information Processing, Fudan University,
+Shanghai 200433, China, 2Department of Computer Science, University of Virginia, Charlottesville 22904-4740, USA,
+3Department of Computer Science, University of Illinois at Urbana-Champaign, IL 61801, USA, 4Bioinformatics
+Center, Kyoto University, Institute for Chemical Research, Uji 611-0011, Japan, 5Department of Computer Science,
+Aalto University, Finland and 6Centre for Computational System Biology, Fudan University, Shanghai 200433, China
+
+*To whom correspondence should be addressed.
+
+Abstract
+
+Motivation: Medical Subject Headings (MeSH) indexing, which is to assign a set of MeSH main
+headings to citations, is crucial for many important tasks in biomedical text mining and information
+retrieval. Large—scale MeSH indexing has two challenging aspects: the citation side and MeSH side.
+For the citation side, all existing methods, including Medical Text Indexer (MTI) by National Library
+of Medicine and the state—of—the—art method, MeSHLabeler, deal with text by bag—of—words, which
+cannot capture semantic and context—dependent information well.
+
+Methods: We propose DeepMeSH that incorporates deep semantic information for large—scale
+MeSH indexing. It addresses the two challenges in both citation and MeSH sides. The citation side
+challenge is solved by a new deep semantic representation, D2V—TFIDF, which concatenates both
+sparse and dense semantic representations. The MeSH side challenge is solved by using the ’learn—
+ing to rank' framework of MeSHLabeler, which integrates various types of evidence generated
+from the new semantic representation.
+
+Results: DeepMeSH achieved a Micro F—measure of 0.6323, 2% higher than 0.6218 0f MeSHLabeler
+and 12% higher than 0.5637 0f MTI, for BioASQS challenge data with 6000 citations.
+
+Availability and Implementation: The software is available upon request.
+
+Contact: zhusf@fudan.edu.cn
+
+Supplementary information: Supplementary data are available at Bioinformatics online.
+
+ 
+
+1 Introduction
+
+ 
+
+Medical Subject Headings (MeSH) is a comprehensive controlled vo-
+cabulary; which has been developed and maintained by National
+Library of Medicine (NLM); resulting in already 27 455 MeSH main
+headings (MHs) (http://www.nlm.nih.gov/pubs/factsheets/mesh.html)
+by 2015. One important usage of MeSH is to index citations in
+MEDLINE (NCBI Resource Coordinators, 2015; Nelson et (11.,
+2004); to catalog documents, books as well as audiovisuals recorded
+in NLM. Currently one citation in MEDLINE is indexed by approxi-
+mately 13 MHs on average. MeSH has also been used in many other
+applications in biomedical text mining and information retrieval, such
+as query expansion (Lu et (11., 2010; Stokes et (11., 2010); document
+clustering (Gu et (11., 2013; Huang et (11., 2011b; Zhu et (11., 2009a;b)
+
+© The Author 2016. Published by Oxford University Press.
+
+and document searching (Peng et (11., 2015). Thus accurate MeSH
+indexing of biomedical documents is crucial for the biomedical re-
+searchers in formulating novel scientific hypothesis and discovering
+new knowledge.
+
+Currently; human curators in NLM assign most relevant MeSH
+headings to documents; resulting in that 806 326 MEDLINE cit-
+ations were indexed in 2015 (http://www.nlm.nih.gov/bsd/bsdikey.
+html). This work is very precious but clearly laborious; since to
+index an article; curators need to review the full text of the corres-
+ponding MEDLINE article; which is time consuming and prohibi-
+tively expensive For example; the average cost of annotating one
+MEDLINE article is estimated to be around $9.4 (Mork et (11.,
+2013); meaning a huge total cost for indexing around one million
+
+i70
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution Non-Commercial License (http://creativecommons.org/Iicenses/by-nc/4.0/),
+which permits non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact
+
+journals.permissions@oup.com
+
+/310‘srcumo[p10}xo‘sopcuHOJIIrorq/ﬁdnq
+
+DeepMeSH
+
+i71
+
+ 
+
+documents per year. Also MEDLINE is rapidly growing, it would be
+more challenging for manual annotation to index all coming docu—
+ments on time.
+
+To address this problem, NLM has developed an automatic
+MeSH indexing software, Medical Text Indexer (MTI), to assist
+MeSH curators. MTI recommends suitable MHs to each MEDLINE
+citation using the title and abstract as input (Aronson et al., 2004;
+Mork et al., 2014). MTI consists of two main components:
+MetaMap Indexing (MMI) and PubMed Related Citations (PRC).
+MMI extracts biomedical concepts from title and abstract, and then
+map them to corresponding MHs, while PRC attempts to find simi—
+lar MEDLINE citations using a modified k—nearest neighbor (KNN)
+algorithm, PubMed Related Articles (PRA) (Lin and Wilbur, 2007).
+The MHs of these similar citations are then extracted and combined
+with the MHs by MMI. After some post—processing steps, such as
+applying indexing rules, a ranked list of MHs is recommended to the
+MeSH indexers.
+
+From a machine learning viewpoint, automatic MeSH indexing
+can be considered as a large—scale multi—label classification problem
+(Liu et al., 2015), where each MH is a class label and each citation
+(instance) has multiple MHs. To address this multi—label classifica—
+tion problem, there are two main challenging aspects on the MeSH
+(label) and citation (instance) sides. First, on the MeSH (label) side,
+a large number of MHs have a highly biased distribution. For ex—
+ample, out of all 27 455 MHs, the most frequent MH, ‘Humans’,
+appears more than eight million times in the whole MEDLINE cit—
+ations with abstracts, while the 20 000th frequent MH, ‘Hypnosis,
+Anesthetic’, appears only around 200 times. In addition, the number
+of annotated MHs for each citation varies greatly, ranging from
+more than 30 to less than 5. These aspects make the problem very
+challenging to estimate an effective and efficient prediction model
+for multi—label classification. Second, on the citation (instance) side,
+complicated semantics of biomedical documents cannot be effect—
+ively captured by a simple bag of words (BOW) approach, because a
+huge number of domain phrases, concepts and abbreviations exist in
+the biomedical literature. For example, similar concepts can be rep—
+resented by different words, while the same word may have very dif—
+ferent meanings depending upon the contexts. More concretely,
+‘malignancy’, ‘tumor’ and ‘cancer’ are all very close concepts to
+
+Table 1. Typical example to show how well D2V-TFIDF works
+
+each other, while ‘CAT’ can represent different genes, depending on
+organisms (Chen et al., 2004). Similarly, the same abbreviation is
+used as totally different concepts occasionally. For example, ‘CCC’
+stands for Continuous Curuilinear Capsulor/aexis in one citation
+(PMID:25291748), but Continuous Circular Course in another cit—
+ation (PMID:23618326). However, simple BOW representation ig—
+nores the order of words and can hardly capture word semantics. In
+fact, using BOW, it would be very hard to distinguish different con—
+cepts represented by the same word, and also difficult to build con—
+nections between two different words representing similar concepts.
+Thus similar citations based on BOW representation may have to—
+tally different MHs. Table 1 gives a typical example, where a cit—
+ation of interest is PMID:25236620, an article about cytopathology
+fellowship. Surprisingly, if one uses BOW, the most similar citation
+to PMID:25236620 among three articles in Table 1 becomes
+PMID:23416813, which is about the diagnosis of adult orbital
+masse by different techniques, although these two citations share
+only one MH, ‘Humans’. The reason that this inaccurate similarity
+between two citations exists is: the term ‘cytopat/aology’ appears fre—
+quently in PMID:25236620 and also ‘cytopat/aologically’ and ‘cyto-
+pathological’ appear many times in PMID:23416813. These three
+terms have the same stemmed form, causing them to be regarded as
+the same term, and therefore leading to a very high similarity to
+these two citations in terms of BOW.
+
+Many studies have been carried out to tackle the challenging
+problem of automatic MeSH indexing based on different principles,
+such as k—nearest neighbor (KNN) (Trieschnigg et al., 2009), Naive
+Bayes (Jimeno-Yepes et al., 2012b), support vector machine (SVM)
+(Jimeno-Yepes et al., 2012a), Learning to Rank (LTR) (Huang et al.,
+2011a; Liu et al., 2015; Mao and Lu, 2013), deep learning (Jimeno—
+Yepes et al., 2014; Rios and Kavuluru, 2015) and multi—label learn—
+ing (Liu et al., 2015; Tsoumakas et al., 2013). MeSHLabeler is a
+state—of—the—art automatic MeSH indexing algorithm, which won
+the first place in the large—scale MeSH indexing task of both
+BioASQ2 and BioASQ3 competition (http://bioasq.org) (Liu et al.,
+2015; Tsatsaronis et al., 2015). To address the distribution bias
+problem on the MH side, MeSHLabeler improves the performance
+of indexing MeSH by using a large number of different types of evi—
+dence regarding MH. These evidences are nicely integrated by using
+
+ 
+
+ 
+
+PMID Title MH BOW DSR-BOW DSR MH
+25236620 Cytopathology fellowship Accreditation; Clinical Competence; — — — —
+milestones. Cytodiagnosis; Education, Medical,
+Graduate; Fellowships and Scholarships;
+Humans; Pathology; United States.
+23416813 Comparison of computed tomo- Adult; Aged; Aged, 80 and over; Biopsy, 0.5032 0.3620 0.2208 0.0476
+graphic and cytopathological Fine-Needle; Eye Neoplasms; Humans;
+ﬁndings in the evaluation of Middle Aged; Orbital Diseases; Orbital
+adult orbital mass. Neoplasms; Orbital Pseudotumor;
+Prospective Studies; Sensitivity and
+Speciﬁcity; Tomography, X-Ray
+Computed; Young Adult.
+23597252 Fellowship training in pediatric Education, Medical, Graduate; Fellowships 0.2315 0.3930 0.5545 0.4444
+pathology: a guide for program and Scholarships; Humans; Pathology;
+directors. Pediatrics.
+24576024 The pathology milestones and the Accreditation; Clinical Competence; 0.43813 0.4935 0.5489 0.7500
+
+next accreditation system.
+
+Education, Medical, Graduate; Humans;
+
+Pathology; United States.
+
+ 
+
+BOW is ‘bag of words’, DSR is ‘deep semantic representation’ (equivalent to ‘document to vector’ (D2V)) and MH is ‘MeSH main heading’. The last four col-
+
+umns show the similarity scores against PMID:25236620.
+
+[310'sp2umofp105xo'sopeuuopnotq/ﬁdnq
+
+i72
+
+S.Peng et al.
+
+ 
+
+the framework of LTR. However, MeSHLabeler as well as other
+cutting—edge methods have not considered the problem on the cit—
+ation (instance) side, and even MeSHLabeler still uses classic BOW
+representations, such as unigram and bigram. Recently, from the
+context of machine learning, the concept of dense semantic represen—
+tation, such as W0rd2Vec (W2V), Word2Phrase (W2P) and
+D0cument2Vec (D2V), has been proposed to capture semantic and
+context information of text (Bengio et al., 2003; Le and Mikolov,
+2014; Mikolov et al., 2013; Mitchell and Lapata, 2010; Socher
+et al., 2012, 2013). This new concept brings an opportunity to im—
+prove the performance of automatic MeSH indexing from the cit—
+ation side.
+
+Specifically, we have developed DeepMeSH to address the large—
+scale MeSH indexing problem. Instead of using rather shallow
+BOW representation, DeepMeSH incorporates deep semantic repre—
+sentation into MeSHLabeler to improve the performance of auto—
+matic indexing MeSH over large—scale document data. In particular,
+DeepMeSH uses a new dense semantic representation, D2V—TFIDF,
+which has both features of ‘document to vector’ (D2V) and ‘term
+frequency with inverse document frequency’ (TFIDF), meaning that
+D2V—TFIDF is more effective than individual D2V and TFIDF to
+find similar MEDLINE documents. Again Table 1 shows a typical
+result of using D2V—TFIDF. Regarding the citation in question,
+PMID:25236620, if we use dense semantic representation (DSR)
+only, PMID:23597252 can be selected as a highly similar citation,
+while if we consider both DSR and BOW (which is equivalent to
+D2V—TFIDF), another citation PMID:24576024 is more similar to
+PMID:25236620 than the other two citations. Importantly, this re—
+sult is consistent with the similarity computed by using MHs only,
+as shown in the last column of Table 1. PMID:24576024 has the
+largest number of common MHs with PMID:25236620 among
+three articles in Table 1. Another point is that we use not only sim—
+ple but rather diverse evidence in terms of dense semantic represen—
+tation, following the framework of MeSHLabeler. That is,
+DeepMeSH takes advantage of new dense semantic representation
+to address the problem of the instance side and the MeSHLabeler
+framework to address the challenge on the label side. We validated
+the performance advantage of DeepMeSH by using BioASQ3 bench—
+mark data with 6000 citations. DeepMeSH achieved the Micro F—
+measure of 0.6323, which is around 12% higher than that of 0.5637
+by MTI and 2% higher than that of 0.6218 by MeSHLabeler.
+
+2 Related work
+
+Many studies for the problem of automatic MeSH indexing have used
+a relatively small— or middle—sized training data, or focus on only a
+small number of MHs. For example, NLM researchers explored the
+performance of several different machine learning algorithms, such as
+SVM, naive Bayes and AdaBoost, over a dataset of only around 300
+000 citations (Jimeno—Yepes et al., 2012b, 2013). Rios and Kavuluru
+(2015) build Convolutional Neural Network (CNN) models for 29
+MHs using around a further smaller dataset of 9000 citations. A clear
+limitation of these studies is that their approaches cannot be general—
+ized to large—scale MeSH indexing in practice.
+
+The BioASQ challenge provides a more realistic and practical
+benchmark to advance the design of effective algorithms for large—
+scale MeSH indexing (Tsatsaronis et al., 2015 ). Many effective algo—
+rithms have emerged through the BioASQ challenge, such as
+MetaLabeler (Tsoumakas et al., 2013), L2R (Huang et al., 2011a;
+Mao and Lu, 2013) and MeSHLabeler (Liu et al., 2015). However,
+all of them use the traditional shallow BOW representation. This is
+
+inadequate for capturing the semantic and context information of
+MEDLINE citations precisely, and therefore limits the performance
+of these models. Recently to address the problem of BOW represen—
+tation, dense semantic representation for texts has been proposed in
+the machine learning domain (Bengio et al., 2003; Le and Mikolov,
+2014; Mikolov et al., 2013). The performance of dense representa—
+tion has, however, not yet been examined well in large—scale MeSH
+indexing, with one exception, in which weighted ‘word to vector’
+(WZV) for MeSH indexing was explored (Kosmopoulos et al.,
+2015). The approach by (Kosmopoulos et al., 2015) is however ra—
+ther primitive and not thorough enough to build a totally new ap—
+proach for large—scale MeSH indexing. That is, they first use KNN
+to find similar citations using a new semantic representation and
+then the citations with high precision are just added to the results of
+MTI, meaning a kind of addition to MTI. In fact, the performance
+of such method was Micro F—measure of 0.575 on BioASQ2 data,
+which is only around 1% improvement of 0.57 by MTI. However
+this slight improvement sheds light on the possibility of exploring
+more effective representation for citations and developing efficient
+methods for integrating such representation to improve the perform—
+ance of large—scale MeSH indexing.
+
+3 Methods
+
+3.1 Overview
+
+The MeSH indexing problem is to assign a certain number of MHs
+from the whole MHs list, which contains more than 27 000 terms,
+to a new MEDLINE citation. MeSHLabeler solves this problem by
+integrating multiple types of evidence generated from BOW repre—
+sentation in the framework of LTR. In contrast, by keeping the
+same, efficient framework of LTR, DeepMeSH integrates another
+type of strong evidence generated from dense semantic representa—
+tion. Specifically, for each citation, it first generates a dense semantic
+vector, D2V and the classical TFIDF vector, and then concatenates
+both to have the final vector representation, D2V—TFIDF. We train
+binary classifiers of each MHs with D2V—TFIDF and also KNN
+models. These trained models are finally used to recommend suit—
+able MHs in the framework of LTR. Figure 1 shows the entire
+framework of DeepMeSH.
+
+3.2 Preliminary background
+
+3.2.1 Citation representation: TFIDF and D2V
+
+In BOW representation, each citation can be represented with a vec—
+tor consisting of all terms in a controlled vocabulary. Term
+frequency—inverse document frequency (TFIDF) is the most widely
+used scheme to weight each term. TF is the term frequency in a
+document and IDF is the inverse document frequency in the corpus.
+The idea behind TFIDF is that terms that occur more frequently in a
+particular document and also occur more in a subset of documents
+only should be emphasized more. The weight of each term can then
+be computed by the product of TF and IDF.
+
+Document to vector (D2V) is a recently developed methodology
+to realize dense semantic representation for documents (Le and
+Mikolov, 2014). Given a document, both the document and words
+in the document are represented by a dense continuous vector,
+which are called ‘document embedding’ (DE) and ‘word embedding’
+(WE). They are concatenated together to predict the next word in
+the given context. In this representation, the ordering of words
+when appearing in the document is kept, which makes D2V different
+from TFIDF. In addition, no label information is required in D2V
+representation learning.
+
+[310'sp2umofp105xo'sopeuuopnotq/ﬁdnq
+
+Improving
+la rge-scale
+MeSH
+indexing
+
+Zhou, 2014
+
+r ''''''''''''''''''''''''''''''''''''''''' T‘\
+
+i
+|
+
+i
+
+i IIII
+
+i
+
+: IIIIIIVIIIII IIII
+i
+
+i
+
+|
+
+i
+
+f - — - — - — - > - - — - — - - - — - — - — — - — - — - - - - - — - — - —--\‘
+
+To ken izat'io n &
+Ste mi ng
+
+ 
+
+Eq. (1)
+
+l\/III\'OIO\ (7/ al., 2013
+
+Zhaug and
+
+Liu (7/ al., 2015
+
+TFI DF / D2V-TFIDF
+
+ 
+
+/310'S[BIIJI’IOI’pJOJXO'SOIJBLUJOJIIIOIq/ﬂduq
+
+i74
+
+S.Peng et al.
+
+ 
+
+citations. (iii) The highest scores of the MH binary classifiers. (iv)
+The highest scores of MeSHRanker. (v) The MH number predicted
+by MetaLabeler. (vi) The number of MHs recommended by MTI.
+Given a new citation, MeSHRanker returns a ranked MH list
+and MeSHNumber predicts the number of MHs, m. Then the top in
+MHs in the ranked list is returned as the final recommendation.
+
+3.3 Proposed method: DeepMeSH
+3.3.1 Generating TFIDF, D2V and D2V-TFIDF
+Figure 1(a) illustrates the manner of generating TFIDF, D2V and
+D2V—TFIDF, given a citation. TFIDF includes both unigrams and
+bigrams, which are generated from the title and abstract of a citation.
+Both W2V and D2V are trained by using neural network with one hid—
+den layer based on stochastic gradient descent and back propagation.
+The procedure of generating these representations for a given cit—
+ation is: (i) we first generate vectors of D2V and TFIDF, (ii) normal—
+ize the two feature vectors independently by using the unit length
+and (iii) finally concatenate the two normalized vectors into a longer
+vector, which we call D2V—TFIDF.
+
+3.3.2 Using regular MeSH indexing methods with D2V and
+D2V-TFIDF
+
+D2V is a dense semantic representation generated by considering se—
+mantic and context information in text, meaning that D2V can find
+semantic similar citations even without shared words. This would
+be helpful for identifying general MHs that are semantically related
+to many citations. On the other hand, TFIDF is a sparse representa—
+tion that is useful for mapping some very specific MHs strictly.
+These two representations are complement to each other. D2V—
+TFIDF concatenates the sparse and dense features together, and thus
+includes both raw text information and semantic information, pro—
+viding diverse evidence for MeSH indexing.
+
+1. BCDZVTFIDF: Binary Classification using D2V—TFIDF
+
+Using the binary relevance approach, we can train binary classi—
+fiers for any MH using D2V—TFIDF features. In fact in our experi—
+ment, we used the latest one million MEDLINE citations to train
+linear kernel SVM for each MH.
+
+2.. KNNDZVII‘FIDF:  using 
+
+We can build KNN for any MH using D2V—TFIDF. In our ex—
+periments, we first used the D2V—TFIDF vector for a given citation
+to compute the cosine similarity score against the latest one million
+MEDLINE citations. We then selected the k nearest citation for
+MHs. Score KNN can be computed using Eq. (2).
+
+3. KNNDZV: KNN using D2V
+
+Similar to KNNDZVTFIDF, D2V can be used to retrieve k—nearest
+citations and again Score KNN can be computed using Eq. (2).
+
+3.3.3 DeepMeSH: incorporate deep semantic information into
+
+MeSHLabeler
+
+Step 1: generate candidate MeSHs with different representations
+The number of all MHs reaches 27 000, and most of them are ir—
+
+relevant MHs to a particular citation. So we generate candidate
+
+MHs only, which are considered to be more suitable to a given cit—
+
+ation, by using the following three sources:
+
+1. D2V—TFIDF: The top NBCDNTHDF in the ranked list by BCDZV.
+TFIDF 01' top N1(1\r1\rDZV7.I.HDF in the ranked list by KNND2V_TFIDF.
+2. TFIDF: The top NBCTHDF in the ranked list by BCTFIDF.
+
+3. PRA: PRA is a modified KNN method by NLM (Lin and
+Wilbur, 2007), and the top NPRA MHs by PRA.
+
+We should note that this process of focusing on a small number
+of MHs reduces both computation time and false positives, resulting
+in performance improvement. These three sources contain individu—
+ally unique information and complement to each other, so that
+merging them would be reasonable to have a set of candidates cover—
+ing diverse evidence.
+
+Step 2: use MeSHRanker to rank MeSHs with D2V and D2V-
+TFIDF related features
+
+The candidate MHs are ranked by the LTR framework of
+MeSHRanker. The difference from MeSHRanker is using not only
+the raw text information (considered in MeSHRanker) but also the
+semantic information, by using D2V. The input features used here
+are classified into four types:
+
+1. BCDZVTFIDF score
+
+2.. KNNDZVII‘FIDF and KNNDZV scores
+
+3. MeSH frequency rank
+We count the times of MH appearing in the MEDLINE, and
+then rank MHs in the descending order. We add this informa—
+tion as a feature into MeSHRanker that learns better to each
+candidate MH.
+
+4. Similarities of nearest neighbor by KNNDZVq-FIDF and KNNDZV
+
+These two features indicate if the neighbor citations found by
+KNNDZVII‘FIDF and KNNDZV are Credible.
+
+Step 3: select the top ranked MHs to recommend as output
+
+MeSHNumber provides the number to be recommended, m, and
+the top in MHs in the ranked list by MeSHRanker are returned as
+the final MHs to be recommended.
+
+4 Experiments
+
+4.1 Data
+
+We downloaded 23 343 329 citations of MEDLINE/PubMed from
+NLM in Nov 2014, before the BioASQ3 challenge. 13 156 128
+indexed citations with both abstracts and titles were locally stored
+as training data. For generating classical TFIDF features, we used
+BioTokenizer to preprocess MEDLINE raw text (Jiang and Zhai,
+2007). Both unigram and bigram features were used to represent
+each citation. Similar to other work (Liu et al., 2015; Tsoumakas
+et al., 2013), the features that appear less than 6 times were
+removed. Finally, we obtained 112 674 unigram and 1 873 030
+bigram features. Each citation was then represented by a very sparse
+vector of 1 985 704 dimension with the TFIDF weighting scheme.
+
+We sorted all downloaded citations by time. The latest 10 000
+citations were used as validation set for tuning parameters of binary
+classifiers. In addition, next latest 1 000 000 citations were used for
+learning D2V and D2V—TFIDF representation and their correspond—
+ing classifiers, since generating deep semantic representation is time
+consuming, particularly if we use the whole MEDLINE. Also in pre—
+liminary experiments, we found that the performance gain by using
+the whole MEDLINE is very marginal. On the other hand, TFIDF
+based binary classifiers, BCTFIDF, were trained with the whole
+MEDLINE, because improved classification performance on the low
+frequency MHs can be achieved with more training instances.
+
+From BioASQ3, we obtained another dataset of 49 774 distinct
+citations, which were randomly divided into three parts:
+MeSHRanker training set (with 23 774 citations), MeSHNumber
+training set (with 20 000 citations) and test set (with 6000 distinct
+
+ﬁm'sreumol‘piqxo'sopeuuowrorq/ﬁdnq
+
+DeepMeSH
+
+i75
+
+ 
+
+citations). The same test set was used for all methods, including bin—
+ary relevance approaches, KNN, MeSHLabeler and DeepMeSH.
+
+4.2 Implementation and parameter setting
+
+Several open source tools were used in the implementation of
+DeepMeSH: RankLib (http://sourcef0rge.net/p/lemur/wiki/RankLib/)
+to implement our LTR model, LambdaMart (Burges, 2010) and
+LibSVM to implement support vector regression (SVR) (Chang and
+Lin, 2011). Logistic regression and Linear SVM were implemented by
+using LIBLINEAR (Fan et al., 2008). We used gensim (http://radimre
+hurek.com/gensim) for the implementation of W2V, W2P and D2V.
+We first transformed all text into lowercase. The continuous bag of
+Words (CBOW) mode was then used to generate dense semantic rep—
+resentation. The dimensions of all dense vectors were set to 200.
+
+For all KNN, MH scores were computed from top 20 nearest
+neighbors. NBCDNTHDF and NKNNDZVJHDF were set to 45 and 20, re—
+spectively. NPRA and NchDF were set to 50 and 40, respectively, fol—
+lowing (Liu et al., 2015).
+
+A server with four Intel XEON E5—4650 2.7 GHz CPU and 128
+GB RAM was used. Learning all binary classifiers (including D2V—
+TFIDF and TFIDF) for MHs and DeepMeSH required around one
+week and two hours, respectively, and annotating new citations
+needed around two or three hours over ten thousands citations.
+
+4.3 Performance evaluation measure
+
+Let K denote the size of all labels (MeSH headings), and N be the
+number of instances (citations). Let y, and y, E {0,1}K be the true
+and predicted label for instance i, respectively. We mainly use three
+different metrics based on F—measure to evaluate the performance of
+different models.
+
+° F—measure: EBF
+
+EBF is the standard F—measure which can be computed as the har—
+monic mean of standard precision (EBP) and recall (EBR), as follows:
+
+1 N
+EBF : :ZEeri, (3)
+N i:1
+where
+2 . EBP,- . EBR,
+EBF : —
+’ EBP,- + EBR, ’
+where
+
+K Ale K A12
+.7 212:13’lz '3’1 ., 212:13’f3’1
+EBP, _ —K A, EBR, _ —K k
+212:1 '3’1 212:13’1
+We note that we can compute EBP and EBR by summing EBP,
+and EBR,, respectively, over all instances.
+
+° Macro F—measure: MaF
+
+MaF is the harmonic mean of macro—average precision (MaP)
+
+and macro—average recall (MaR) as follows:
+2 - MaP - MaR
+
+M F : — 4
+
+a MaP+ MaR ( l
+
+The macro—average precision and recall are obtained by first
+
+computing the precision for each label (MH) separately and then
+
+averaging over all labels, as follows:
+
+1 K k 1 K k
+
+M P : i P M R : i R
+
+a K; a K; ,
+
+where
+
+N :12 N :12
+P12,Z1:13’l"3’1 R2721:13’l"3’1
+_ A12 — N
+2:171 21:13’lz
+
+° Micro F—measure: MiF
+
+MiF is the harmonic mean of micro—average precision (MiP) and
+micro—average recall (MiR), as follows:
+
+. 2-MiP-MiR
+M1F_ MiP+MiR ’ (5’
+
+where
+
+K N :12 K N :12
+
+~ , 212:1 21:1 J’f '3’1 ~ , 212:1 21:134" '3’1
+
+MiP — —K N Ak MiR — —K N k
+212:1 21:13’1 212:1 21:13’1
+
+In addition, average label similarity is defined to measure the se—
+mantic similarity between one citation and a set of citations. Given a
+citation x, let X : x1, . . . ,me, be a set of citations (for example, by
+KNN), the average label similarity between X and x can be com—
+puted as follows:
+
+1 KW Y N Y-
+A ’ ’l ’ : — '
+ngimi arity KNN [:1 Y U Yi,
+
+ 
+
+(6)
+
+where KNN : )X), i.e. the number of nearest neighbors, Y is the set
+of true MHs of citation x and Y, is the set of true MHs of ith citation
+x, of X.
+
+4.4 Experimental results
+
+To compare the performance of different methods reliably, we gener—
+ated 50 test datasets from all 6000 original test citations using boot—
+strap with replacement. For examining the model performance over
+large—scale data, all these 50 datasets consisted of 6000 citations.
+Paired t—test was then used to evaluate the statistical significance of
+performance improvement between the best performed method and
+all other methods. P—values of smaller than 0.05 are considered as
+statistically significant. We conducted four experiments: (i) the per—
+formance of different representations, TFIDF, W2V, WW2V, W2P,
+W2P, D2V, W2V—TFIDF, W2V—TFIDF, W2P—TFIDF, W2P—
+TFIDF, D2V—TFIDF were compared using KNN. W2V is obtained by
+the average of ‘word embedding (WE)’ (described in Section 3.2.1) of
+each word over all words in the document, and WW2V is computed
+similarly by using ‘weighted word embedding’ (WWE), shown in Eq.
+(1). Similarly, we obtain W2P and WW2P form phrase embedding
+and weighted phrase embedding. To make a fair comparison, the best
+deep semantic representation was selected to perform the following
+experiments. (ii) The performance of binary relevance with selected
+representations was compared. (iii) The performance of DeepMeSH
+by incorporating the deep semantic information into the LTR frame—
+work of MeSHRanker. For a fair comparison, the number of MHs
+for all representations was predicted by MetaLabeler based on TFIDF
+representation. (iv) The performance of DeepMeSH with the number
+of MHs predicted by MeSHNumber was examined. Please note that
+in BioASQ challenge, the systems are evaluated by micro F—measure,
+MiF, which is also the focus of our system.
+
+4.4.1 Performance comparison between different representations
+by KNN
+
+The average performance of each representation over 50 test data—
+sets by KNN is presented in Table 2. For each performance metric,
+
+ﬁm'sreumol‘piqxo'sopeuuowrorq/ﬁdnq
+
+i76
+
+S.Peng et al.
+
+ 
+
+Table 2. Performance comparison of KN Ns with different feature representation
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Method MiP MiR MiF EBP EBR EBF MaP MaR MaF
+KNNmDF 0.4369 0.4455 0.4412 0.4362 0.4547 0.4317 0.3274 0.2960 0.3109
+KNNWZV 0.4133 0.4215 0.4174 0.4083 0.4216 0.4027 0.1438 0.1230 0.1326
+KNNWZV 0.4477 0.4565 0.4521 0.4444 0.4616 0.4394 0.2332 0.2126 0.2225
+KNNWZP 0.4027 0.4106 0.4066 0.3968 0.4098 0.3914 0.1201 0.1018 0.1102
+KNNWZP 0.4392 0.4478 0.4435 0.4351 0.4515 0.4300 0.1970 0.1786 0.1873
+KNNDZV 0.4271 0.4355 0.4313 0.4207 0.4361 0.4156 0.1726 0.1450 0.1576
+KNNWZVJHDF 0.4526 0.4615 0.4570 0.4516 0.4710 0.4472 0.3359 0.3027 0.3185
+KNNWNTFIDF 0.4602 0.4693 0.4647 0.4593 0.4793 0.4549 0.3412 0.3091 0.3244
+KNNWZMHDF 0.4750 0.4844 0.4797 0.4752 0.4951 0.4702 0.3371 0.3054 0.3205
+KNNWZP_TFIDF 0.4768 0.4862 0.4814 0.4764 0.4963 0.4714 0.3398 0.3095 0.3239
+KNNDZVJHDF 0.4784 0.4878 0.4831 0.4783 0.4983 0.4733 0.3468 0.3171 0.3313
+Table 3. Comparison of binary relevance approaches with different features
+
+Method MiP MiR MiF EBP EBR EBF MaP MaR MaF
+BC D2V 0.4395 0.4482 0.4438 0.4339 0.4519 0.4294 0.1627 0.1706 0.1666
+BCTFIDF 0.5584 0.5694 0.5638 0.5575 0.5892 0.5556 0.4662 0.4970 0.4811
+BCnormmDp 0.5716 0.5829 0.5772 0.5704 0.5991 0.5667 0.4463 0.4402 0.4432
+BCDZVJHDF 0.5974 0.6092 0.6033 0.5983 0.6280 0.5943 0.4741 0.4633 0.4686
+
+ 
+
+the best representation that statistically significantly outperformed
+all other representations is highlighted in boldface (see the detailed
+P—values in the supplementary materials). In the top part, the per—
+formance of TFIDF and five dense semantic representations, W2V,
+WW2V, W2P, WW2P and D2V were directly examined, while
+in the bottom part, the performance of five joint representations
+W2V—TFIDF, WW2V—TFIDF, W2P—TFIDF, WW2P—TFIDF and
+D2V—TFIDF were compared. First, D2V—TFIDF achieved the best
+performance out of all 11 representations in all 9 measures, particu—
+larly for MiF, being 0.4831, followed by WW2P—TFIDF of 0.4814,
+W2P—TFIDF of 0.4797, WW2V—TFIDF of 0.4647 and W2V—TFIDF
+of 0.45 70. Second, WW2V achieved the best MiF in six individual
+representations, being 0.4521, followed by WW2P with 0.4435 and
+TFIDF with 0.4412. Interestingly, although WW2V (WW2P) is just
+a weighted W2V (W2P) by using IDF, the performance difference
+between W2V (W2P) and WW2V (WW2P) was quite large. In fact,
+MiF of W2P was 0.4066, while MiF of WW2P was 0.4435. Third,
+based on the macro F—measure for individual representations,
+TFIDF achieved the best MaF of 0.3109, meaning that traditional
+BOW representation is suitable for finding infrequent MHs (since
+macro F—measure weights the performance for infrequent MHs
+more). Finally, the performance of all joint representations was sig—
+nificantly better than their component representation under all
+measures. For example, D2V—TFIDF achieved the highest MaF of
+0.3313, which is higher than 0.3109 by TFIDF and 0.1576 by D2V.
+This indicates that the traditional BOW representation and dense se—
+mantic representation have a good complementary relationship, and
+their combination improves the performance greatly.
+
+Although D2V performed worse than WW2V, D2V—TFIDF out—
+performed WW2V—TFIDF as well as all the other representations
+significantly in all 9 measures. This result demonstrates high com—
+plementary advantages between D2V and TFIDF. It also indicates
+that, by incorporating important context information in biomedical
+text, documents embedding can capture semantic information most
+out of all these embeddings. Moreover, the better performance of
+WW2P—TFIDF over WW2V—TFIDF suggests that phrase embedding
+
+is more effective than word embedding in capturing semantic infor—
+mation. Considering the performance advantage of D2V—TFIDF and
+the complementarity between D2V and TFIDF, we use D2V—TFIDF,
+D2V and TFIDF only in the following experiments.
+
+4.4.2 Performance comparison between different representations
+by binary relevance
+
+Table 3 shows the comparison results on the average performance
+of different representations on 50 test datasets using binary classifi—
+cation (see the detailed P—values in the supplementary materials).
+We used linear SVM for BCDZV and BCDZVTFIDF, because of the per—
+formance advantage over logistic regression (logistic regression was
+used for BCTFIDF only). BCnorm—mDF is an alternative baseline,
+which normalizes the prediction score of BCTFIDFbefore ranking the
+candidate MHs. Experimental results show that BCDZVTFIDF
+achieved the best MiF of 0.6033, followed by BCnorm—rFIDFwith 0.
+5772 and BCTFIDFwith 0.5638. The large performance difference be—
+tween BCnormTFIDFand BCDZVTFIDF highlights the advantage of
+D2V—TFIDF over D2V and TFIDF.
+
+4.4.3 Performance improvement of MeSHRanker by
+incorporating deep semantic representation
+
+Table 4 shows the average performance of MeSHRanker on the 50
+test datasets by incorporating evidence generated by deep semantic
+representation (see the detailed P—values in the supplementary mater
+ials). The results of MTIDEF (the default version of MTI) and
+BCDZVTFIDF are presented as baselines. We first added the D2V
+related features into the input features of LTR in MeSHRanker,
+which corresponds to incorporate Step 2 of DeepMeSH into
+MeSHRanker (See Section 3.3.3). This feature infusion improved
+MiF of MeSHRanker from 0.6126 to 0.6216. We then focused on
+selecting D2V related candidates using Step 1 of DeepMeSH, by
+which the performance was further improved to 0.6224. Note that
+then DeepMeSH can be generated by adding Step 3 (MeSHNumber,
+See Section 3.3.3) to MeSHRanker further.
+
+ﬁm'sreumol‘prqxo'sopeuuowrorq/ﬁdnq
+
+Table
+
+Figure 2(a)
+
+Figure 2(b)
+
+Figure 2(d)
+
+MeSH Distrlbutlon
+MeSHlnde g stribution
+
+DZVVTFIDF
+TFIDF
+D2V
+
+DZVVTFIDF
+TFIDF
+D2V
+
+A A DZVVTFIDF
+
+ 
+
+Figure 2(c)
+
+/3.10's112um0fp10}x0"sorwuuogurorqﬂ:duq
+
+Figure 3(a)
+
+A
+AA
+A
+AA
+
+AA
+A
+AAAAAAAAAAAA
+
+ 
+
+Figure 3(1))
+
+Table 6
+
+Kosmopoulos 17/ al., 2015
+
+/3.10's112um0fp10}x0"sorwuuogurorqﬂ:duq
+
+DeepMeSH
+
+i79
+
+ 
+
+Jimeno-Yepes,A. et al. (2012b) A one-size-ﬁts-all indexing method does not
+exist: Automatic selection based on meta-learning. ]CSE, 6, 151—160.
+
+Jimeno-Yepes,A. et al. (2013). Comparison and combination of several mesh
+indexing approaches. In: AMIA Annual Symposium Proceedings, vol. 2013.
+American Medical Informatics Association, p. 709.
+
+Jimeno-Yepes,A. et al. (2014). Deep belief networks and biomedical text categor-
+isation. In: Australasian Language Technology Association Workshop, p. 123.
+
+Kosmopoulos,A. et al. (2015) Biomedical semantic indexing using dense word
+vectors in bioasq. ]. Biomed. Seman., http://www.aueb.gr/users/ion/docs/
+jbms_dense_vectors.pdf
+
+Le,Q. and Mikolov,T. (2014) Distributed representations of sentences and
+documents. In: ICML, pp. 1188—1196.
+
+Lin,]. and Wilbur,W. (2007) Pubmed related articles: a probabilistic topic-
+based model for content similarity. BMC Bioinformatics, 8, 423.
+
+Liu,K. et al. (2015) Meshlabeler: improving the accuracy of large—scale
+mesh indexing by integrating diverse evidence. Bioinforrnatics, 12,
+i339—i347.
+
+Lu,Z. et al. (2010) Evaluation of query expansion using MeSH in PubMed.
+Inf: Retrieval, 12, 69—80.
+
+Mao,Y. and Lu,Z. (2013). NCBI at the 2013 BioASQ challenge task: Learning
+to rank for automatic MeSH indexing. Technical report.
+
+Mikolov,T. et al. (2013) Distributed representations of words and phrases and
+their compositionality. In: NIPS, pp. 3111—3119.
+
+Mitchell,]. and Lapata,M. (2010) Composition in distributional models of se-
+mantics. Cognit. Sci., 34, 1388—1439.
+
+Mork,]. et al. (2013) The NLM medical text indexer system for indexing bio-
+medical literature. In: BioASQ@ CLEF.
+
+Mork,]. et al. (2014) Recent enhancements to the NLM medical text indexer.
+In: CLEF (Working Notes), pp. 1328—1336.
+
+NCBI Resource Coordinators (2015) Database resources of the national center
+for biotechnology information. Nucleic Acids Res., 43, D6—D17.
+
+Nelson,S.J. et al. (2004) The MeSH translation maintenance system: structure,
+interface design, and implementation. Medinfo, 11, 67—69.
+
+Peng,S. et al. (2015) The fudan participation in the 2015 bioasq challenge:
+Large-scale biomedical semantic indexing and question answering. In:
+CLEF (Working Notes).
+
+Rios,A. and Kavuluru,R. (2015) Convolutional neural networks for biomed-
+ical text classiﬁcation: application in indexing biomedical articles. In: BCB,
+pp. 25 8—267.
+
+Socher,R. et al. (2012) Semantic compositionality through recursive matrix-
+Vector spaces. In: EMNLP-CONLL, pp. 1021—1211.
+
+Socher,R. et al. (2013) Recursive deep models for semantic compositionality
+over a sentiment treebank. In: EMNLP.
+
+Stokes,N. et al. (2010) Exploring criteria for successful query expansion in the
+genomic domain. Inf. Retrieval, 12, 17—50.
+
+Trieschnigg,D. et al. (2009) MeSH Up: effective MeSH text classiﬁcation for
+improved document retrieval. Bioinformatics, 25, 1412—1418.
+
+Tsatsaronis,G. et al. (2015) An overview of the bioasq large-scale biomedical
+semantic indexing and question answering competition. BMC
+Bioinformatics, 16, 138.
+
+Tsoumakas,G. et al. (2013). Large-scale semantic indexing of biomedical pub-
+lications. In: BioASQ@ CLEF.
+
+Zhang,M. and Zhou,Z. (2014) A review on multi-label learning algorithms.
+IEEE Trans. Knowl. Data Eng., 26, 1819—1837.
+
+Zhu,S. et al. (2009a) Enhancing MEDLINE document clustering by incorpo-
+rating mesh semantic similarity. Bioinforrnatics, 25, 1944—1951.
+
+Zhu,S. et al. (2009b) Field independent probabilistic model for clustering
+multi-ﬁeld documents. Inf. Process. Manag., 45, 555—5 70.
+
+ﬁm'sreumol‘prqxo'sopeuuowrorq/ﬁdnq
+

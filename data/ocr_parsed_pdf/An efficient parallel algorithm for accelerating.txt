@@ -1,0 +1,844 @@
+BIOINFORMA TICS
+
+0'so;112u110}u101q//2duq
+
+SIBumoprOJX
+
+£10"
+
+Y.Zhou et al.
+
+ 
+
+process. Our approach fully exploits the capacity of parallelism
+on a Graphics Processing Unit (GPU) to support the A* search
+for protein design. Tests on a benchmark dataset of 74 proteins
+show that our new algorithm runs up to 20 000 times faster than
+the original A*—based protein design algorithm, while still main—
+taining an acceptable amount of memory overhead. Thus, our
+parallel A* search algorithm can provide a practically useful tool
+for computational protein design.
+
+2 METHODS
+
+2.1 General-purpose computing on GPUs
+
+General-purpose computing on graphics processing units (aka GPGPU),
+is a method to use a GPU together with a CPU to accelerate traditional
+computation. The main difference between CPU and GPU computational
+frameworks lies in the mechanisms they use to process calculation tasks. A
+CPU usually contains several highly optimized cores for sequential instruc-
+tion execution, while a GPU typically contains thousands of simpler but
+efﬁcient cores which are able to process different tasks in parallel. As an
+example, a high-end GPU, AMD Radeon 7970 Tahiti XT, has 2048 pro-
+cessing elements, while a powerful CPU such as Intel Xeon E7-8870 only
+contains 10 cores. Because of this characteristic, we must modify our al-
+gorithms originally designed for a CPU to take advantage of a large
+amount of parallelism to bring the full power of a GPU into play.
+
+A GPU typically has a better performance in ﬂoating-point operation
+than a same-price CPU. For example, an NVIDIA GeForce GTX 580M
+has 952.3 theoretical GFLOPS (giga ﬂoating-point operation per second),
+while the theoretical GFLOPS of Intel Core i7-3960 is only 158.4, accord-
+ing to the speciﬁcation released by Intel (Intel Corporation, 2011) and
+NVIDIA (NVIDIA Corporation, 2013), respectively. In our protein
+design problem, the main bottleneck is the ﬂoating-point operations for
+the heuristic function evaluation. Therefore, GPU acceleration is an ap-
+propriate tool to address such a problem.
+
+A GPU has its own memory system. Thus it can provide a larger
+memory bandwidth than that of a CPU, which means GPU cores can
+retrieve and write data from/to the global memory faster than a CPU.
+This is especially suitable for those algorithms that are limited by the
+global memory bandwidth. However, before and after the computation,
+data need to be transferred between the memory of CPU and GPU
+through a relatively slow PCI-E bus. Thus, in general, we prefer a smaller
+ratio between the amount of time used to transfer input/output and the
+amount of time spent on computation. The A* search algorithm is suit-
+able for such a computation framework, as the amount of ﬂoating-point
+computation makes the data transfer overhead negligible.
+
+2.2 An A* search algorithm for protein design
+
+In this section, we will ﬁrst give some background about using A* algo-
+rithm to solve the protein design problem. In Section 2.2.1, we will provide
+a new approach to improve the computation of heuristic function in A*
+search. After that, Sections 2.3 and 2.4 will present a two-level parallelized
+A* algorithm that is suitable for a modern GPU. Finally, Section 2.5 will
+provide an extended A* algorithm that runs in bounded memory.
+
+Under the assumption of a rigid backbone and discrete side-chain
+rotamers, SCPR can be generally formulated as an optimization problem,
+in which we aim to ﬁnd an amino acid or rotamer sequence that minim-
+izes the following objective function using 1- and 2-body energies:
+
+ET=E0 + ZEm‘rH Z Z Ema», (1)
+
+i,.eA ireA 1,64.
+
+l<j
+where A is the set of discrete side-chain rotamer conformations (typically
+called the rotamer library), E0 is the backbone or template energy, E1(i,.) is
+the self energy of rotamer r for residue i (including intra-residue and
+rotamer-to-backbone energies), and E2(i,.,js) is the pairwise interaction
+
+energy between rotamer i, and jS. The global optimal solution, i.e.,
+GMEC, minimizes the above energy function in Equation (1).
+
+The combination of DEE and A* search algorithm has been popularly
+used in computational protein design (Donald, 2011; Gainza et al., 2013;
+Georgiev et al., 2008; Leach et al., 1998; Lilien et al., 2005; Lippow and
+Tidor, 2007;). In this protein design strategy, the DEE algorithm is ﬁrst
+applied to prune a number of rotamers that are provably not part of the
+optimal solution that minimizes the energy function in Equation (1).
+Next, an A* tree search algorithm is used to search over all possible
+combinations of the remaining rotamers and ﬁnd the global optimal so-
+lution (i.e., GMEC). Traditional implementations of the A* search algo-
+rithm for protein design take a priority queue to decide the order of
+visiting nodes in the tree search. In this priority queue, elements are
+sorted by the following heuristic function as the evaluation measure for
+each expanding rotamer:
+
+f(X) =g(X) + h(X)w (2)
+
+where g(X) represents the actual cost from the starting node (i.e., the root
+of the A* search tree) to the current node X, and h(X) represents the
+estimated cost from the current node X to its destination (i.e., a leaf
+node in the A* search tree).
+
+Each time, we extract a node with the smallest heuristic function value
+from the priority queue, expand it and then push the new expanded nodes
+back into the priority queue. We repeat this process until a target node
+(which is one of the leaf nodes with the minimum heuristic function value
+in the search tree) is found. Algorithm 1 describes a single-thread version
+of the traditional A* search procedure.
+
+ 
+
+Algorithm 1 A single-thread version of the traditional A* search
+
+1: procedure A-STAR(S, T)
+2: Let Q be a priority queue
+Q <— ﬂ
+PUSH(Q, 3)
+while Q is not empty do
+61 <—P0P(Q)
+if q e T then
+return the path found
+9: end if
+10: Let R be the set of expanded nodes from q
+11: Calculate f(X) for all nodes in R
+12: Push all the elements from R into Q
+13: end while
+14: end procedure
+
+ 
+
+> s is the starting node and T is
+> the set of target nodes
+
+99$???er
+
+ 
+
+2.2.1 Improved computation of heuristic functions In the A*
+search algorithm for solving the protein design problem, the actual cost
+from the starting node to current node X in the search tree is deﬁned by
+
+g(x)=Eo+ Z E1(ir)+ Z Z Ezwv), (3)
+i,.eD(X) i,.eD(X) 11,699).
+l<j
+
+where D(X) is the set of residues in which rotamers have been already
+determined so far, E0 is the backbone energy, El(i,.) is the self energy of
+rotamer i, (including both intra-residue and rotamer-to-backbone ener-
+gies), and E2(i,t,js) is the pairwise interaction energy between rotamers i,
+and jS.
+
+The estimated cost from current node X to the destination node is
+deﬁned by
+
+h(X)= Z liltin(E1(ir)+ 2 E20}, J1.)+ Z “gnaw/cu», (4)
+
+[El/(X) LEDOJ) [tel/(X)
+
+where U(X) represents the set of residues, in which rotamers have not been
+determined at current node X.
+
+ 
+
+i256
+
+ﬁm'spzumofpmJXO'sopnuuopnorq/ﬁdnq
+
+55,2kgogmoddmmowoxwoa‘oﬁsambmﬁ
+
+ 
+
+\,
+
+in
+q
+1
+_
+
+k
+0.
+2
+0..
+1
+q
+
+  
+
+Y.Zhou et al.
+
+ 
+
+parallelism employed in our algorithm can directly address all the previ-
+ously mentioned computational bottlenecks in A* search and thus greatly
+speed up the computational protein design process. In addition, our new
+algorithm introduces small overhead. It only requires a constant number
+of global synchronization points per round without much communication
+overhead.
+
+Note that this pseudocode is just for computing the GMEC solution.
+Our algorithm can be easily extended to output all solutions within a
+speciﬁc energetic cutoff from the GMEC solution in gap-free sorted
+order, using the same strategy as in OSPREY (Chen et al., 2009;
+Gainza et al., 2013).
+
+ 
+
+Algorithm 2 GA*: a GPU parallel A* algorithm for protein design
+
+1: procedure GA*(k, s, T)
+2: for i <— 1 to k in parallel do
+
+ 
+
+> k is the number of allocated
+> priority queues, s is the
+
+3 Let Q,- be a priority queue > starting node, and T is
+4 Q,» <— Q > the set of all target nodes,
+5: end for
+6' PUSH(Q1, s)
+7 t <— nil > t stores the best solution hitherto
+8: while EIQ,» that is not empty do
+9: R <— Q
+
+10: for i be the index where Q,- is not empty in parallel do
+
+11: q,» <— POP(Q,-)
+
+12: if q,» e T then
+
+13: if t=nil or f(p,-) <f(t) then
+
+14: t <— p,»
+
+15: end if
+
+16: continue
+
+17: end if
+
+18: Let R’ be the nodes expanded from q,-.
+
+19: R <— R U R’
+
+20: end for
+
+21: if t 75 nil andf(t)=minjf(pj) then
+
+22: return t
+
+23: end if
+
+24: Reorder the nodes in R > See Section 2.6
+
+25: Calculate f(X) for all nodes in R in maximum parallel
+
+26: for i <— 1 to k in parallel do
+
+27: Pick |R|/k nodes from R with different parents
+
+28: Push them into Q,-
+
+29: end for
+
+30: end while
+
+31: end procedure
+
+ 
+
+Note that the nodes to be expanded are not necessarily the most op-
+timal nodes. For example, suppose we have two priority queues, and the
+1st, 2nd, 3rd most optimal nodes are in the ﬁrst priority queue while the
+4th one is in the second queue. In this situation, our algorithm will pop
+out the 1st and 4th most optimal nodes, which is not an ideal situation.
+This is the price of the parallelism of the priority queue. We try to alle-
+viate this problem by separating the nodes with the same parent nodes,
+which may have similar heuristic function values, to different queues.
+
+Because the parallelism of the priority queue changes the work ﬂow of
+the overall A* algorithm, it is necessary to provide a proof to show that
+GA* is able to compute a global optimal solution. Here, our proof is
+derived mainly for the protein design problem, in which the underlying
+search graph is a tree.
+
+LEMMA 2.1. Let h,.( X ) represent the real cost from X to an optimum target
+node. If the deﬁned heuristic function satisfies h( X ) 5 h,.( X ) for each node X
+and the search graph is a tree, for any optimal target t e T, there eXists a
+node t’ in the priority queues  such that f( t’ ) 5 f( t ) in Algorithm 2
+before each POP operation is eXecuted.
+
+PROOF. Let d(X,y) = g(y)7 g(X) denote the real cost from node X to node
+y, where X must be on the path from the starting node s to y. For all node
+t’ that is on the path from s to t, we have
+
+f(t’) =g(t’) + W)
+5 d(s, z') + My)
+= d(s, t’) + d(t’, t)
+= d(s, z)
+=f(t).
+
+Thus, it is sufﬁcient to prove that there exists a node t’ in the priority
+queues along the path from s to t. At the beginning, the starting node s
+satisﬁes such a condition. At any time, if line 11 in Algorithm 2 pops node
+t’, line 18 will generate another node that is also on the path from s to t,
+which is then pushed back into the queues. Thus, such a node always
+exists. D
+
+THEOREM 2.2. Let h,‘( X ) represent the real cost from X to an optimum
+target node. If the defined heuristic function satisfies h( X ) 5hr( X ) for
+every node X and the search graph is a tree, the first solution returned by
+GA* must be the optimal solution.
+
+PROOF. We prove this theorem by contradiction. There exists two pos-
+sible situations that may violate our conclusion:
+
+(1) The algorithm never terminates; and
+
+(2) When the algorithm terminates, it returns a solution that is not
+optimal.
+
+For (1), it is impossible because the search space is a ﬁnite tree and our
+algorithm will never visit any node twice.
+
+For (2), assume that our algorithm returns a node t1, while the opti-
+mal solution is node t2. Thus, we have f(t1)>f(t2). However, according
+to Lemma 2.1, we have a node t’ in the queues {Qi} that
+satisﬁes f(t’) 5 f(t2)< f(t1), which violates the condition in line 21 of
+Algorithm 2. D
+
+Theorem 2.2 states that GA* guarantees to ﬁnd the global optimal
+solution. However, GA* does not retain all the properties that the ori-
+ginal version of A* search has. The optimality property (Dechter and
+Pearl, 1985), which guarantees that A* will expand fewer nodes than any
+other algorithm using the same heuristic function, is lost in GA*. The
+reason is that in GA*, it is possible to expand a node whose f(X) value is
+larger than the best solution due to the parallelism. However, as we will
+see in the Results section, the fraction of extra expanded nodes compared
+to the original A* algorithm is within an acceptable range.
+
+2.5 Memory-bounded A* search for protein design
+
+Although our parallel algorithm GA* can speed up the traditional A*
+algorithm by several orders of magnitude, the scale of the protein design
+problem that it can solve is still limited. For example, we may support at
+most 20 mutable residues if all types of amino acids are allowed in each
+residue. The bottleneck mainly lies in the limited memory available for
+each machine. In the worst case, A* produces an exponential number of
+expanded nodes in the search tree. Once the algorithm runs out of
+memory to store new expanded nodes, it cannot continue. Several ef-
+forts have been made to solve this problem. In particular, variants of
+the A* algorithm such as iterative deepening depth-ﬁrst search (IDA*)
+(Korf, 1985) and simpliﬁed memory-bounded A* (SMA*) (Russell, 1992)
+have been proposed to address such an issue. IDA* uses a depth-ﬁrst-
+search strategy to reduce the usage of memory, which is difﬁcult to par-
+allelize on a GPU. On the other hand, we found that SMA* could be well
+implemented on a GPU. We call this new algorithm GSMA*.
+
+ 
+
+i258
+
+ﬁm'spzumofpmJXO'sopnuuopnorq/pdnq
+
+  
+
+EXTRACTION
+
+   
+
+RADIX—SORTING
+
+   
+
+PUSHING—BACK
+
+  
+
+  
+
+EVALUATION
+
+/810's113um0_fp103x0'sopBuIJOJuiOiq/ﬁdnq
+
+Y.Zhou et al.
+
+ 
+
+provably not in the part of the global optimal solution. The
+iMinDEE algorithm can give a more accurate result on rotamer
+pruning, but results in a much larger conformation space for the
+downstream A* algorithm to search over to ﬁnd the GMEC
+solution. Strictly speaking, we are not trying to find the
+GMEC solution in A* when using iMinDEE. We are trying to
+ﬁnd the lowest—energy bound conformation for iMinDEE. But
+from the point view of an A* algorithm, it treats that job as same
+as ﬁnding the GMEC solution. So we will not distinguish these
+terminologies in the Results section. In this part of the experi—
+ment, memory—bounded operations were not performed. Because
+GA* is a provable algorithm (see Theorem 2.2 in Section 2.4), it
+can still guarantee to ﬁnd the optimal solution. For correctness,
+we also veriﬁed that our results are completely identical to those
+of original OSPREY.
+
+The CPU and GPU we used in this benchmark test were an
+Intel XeonTME5-1620 3.6GHz with 16 GB memory and an
+NVIDIA Tesla K20c GPU with 4.8 GB global memory and
+2496 CUDA cores, respectively. The main point of this test is
+to measure the speed and the memory consumption of our algo—
+rithm, the results of which can be found in Tables 1 and 2,
+respectively. We ran the full experiment over all 74 protein struc—
+tures, but we only show the list of the 10 slowest cases here as the
+others were finished too quickly even for the original A* algo—
+rithm implemented in OSPREY after rotamer pruning using
+iMinDEE. The results of all tests can be found in Tables $1
+and $2 in Supplementary Material Section S3.
+
+In our GA* algorithm, the number of parallel priority queues,
+as described in Section 2.4, is a parameter that we can tune for the
+maximum performance. By increasing the number of priority
+queues, we can increase the degree of parallelism and further ex—
+ploit the capability of the GPU hardware. On the other hand,
+when more parallel priority queues are used, the number of
+extra expanded nodes in the tree search compared to the original
+A* algorithm will also increase, which will cause both computa—
+tion and memory overhead. In our computational experiments,
+we tested two choices of this parameter. One is 768, designed for
+the balance between time and space consumption. The other is
+4992, targeting at maximizing the protein design speed.
+
+From Table 1, we found that our parallel A* algorithm GA*
+can speed up the original A*—based protein design algorithm by
+several orders of magnitude. For the largest protein design prob—
+lem related to 2QC P, the original A*—based protein design algo—
+rithm took ~6 h, while GA*4992 (i.e., GA* algorithm that used
+4992 parallel priority queues) was able to ﬁnish the search in
+1.2 s. Such improvement is striking. In addition, as summarized
+in Table 2, the larger the conformation search space is, the more
+impact GA* will have. This is because for large problems, GA* is
+able to better exploit its parallelism, amortizing the overhead to a
+negligible level.
+
+Furthermore, the test results on the memory consumption of
+GA* (Table 2) were also promising. Although for small—scale
+protein design problems, memory consumption of GA*4992
+was several times higher than that of a single—thread version,
+the discrepancy in memory consumption became more and
+more negligible when the conformation space scaled up. For
+the largest design problem related to 2QCP, GA*4992 only gen—
+erated 1.12 times more nodes than the single—thread algorithm.
+Therefore, such small growth of memory requirement was
+
+Table 1. The comparison results about time efﬁciency of our parallel
+against original versions of A* search for protein design
+
+ 
+
+ 
+
+PDB Space“ OSPREYb A*1° GA*768d GA*4992d
+2QCP 2.1017 21551916 51091 3075 1146
+lXMK 2.1014 247 585 2990 296 121
+1X61 7.1013 96 990 1406 138 73
+lch 6.1012 88135 1771 182 79
+1CC8 3.1014 77614 1078 99 53
+2cs7 8.1012 64187 1154 149 57
+213m 91013 18457 307 33 24
+1:27 7.1011 8151 88 18 16
+1T8K 2.1013 6806 89 18 15
+1R6J 2.1014 6018 107 18 21
+
+ 
+
+Notes: Time was measured in millisecond. The results were sorted by the running
+time needed by OSPREY and only the 10 largest cases are listed here. "The second
+column, labeled with ‘Space’, reports the size of conformation search space after the
+rotamer pruning using iMinDEE. bThe third column, labeled with ‘OSPREY’, re—
+ports the running time of the original A* algorithm in OSPREY implemented in
+Java. CThe fourth column, labeled with ‘A*l’, reports the running time of our new
+implementation of a single—thread A* algorithm written in C programming language
+running on a CPU, which adopted the improved computation of heuristic functions,
+as described in Section 2.2.1. dThe ﬁfth and sixth columns, labeled with ‘GA*768’
+and ‘GA*4992’, respectively, report the running time of two fully parallelized A*
+algorithms running on a GPU, whose numbers of parallel priority queues are 768
+and 4992, respectively.
+
+Table 2. The comparison results about memory consumption of our par-
+allel against original versions of A* search for protein design
+
+ 
+
+ 
+
+PDB Space A*1 GA*768 GA*4992
+26m: 21017 31589 690 32 825 074 35 517 854
+lXMK 2.1014 2910324 3 325 654 4419100
+1X61 7.1013 1919055 2282 986 3 486 684
+lch 6.1012 1713 636 2196315 2960 752
+1ccg 3.1014 966196 1255 899 1893 701
+2cs7 8.1012 1378 633 1686 558 2354910
+213m 91013 325634 529810 981302
+1:27 7.1011 121920 260825 737 328
+1T8K 2.1013 129 767 211003 618794
+1R6J 2.1014 117053 244399 837 359
+
+ 
+
+Note: Each column has the same meaning as that in Table 1 except that the numbers
+in last three columns represent the numbers of expanded nodes in different
+programs.
+
+acceptable compared to the large improvement on time efﬁciency
+achieved by our algorithm.
+
+3.2 Parallel protein design with bounded memory
+
+Memory limitation is always a problem when we are conducting
+large—scale protein design. Although GSMA* can solve this
+problem, it does not guarantee to generate a GMEC solution
+anymore. Therefore, it is necessary to evaluate the quality of its
+solutions when the memory resource is not sufﬁcient. Researches
+have shown that the sequences of native proteins tend to opti—
+mize their core structures for stability (Gainza et al., 2012;
+
+ 
+
+i260
+
+ﬁm'spzumofpmJXO'sopnuuopnorq/pdnq
+
+A parallel algorithm for accelerating computational protein design
+
+ 
+
+Table 3. Performance of GSMA* with 768 parallel priority queues on 6 test datasets
+
+ 
+
+ 
+
+PDB lOAI lU2H lZZK 2CS7 2DSX 3D3B
+No. of mutable residues 16 18 14 15 15 15
+Conformation space 21022 2.1020 2.1015 2.1023 3.1020 6.1818
+GA*768 search spacea 4.107 8.106 8.106 4.107 4.107 3.107
+3 X 104 nodes limit Scan countb 252 104 99 202 182 109
+GMEC gotten NO YES YES NO YES NO
+GMEC assured NO NO NO NO NO NO
+Correctness 4% 100% 20% 12% 32% 6%
+Recovery ratio 62% 75% 85% 48% 46% 48%
+3 X 105 nodes limit Scan countb 139 43 36 103 97 55
+GMEC gotten YES YES YES YES YES YES
+GMEC assured NO YES YES NO NO NO
+Correctness 100% 100% 100% 100% 100% 44%
+Recovery ratio 74% 75% 87% 46% 48% 54%
+3 X 106 nodes limit Scan countb 22 3 3 24 22 18
+GMEC gotten YES YES YES YES YES YES
+GMEC assured YES YES YES YES YES YES
+Correctness 100% 100% 100% 100% 100% 100%
+Recovery ratio 74% 75% 87% 46% 48% 53%
+3 X 107 nodes limit Scan countb 1 0 0 1 1 1
+GMEC gotten YES YES YES YES YES YES
+GMEC assured YES YES YES YES YES YES
+Correctness 100% 100% 100% 100% 100% 100%
+Recovery ratio 74% 75% 87% 46% 48% 53%
+
+ 
+
+Note: The meaning of each row is explained either in the text or here. "The row labeled with ‘GA*768 search space” represents the number of nodes expanded by GA*768 for
+calculating the best 50 solutions. bThe rows labeled with ‘Scan Count” represent the number of times that the system ran out of memory, in which a series of operations
+
+described in Section 2.5 were executed.
+
+Kuhlman and Baker, 2000). Therefore we included the native
+sequence recovery experiments, in which we removed the types
+of some amino acids from the core of the wild—type proteins and
+recorded the percentage of correctly recovered residues by the
+design algorithm as an indicator of its quality besides other direct
+critera.
+
+We randomly picked six PDBs from the protein sequence
+recovery dataset provided in (Gainza et al., 2012) to evaluate
+performance of our parallel GA* with limited memory (i.e.,
+GSMA*). Unlike Section 3.1 in which we did not change any
+parameters on the original test dataset, this time we increased the
+number of mutable residues so that the total number of new
+nodes expanded by GA* just fitted the physical memory limit
+of the GPU without throwing any of them away, which had
+~3 x 107 nodes. We did this because we need to have a set of
+optimal solutions as a reference for comparison, and we hoped
+that all the test data had the similar memory consumption so
+that their performance was comparable. The method for choos—
+ing the set of allowed amino acids and the positions of extra
+mutable residues was as same as that in (Gainza et al., 2012).
+
+The number of parallel priority queues in this experiment was
+ﬁxed to 768. We ran our experiments four times per test data.
+Each time we imposed a different restriction on the number of
+nodes that GSMA* was allowed to expand, which was 3 x 104,
+3 x 105, 3 x 106 and 3 x 107, respectively. These restrictions can
+be approximately considered as using 1000th, 1%, 10% and
+100% of memory needed by GA*. Each time the system ran
+
+out of memory, 50% of the nodes with larger ﬂX) values were
+thrown away.
+
+We use four metrics to evaluate the quality of our algorithm.
+The ﬁrst one is the availability of the GMEC solution. The second
+one is whether GSMA* is able to determine that the first solution
+it found is the GMEC solution. We have described this method in
+Section 2.5. The other two metrics are based on the ﬁrst 50 solu—
+tions returned by A* rather than the GMEC solution. The third
+metric, correctness, measures the percentage of the top 50 solu—
+tions calculated with memory restriction that were also presented
+in the top 50 solutions calculated without such restriction. The
+fourth metric, recovery rate, reports the average percentage of
+amino acids in the top 50 solutions that are identical to those in
+the wild—type protein. Table 3 shows the results.
+
+The numbers reported in the row of GA*768 search space
+indicate that the numbers of new nodes expanded by parallel
+A* search did not exceed the memory limit of GPU so that the
+results computed without memory restriction can be used as ref—
+erences for evaluating their tests with memory restriction. We
+found that the native sequence recovery ratios of last three struc—
+tures were a little low, even when no node was thrown away.
+Apart from that, the results look encouraging. The GMEC so—
+lution can be guaranteed by GSMA*768 on all our test data even
+if we only used ~10% of memory required by GA*768. When we
+restricted the memory to 1%, GSMA*768 can still keep all
+GMEC solutions, though it cannot theoretically guarantee to
+ﬁnd the GMEC solution in some cases.
+
+ 
+
+i261
+
+ﬁm'spzumol‘pmjxo'sopnuuopnorq/pdnq
+
+Y.Zhou et al.
+
+ 
+
+In the test with the restriction of 0.1% memory, the algorithm
+achieved relatively poor performance. In this case, the algorithm
+was only allow to keep 30000 nodes in memory, which is un—
+friendly to parallel A*, as discussed in Section 3.1. When the
+absolute size of allowed memory is too small, it is more probable
+for GSMA* to throw away an important node at the beginning
+of the tree expansion. In practice, we will always use all available
+memory to perform the protein design task. So this setting was
+only for the evaluation purpose.
+
+4 CONCLUSION AND FUTURE WORK
+
+Computational protein design is a challenging problem in the
+computation biology ﬁeld. In this article, we have developed
+an innovative method to improve the A* algorithm for compu—
+tational protein design, which signiﬁcantly reduces running time
+of the original protein design algorithm by up to four orders of
+magnitude while maintaining low memory overhead. Another
+advantage of our algorithm is that we do not change the interface
+of the original protein design framework in OSPREY (Gainza
+et al., 2013). We have shown that it could be successfully inte—
+grated with iMinDEE (Gainza et al., 2012) to further improve
+SCPR with the consideration of continuous side—chain ﬁexibility.
+
+Memory limitation becomes a more important problem in
+protein design after A* is sped up. Thus, we introduce
+memory—bounded parallel A*, a variant of A* algorithm that
+only uses limited memory. In the Results section, we have
+shown that in practice, the memory—bounded parallel A* algo—
+rithm is able to guarantee the GMEC solution with only one—
+tenth of memory consumption that the original algorithm
+requires.
+
+Currently GA* is only implemented on the Tesla GPU card.
+It would be interesting to know whether it can achieve similar
+performance on a more affordable GPU card such as NVIDIA
+GeForce GTX series. In addition, although currently GA* is
+only runnable on a single GPU platform, it should be easy to
+port it to other parallel computational platforms due to the
+parallel characteristic of our algorithm. If we can utilize the
+existing large clusters of CPUs and GPUs to run GA*, in
+which more memory and computation resource is available,
+we will be able to solve a larger protein design problem than
+ever before.
+
+ACKNOWLEDGEMENTS
+
+We thank Mr Kyle Roberts and Mr Pablo Gainza for helping us
+set up the iMinDEE code and providing us the benchmark data—
+set and scripts for testing. We thank Mr Kyle Roberts and Mr
+Mark Hallen for their helpful comments on the draft of this
+article. We particularly thank Mr Kyle Roberts for his in—
+depth comments on the property of memory—bounded A*. We
+thank the anonymous reviewers for their helpful comments.
+
+Funding: This work is supported in part by the National Basic
+Research Program of China (grant 2011CBA00300,
+2011CBA00301) and the National Natural Science Foundation
+of China (grant 61033001, 61361136003). This work is supported
+by a grant to B.R.D. from the National Institutes of Health (R01
+GM—78031).
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Althaus,E. et al. (2002) A combinatorial approach to protein docking with flexible
+side chains. J. Comput. Biol., 9, 597%12.
+
+Chazelle,B. et al. (2004) A semideﬁnite programming approach to side
+chain positioning with new rounding strategies. INFORMS J. Comput., 16,
+380392.
+
+Chen,C—Y. et al. (2009) Computational structure—based redesign of enzyme activity.
+Proc. Natl Acad. Sci., 106, 3764e3769.
+
+Dechter,R. and Pearl,J. (1985) Generalized best—ﬁrst search strategies and the opti—
+mality of A*. J. ACM (JACM), 32, 5057536.
+
+Desmet,J. et al. (1992) The dead—end elimination theorem and its use in protein side—
+chain positioning. Nature, 356, 5397542.
+
+Donald,B.R. (2011) Algorithms in Structural Molecular Biology. The MIT Press,
+Cambridge, MA, USA.
+
+Frey,K.M. et al. (2010) Predicting resistance mutations using protein design algo—
+rithms. Proc. Natl Acad. Sci., 107, 13707713712.
+
+Gainza,P. et al. (2012) Protein design using continuous rotamers. PLoS Comput.
+Biol., 8, e1002335.
+
+Gainza,P. et al. (2013) OSPREY: protein design with ensembles, flexibility, and
+provable algorithms. Method. Enzymol., 523, 87.
+
+Georgiev,I. et al. (2006) Improved pruning algorithms and divide—and—conquer stra—
+tegies for dead—end elimination, with application to protein design.
+Bioinformatics, 22, el74—e183.
+
+Georgiev,I. et al. (2008) The minimized dead—end elimination criterion and its ap—
+plication to protein redesign in a hybrid scoring and search algorithm for com—
+puting partition functions over molecule ensembles. J. Comput. Chem., 29,
+152771542.
+
+Gorczynski,M.J. et al. (2007) Allosteric inhibition of the protein—protein interaction
+between the leukemia—associated proteins Runxl and CBFB. Chem. Biol., 14,
+118671197.
+
+Intel Corporation. (2011) Intel Microprocessor Export Compliance Metrics.
+
+Kingsford,C.L. et al. (2005) Solving and analyzing side—chain positioning problems
+using linear and integer programming. Bioinformatics, 21, 102871039.
+
+Korf,R.E. (1985) Depth—ﬁrst iterative—deepening: an optimal admissible tree search.
+Artif. Int., 27, 977109.
+
+Kuhlman,B. and Baker,D. (2000) Native protein sequences are close to optimal for
+their structures. Proc. Natl Acad. Sci., 97, 10383710388.
+
+Leach,A.R. et al. (1998) Exploring the conformational space of protein side chains
+using dead—end elimination and the A* algorithm. Proteins Struct. Funct. Genet,
+33, 2277239.
+
+Lilien,R.H. et al. (2005) A novel ensemble—based scoring and search algorithm for
+protein redesign and its application to modify the substrate speciﬁcity of the
+gramicidin synthetase a phenylalanine adenylation enzyme. J. Comput. Biol., 12,
+74(k761.
+
+Lippow,S.M. and Tidor,B. (2007) Progress in computational protein design. Curr.
+Opin. Biotechnol, 18, 3057311.
+
+Marvin,J.S. and Hellinga,H.W. (2001) Conversion of a maltose receptor into a
+zinc biosensor by computational design. Proc. Natl Acad. Sci., 98,
+49554960.
+
+Moon,S.—W. et al. (2000) Scalable hardware priority queue architectures for high—
+speed packet switches. IEEE Trans. Comput., 49, 121571227.
+
+NVIDIA Corporation. (2013) N VIDIA Tesla Technical Specifications.
+
+Pierce,N.A. and Winfree,E. (2002) Protein design is NP—hard. Protein Eng., 15,
+7797782.
+
+Pitman,D.J. et al. (2014) Improving computational efﬁciency and tractability of
+protein design using a piecemeal approach. A strategy for parallel and distrib—
+uted protein design. Bioinﬁ)rmatics, 30, 113871145.
+
+Roberts,K.E. et al. (2012) Computational design of a PDZ domain peptide inhibitor
+that rescues CFTR activity. PLoS Comput. Biol., 8, e1002477.
+
+R6nngren,R. and Ayani,R. (1997) A comparative study of parallel and sequen—
+tial priority queue algorithms. ACM T. Model. Comput. S. (TOMACS), 7,
+1577209.
+
+Russell,S. (1992) Efﬁcient memory—bounded search methods. Proceedings of the
+10111 European Conference on Artificial intelligence,
+
+Satish,N. et al. (2009) Designing efﬁcient sorting algorithms for manyoore GPUs.
+In: IEEE International Parallel & Distributed Processing Symposium, 2009.
+IPDPS 2009. pp. 1710.
+
+ 
+
+i262
+
+ﬁm'spzumol‘pmjxo'sopnuuopnorq/pdnq
+
+A parallel algorithm for accelerating computational protein design
+
+ 
+
+Sengupta,S. et al. (2007) Scan primitives for GPU computing. In: Fellner,D. and
+Spencer,S. (eds) Proceedings ofthe 22nd ACM SIGGRAPH/EUROGRAPHICS
+symposium on Graphics hardware. Eurographics Association, Aire—la—Ville,
+Switzerland, Switzerland, pp. 977106.
+
+Shah,P.S. et al. (2004) Preprocessing of rotamers for protein design calculations. J.
+Comput. Chem., 25, 179771800.
+
+Sintorn,E. and Assarsson,U. (2008) Fast parallel GPU—sorting using a hybrid algo—
+
+rithm. J. Parallel Distr. Com., 68, 138171388.
+
+Street,A.G. and Mayo,S.L. (1999) Computational protein design. Structure, 7,
+
+R1057R109.
+
+Xu,J. and Berger,B. (2006) Fast and accurate algorithms for protein side-chain
+
+packing. J. ACM (JACM), 53, 5334557.
+
+ 
+
+i263
+
+/810's112um0fp10}x0"soncquJuioiqﬂ:duq
+

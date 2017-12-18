@@ -1,0 +1,1338 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 17 2014, pages 2447-2455
+doi:10. 1093/bioinfonnatics/btu31 7
+
+ 
+
+Gene expression
+
+Advance Access publication May 9, 2014
+
+Efficient RNA isoform identification and quantification from
+RNA-Seq data with network flows
+
+Elsa Bernard1'2'3, Laurent Jacob“, Julien Mairal5 and Jean-Philippe Ve
+
+“123$
+
+1Mines ParisTech, Centre for Computational Biology, 77300 Fontainebleau, 2Institut Curie, 26 rue d’Ulm, 75248 Paris
+Cedex 05, 3INSERM U900, Paris F-75248, France, 4Laboratoire Biométrie et Biologie Evolutive, Université de Lyon,
+Université Lyon 1, CNRS, INRA, UMR5558, Villeurbanne, France and 5LEAR Project-Team, INRIA Grenoble Rhone
+
+Alpes, 38330 Montbonnot, France
+Associate Editor: Janet Kelso
+
+ 
+
+ABSTRACT
+
+Motivation: Several state-of-the-art methods for isoform identification
+and quantification are based on £1-regularized regression, such as the
+Lasso. However, explicitly listing the—possibly exponentially—large
+set of candidate transcripts is intractable for genes with many
+exons. For this reason, existing approaches using the £1-penalty are
+either restricted to genes with few exons or only run the regression
+algorithm on a small set of preselected isoforms.
+
+Results: We introduce a new technique called FlipFlop, which can ef-
+ficiently tackle the sparse estimation problem on the full set of candi-
+date isoforms by using network flow optimization. Our technique
+removes the need of a preselection step, leading to better isoform iden-
+tification while keeping a low computational cost. Experiments with
+synthetic and real RNA-Seq data confirm that our approach is more
+accurate than alternative methods and one of the fastest available.
+Availability and implementation: Source code is freely available as an
+R package from the Bioconductor Web site (http://www.bioconductor.
+org/), and more information is available at http://cbio.ensmp.fr/‘flipflop.
+Contact: Jean-Philippe.Vert@mines.org
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on March 18, 2013; revised on April 16, 2014; accepted on
+April 30, 2014
+
+1 INTRODUCTION
+
+Over the past decade, quantitation of mRNA molecules in a cell
+population has become a popular approach to study the effect of
+several factors on cellular activity. Typical applications include
+the detection of genes whose expression varies between two or
+more populations of samples (differential analysis), classiﬁcation
+of samples based on gene expression (van’t Veer et al., 2002) and
+clustering, which consists of identifying a grouping structure in a
+sample set (Perou et al., 2000). While probe-based DNA micro-
+array technologies only allow quantitating mRNA molecules
+whose sequence is known in advance, the recent development
+of deep sequencing has removed this restriction. More precisely,
+RNA-Seq technologies (Mortazavi et al., 2008) allow the sequen-
+cing of cDNA molecules obtained by reverse transcription of
+RNA molecules present in the cell. Consequently, any transcript
+can be sequenced and therefore quantitated, even though its
+
+ 
+
+*To whom correspondence should be addressed.
+
+sequence might not be available a priori for designing a speciﬁc
+probe. In addition to facilitating the study of non-coding parts of
+known genomes and organisms whose genome has not been
+sequenced (Mortazavi et al., 2010), RNA-Seq technologies facili-
+tate the quantitation of alternatively spliced genes. Genes in
+eukaryote cells contain a succession of exon and intron
+sequences. Transcription results in a pre-mRNA molecule from
+which most introns are removed, and some exons are retained
+during a processing step called RNA splicing. It is estimated that
+>95% of multiexonic genes are subject to alternative splicing
+(Pan et al., 2008): the set of exons retained during splicing can
+vary, resulting for the same gene in different versions of the
+mRNA, referred to as transcripts or isoforms. Identiﬁcation
+and quantification of isoforms present in a sample is of outmost
+interest because different isoforms can later be translated as dif-
+ferent proteins. Detection of isoforms whose presence or quan-
+tity varies between samples may lead to new biomarkers and
+highlight novel biological processes invisible at the gene level.
+
+Sequencing technologies are well suited to transcript quantita-
+tion as the read density observed along the different exons of a
+gene provide information on which alternatively spliced mRNAs
+were expressed in the sample, and in which proportions. Because
+the read length is typically smaller than the mRNA molecule of a
+transcript, identifying and quantifying the transcripts is, how-
+ever, difficult: an observed read mapping to a particular exon
+may come from an mRNA molecule of any transcript containing
+this exon. Some methods consider that the set of expressed iso-
+forms (Jiang and Wong, 2009) or a candidate superset (Huang
+et al., 2013; Xing et al., 2006) is known in advance, in which case
+the only problem is to estimate their expression. However, little is
+known in practice about the possible isoforms of genes, and
+restricting oneself to isoforms that have been described in the
+literature may lead to missing new ones.
+
+Two main paradigms have been used so far to estimate expres-
+sion at the transcript level while allowing de novo transcript
+discovery. On the one hand, the Cufﬂinks software package
+(Trapnell et al., 2010) proceeds in two separate steps to identify
+expressed isoforms and estimate their abundance. It first esti-
+mates the list of alternatively spliced transcripts by building a
+small set of isoforms containing all observed exons and exon
+junctions. In a second step, the expression of each transcript is
+quantiﬁed by likelihood maximization given the list of tran-
+scripts. Identiﬁcation and quantiﬁcation are therefore done
+
+ 
+
+© The Author 2014. Published by Oxford University Press.
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution License (http://creativecommons.org/licenses/by/3.0/), which
+permits unrestricted reuse, distribution, and reproduction in any medium, provided the original work is properly cited.
+
+112 /310's112u1n0fp10}x0"sotJBurJOJutotq/ﬁduq 11101} papBOIII/lAOG
+
+9103 ‘Og isanV uo ::
+
+E.Bemard et al.
+
+ 
+
+independently. On the other hand, a second family of methods
+(Behr et al., 2013; Bohnert and Ratsch, 2010; Li et al., 2011a, b;
+Mezlini et al., 2013; Xia et al., 2011) jointly estimates the set of
+transcripts and their expression using a penalized likelihood ap-
+proach. These methods model the likelihood of the expression of
+all possible transcripts, possibly after some preselection, and the
+penalty encourages sparse solutions that have a few expressed
+transcripts.
+
+The two-step approach of Cufﬂinks (Trapnell et al., 2010) is
+reasonably fast, but does not exploit the observed read density
+along the gene, which can be a valuable information to identify the
+set of transcripts. This is a conclusion drawn experimentally using
+methods from the second paradigm (see Bohnert and Ratsch,
+2010; Li et al., 2011a, b; Mezlini et al., 2013; Xia et al., 2011).
+To summarize, the ﬁrst paradigm is fast but can be statistically less
+powerful than the second one in some cases, whereas the second
+paradigm suffers from the exponential number of candidate iso-
+forms and becomes intractable for genes with many exons. The
+contribution of this article is to allow 31-penalized regression
+methods from the second family to run efﬁciently without prefil-
+tering the set of isoform candidates, although they solve a non-
+smooth optimization problem over an exponential number of
+variables. To do so, we show that the penalized likelihood maxi-
+mization can be reformulated as a convex cost network ﬂow prob-
+lem, which can be solved efﬁciently (Ahuja et al., 1993; Bertsekas,
+1998; Mairal and Yu, 2012). Note that a signiﬁcantly different
+approach was adopted by Behr et a]. (2013) for non-convex €0-
+penalty. Even though the problem they address is NP-hard, they
+perform simultaneous isoform identiﬁcation and quantiﬁcation,
+without explicitly enumerating all possible transcripts, by using
+mixed integer programming techniques.
+
+The article is organized as follows: Section 2 introduces the
+statistical model (Section 2.1) and the penalized likelihood ap-
+proach (Section 2.2) we follow. Our model is similar to the one
+used by Xia et a]. (2011), but properly models reads that cover
+more than two exons, effectively taking advantage of longer
+reads. We then reformulate the model as a path selection prob-
+lem over a particular graph (Section 2.3), and present our
+method in Sections 2.4e2.6 called FlipFlop (Fast Lasso-based
+Isoform Prediction as a FLOw Problem) for solving it efﬁciently.
+Section 3 empirically compares our approach with the state of
+the art on simulated and real sequencing data. Our experiments
+show that our approach has higher accuracy in isoform discovery
+than methods that treat discovery and abundance estimation as
+two separate steps and that it runs signiﬁcantly faster than meth-
+ods explicitly listing the candidate isoforms. We discuss the im-
+plications of our results in Section 4.
+
+2 METHOD
+
+Our approach to isoform deconvolution from RNA-Seq data consists of
+ﬁtting a sparse probabilistic model, like several existing methods includ-
+ing rQuant (Bohnert and Ratsch, 2010), NSMAP (Xia et al., 2011),
+IsoLasso (Li et al., 2011b), SLIDE (Li et al., 2011a) or iReckon
+(Mezlini et al., 2013). The reads from RNA-Seq data are modeled as a
+linear combination of isoforms expressions that are estimated by using
+the maximum likelihood principle. Because the number of candidate iso-
+forms grows exponentially with the number of exons, the above methods
+are either computationally expensive for genes with many exons (such as
+
+NSMAP or SLIDE) or include a preselection step to reduce the number
+of candidates, which may alter the method accuracy.
+
+The main novelty of our article is to tackle the sparse estimation
+problem efficiently without prefiltering. In the methodological
+section, we show that the corresponding penalized maximum likelihood
+estimator can be computed in polynomial time with the number of exons,
+despite the exponential number of candidate transcripts. The key is
+the use of a non-trivial optimization technique based on the concept
+of ﬂow in a graph (Ahuja et al., 1993; Mairal and Yu, 2012).
+
+2.1 Statistical model
+
+We consider an extension of the model originally introduced by Jiang and
+Wong (2009) and used in NSMAP for estimating isoform expression for a
+known set of expressed transcripts. Given a gene of interest, we assume
+that the list of its n exons is known, and that the reads of the RNA-Seq
+experiments have been mapped to a reference genome. For the purpose of
+our work, an exon can either be deﬁned by read alignment software as a
+cluster of reads or from a predeﬁned annotation such as the one provided
+by the UCSC genome browser (http://genome.ucsc.edu/). In the latter
+case, exons with alternative S’-donor and 3’-acceptor sites are considered
+as two separate exons. For alternative S’-donor sites, the exon is broken
+down as one exon ending at the ﬁrst S’-donor site, and another one
+starting at this same point and ending at the second S’-donor site (simi-
+larly for exons with 3’-acceptor sites).
+
+We deﬁne a bin to be an ordered set of exons. Each read is assigned to a
+unique bin, corresponding to the exact set of exons that it overlaps. Our
+model can involve bins with more than two exons. It is thus more general
+than the one of NSMAP, where bins are simply exons and exonaexon
+junctions. This extension of NSMAP is particularly useful for long
+reads, which often cover more than two exons. We summarize the
+read information by the counts yl, . . . , y,, of reads falling in (1 different bins.
+
+We consider in our model all m possible candidate isoforms consisting
+of an ordered sequence of exons. Each candidate isoform corresponds to
+a unique sequence of bins. This sequence can be generated by virtually
+moving a read along the candidate isoform, and recording the sets of
+exons that it successively overlaps.
+
+The effective length l,- of a bin 1' is deﬁned as the number of positions in
+the candidate isoform where reads can start and be assigned to the bin.
+A simple computation shows that for a bin involving a single exon
+of length [6, we have I,- = 1,. — L-l- 1, where L is the read length,
+whereas for bins involving several exons,
+1i =mi11 (11cm L — int — 1)+mi11(lright,L — int — 1) — L+lint+1a Where
+[left and [right are the lengths of the leftmost and rightmost exons of the
+bin, and lint is the total length of the internal exons of the bin.
+Interestingly, we note that the effective length of a bin does not depend
+on the candidate isoform it is associated with. A ﬁgure illustrating the
+computation of the effective length is given in Section 1 of the
+Supplementary Material.
+
+We model read counts as independent Poisson random variables
+whose means are proportional to the bins’ effective lengths and to the
+total abundances of isoforms associated with each bin. More formally, let
+us denote by U the m x (1 binary matrix deﬁned as Uﬁ=1 if bin 1' is
+associated to isoformj and 0 otherwise, and by 61- e [R+ the expression of
+isoform j (the expected number of reads per base in isoform j). Thus,
+
+Zj: 1 Uﬁej represents the sum of expresswns of all lsoforms 1nvolv1ng
+
+bin 1'. We expect the observed count for bin 1' to be distributed around this
+value times the effective length of the bin 1,, and therefore model the read
+
+count y,- as a Poisson random variable with parameter 8,- = 1,2: 1 Uﬁej.
+For a vector 6 = [61]}:1 in [RT , this yields the log-likelihood
+
+1;
+13(9): E [-8i+yi10g 8i -log (yr-1)] (1)
+i=1
+
+where the scalars 8,- depend linearly on 6.
+
+ 
+
+2448
+
+112 /310's112u1n0fp10}x0"sotJBurJOJutotq/ﬁduq 11101} papeolumoq
+
+9103 ‘Og isanV uo ::
+
+Efﬁcient RNA isoform identification and quantification with network flows
+
+ 
+
+Maximizing the likelihood (1) allows quantifying the relative abun-
+dance of each transcript when the model only includes the list of ‘true’
+isoforms present in the sample (J iang and Wong, 2009). Because this list is
+unknown a priori, we present in the next section the sparse estimation
+approach that can jointly quantify and identify the transcripts using all
+candidate isoforms, following Xia et a]. (2011).
+
+2.2 Isoform detection by sparse estimation
+
+Because we do not assume that the list of expressed isoformsiie such
+that 61- 7e Oiis known in advance, we endow 6 with an exponential prior
+eju~dE(A) and maximize over all candidate isoforms the resulting posterior
+likelihood, leading to the estimator
+
+é;=argrrn1in[—£(9)‘l'}L He'll] (2)
+6ER+
+
+where A is a regularization parameter, and the Zl-norm is deﬁned as
+||6||1=27L1|6j|. It is well-known that the Zl-norm penalty and the
+non-negativity constraint have a sparsity-inducing effectithat is, lead
+to estimators 9;, that contain many zeroes (Tibshirani, 1996). The par-
+ameter A controls the number of non-zero elements in the solution 9;, i.e.
+of selected isoforms, with larger A corresponding to fewer isoforms.
+
+Mezlini et a]. (2013) claim that the Zl-penalty is inappropriate for
+isoform selection, a claim we disagree with. As they note, the sum of
+true abundances in RPKM weighted by isoform lengths is by deﬁnition
+the true proportion of reads coming from the gene times 109. They con-
+clude that penalizing by Z]. 61- has little effect on the estimate. However,
+the sum of the estimator 6;, weighted by isoform lengths has no reason to
+be equal to the observed number of reads mapping to the gene. There are
+several causes for that: model inadequacy, various noise sources, ﬁnite
+sample size and bias of the estimator. Penalizin g this sum therefore modi-
+ﬁes the sparsity level of 9;, as observed in our and other’s experiments
+(Bohnert and Ratsch, 2010; Li et al., 2011a, b; Xia et al., 2011).
+
+Note also that (2) is better adapted to long reads than the original
+formulation of NSMAP (Xia et al., 2011), thanks to the use of general
+bins. rQuant (Bohnert and Ratsch, 2010), IsoLasso (Li et al., 2011b) and
+SLIDE (Li et al., 2011a) solve a similar problem where the likelihood is a
+simpler quadratic function, corresponding to a Gaussian model for the
+read counts. A difficulty with these approaches is that the dimension m
+grows exponentially in n, making (2) intractable when n is large. For
+example, Li et al. (2011a) restrict themselves to experiments involving
+genes with <10 exons, because of the high computational cost for
+larger genes. Xia et a]. (2011) restrict themselves to genes with <80
+exons, but only consider candidates with transcription start/polyadenyla-
+tion sites (TSS/PAS) pairs already observed in annotations, and which
+involve more than half of the exons of the gene. Other approaches such as
+IsoLasso include a ﬁltering step to reduce the number of isoforms, simi-
+larly as Cufflinks doesiin the case of single-end reads, their set of can-
+didates is the set of isoforms returned by Cufﬂinks. As pointed out in
+Section 1, this ﬁltering may lead to a loss of power in isoform detection
+because it disregards the read density information when constructing the
+set of candidates. In the next section, we show that, surprisingly, problem
+(2) can be solved efﬁciently without preﬁltering the isoforms by using
+network flow algorithms.
+
+2.3 Isoform detection as a path selection problem
+
+In this section, we reformulate the isoform detection problem as a
+path selection problem over a particular graph. Remember that a
+graph G=(V,E) is composed of a finite set of vertices V and edges
+E g V x V. A path is a sequence of vertices v1, . . . , v}, e V such that
+(v,—, v,—+1) is an arc in E for all indices 1 5 i<k. A graph is a directed
+acyclic graph (DAG) if it contains no path (v1, . . . , vk) with v1 = vk. In
+other words, the graph does not contain any cycle.
+
+99
+
+Splicing graph for a gene with 5 exons.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Graph G’ when the length of exon 3 is smaller than the read length.
+
+Fig. 1. Illustration of the graph construction for a gene with S exons. The
+original splicing graph is represented in (a). The S exons are represented as
+vertices and an arrow between two vertices indicates a junction. The nodes
+of graph G’ in (b) and (c) are bins with positive effective length denoted by
+gray square, as well as source s and sink t represented as circles. G’ in (b) is
+the resulting graph when all exons are bigger than the read length. In that
+case, each bin either corresponds to a unique exon, or to a junction be-
+tween two exons. G’ in (c) is the resulting graph when the length of exon 3 is
+smaller than the read length. Some bins involve then more than two exons,
+here bins (2—3—4) and (2—3—5). The source links all possible starting
+bins, and conversely all possible stopping bins are linked to the sink.
+There is a one-to-one correspondence between (s, t)-paths in G’ (paths
+starting at s and ending at t) and isoform candidates. For example, the
+path (s, 1, 1—4, 4, 4—5, 5, t) corresponds to isoform 1-4-5
+
+We construct an oriented graph G = (V, E) whose vertices are the bins
+with positive effective length defined in Section 2.14each corresponding
+to an ordered set of exons. An edge connects bin v,- to v, if they can be
+associated to two reads starting at successive positions in a candidate
+isoform. In general, v, is obtained from v,- by removing the ﬁrst exon of
+its ordered set or by adding one extra exon at the end of the ordered set,
+depending on the lengths of the exons composing the bin (Fig. 1). We call
+starting bins (respectively stopping bins) the bins that can contain a read at
+the left-most (respectively right-most) position of an isoform. The result-
+ing graph is a DAG generalizing the splicing graph (Heber et al., 2002),
+whose vertices are single exons and edges are exonaexon junctions.
+
+ 
+
+2449
+
+112 /310's1cu1n0fp1q1x0"sothJJOJHtotq/ﬁduq 111011 papeo1umoq
+
+9103 ‘0g isanV uo ::
+
+E.Bemard et al.
+
+ 
+
+We also consider two new vertices s and t, respectively, dubbed source
+and sink, and connected to all starting and stopping bins, respectively. We
+do not impose any restriction on the set of TSS/PAS sites and each exon
+can potentially start or end an isoform. Consequently, the source is con-
+nected to all bins modeling an exon start, and the sink to all bins model-
+ing an exon end. This leads to the deﬁnition of an extended graph
+G’=(V, E) with V: VU {s, t} and E is obtained by adding to E all
+edges of the form (s, v) where v e V is a starting bin, and (v, t) where
+v e V is a stopping bin. This graph construction is illustrated in Figure 1.
+Montgomery et al. (2010) use a similar graph structure in the context of
+estimating the expression of a set of known annotated transcripts.
+
+Let us denote by 73 the set of paths in G’ starting from s and ending at
+t, which are called (s, t)-paths. By construction, one easily checks that 73 is
+in bijection with the set of candidate isoforms, the path in G’ correspond-
+ing to a candidate isoform being the set of bins that reads generated from
+the isoform can produce. Based on this one-to-one mapping, we can
+reformulate the penalized maximum likelihood problem (1H2) as fol-
+lows: we want to ﬁnd non-negative weights 6,, for each path p E 73
+which minimize:
+
+Z13, — y, log 3,] +AZ 9,, with s, =(1, Z 9,) (3)
+
+VE i/ p673 pEP:p3v
+
+where the sum Zpep 61, is equal to the Zl-norm ||6||1 because the
+entries of 6 are non-negative. Note that we have removed the constant
+term log (31,!) from the log likelihood because it does not play a role in the
+optimization. This reformulation is therefore a path selection (ﬁnding
+which 61, are non-zero) and quantiﬁcation problem over G’. The next
+section shows how (3) can further be written as a ﬂow problem, i.e.
+technically a constrained optimization problem over the edges of the
+graph rather than the set of paths in 73. A computationally feasible ap-
+proach can then be devised to solve (3) efﬁciently, following Mairal and
+Yu (2012).
+
+2.4 Optimization with network ﬂows
+
+A ﬂow f on G’ is deﬁned as a non-negative function on arcs [12,0030E E
+that satisﬁes conservation constraints: the sum of incoming ﬂow at a
+vertex is equal to the sum of outgoing ﬂow except for the source s and
+the sink t. Such conservation property leads to a physical interpretation
+about ﬂows as quantities circulating in the network, for instance, water in
+a pipe network or electrons in a circuit board. The source node s injects
+into the network some units of ﬂow, which move along the arcs before
+reaching the sink t.
+
+For example, given a path p E 73 and a non-negative number 61,, we
+can make a ﬂow by setting f“V = 61, when u and v are two consecutive
+vertices along the path p, and f“, = 0 otherwise. This construction cor-
+responds to sending 61, units of ﬂows from s to t along the path p. Such
+simple ﬂows are called (s, t)-path ﬂows. More interestingly, if we have a
+set of non-negative weights 6 6 [RT‘ associated to all paths in 73, then we
+can form a more complex ﬂow by superimposing all (s, t)-path ﬂows
+according to
+
+f... = Z 9,, (4)
+
+pEP:p3(u,v)
+
+where (u, v) e p means that u and v are consecutive nodes on p.
+
+While (4) shows how to make a complex ﬂow from simple ones, a
+converse exists, known as the ﬂow decomposition theorem (see, e.g. Ahuja
+et al., 1993). It says that for any DAG, every ﬂow vector can always be
+decomposed into a sum of (s, t)-path flows. In other words, given a ﬂow
+[fm](uiv)eE/, there exists a vector 6 in [RF such that (4) holds. Moreover,
+there exist linear-time algorithms to perform this decomposition (Ahuja
+et al., 1993). As illustrated in Figure 2, this leads to a ﬂow interpretation
+for isoforms.
+
+We now have all the tools in hand to turn (3) into a ﬂow problem by
+following Mairal and Yu (2012). Given a ﬂow f = [12,0030E Er , let us deﬁne
+
+ 
+
+(a) 1 1 1
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Reads at every node corresponding to one isoform.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+0” 1 1 4
+4
+s 3 4 t
+3 3 3
+
+Reads at every node after adding another isoform.
+
+Fig. 2. Flow interpretation of isoforms using the same graph as in Figure
+1b. For the sake of clarity, some edges connecting s and t to internal
+nodes are not represented, and the length of the different bins is assumed
+to be equal. In (a), one unit of ﬂow is carried along the path in red,
+corresponding to an isoform with abundance 1. In (b), another isoform
+with abundance 3 is added, yielding additional read counts at every node
+
+the amount of ﬂow incoming to a node v in V’ as fvéz V. E/fm.
+Given a vector 6 6 [RT associated to f by the ﬂow decorrigosilfigii the-
+orem, i.e. such that (4) holds, we remark that fV = E E7} 3V6], and that
+f, = E E7: 61,. Therefore, problem (3) can be equivalently-rewritten as
+
+p
+
+3161;  [8 y. log 8.] Hf, wuh a. 1va (5)
+where .7: denotes the set of possible ﬂows. Once a solution f“ of (S) is
+found, a solution 6’F of (3) can be recovered by decomposing f“ into (s, t)-
+path ﬂows, as discussed in the next section.
+
+The use of network ﬂows has two consequences. First, (5) involves a
+polynomial number of variables, as many as arcs in the graph, whereas
+this number was exponential in (3). Second, problem (5) falls into the
+class of convex cost ﬂow problems (Ahuja et al., 1993), for which efficient
+algorithms exist [The function (5) can be decomposed into costs Cv(fv)
+over vertices v. The general convex cost ﬂow objective function is usually
+presented as a sum of costs Cm(f,,v) over arcs (u, v). It is however easy to
+show that costs over vertices can be reduced to costs over arcs by a simple
+network transformation (see Ahuja et al., 1993, Section 2.4). Note that all
+arcs have zero lower capacities and inﬁnite upper capacities]. In our
+experiments, we implemented a variant of the scaling push-relabel algo-
+rithm (Goldberg, 1997), which also appears under the name of a-relax-
+ation method (Bertsekas, 1998). Note that the approach can be
+generalized to any concave likelihood function, including the Gaussian
+model used by IsoLasso and SLIDE.
+
+Network ﬂows have been used in several occasions in bioinformatics.
+Medvedev and Brudno (2009) solve a convex cost flow problem on a
+bidirected de Bruijn graph for maximum likelihood whole genome shotgun
+assembly. Montgomery et al. (2010) introduced the formalism of ﬂows for
+RNA-Seq data; however, they did not perform isoform discovery but
+quantiﬁcation from a set of known transcripts. Their formulation is a
+linear program, the dimension of which is the number of candidate tran-
+scripts considered, which is not a network ﬂow problem. Singh et al. (201 1)
+uses the terminology of ﬂows for RNA-Seq data in the context of testing
+differential transcription without reconstructing transcripts. Finally, while
+this article was under revision, Tomescu et al. (2013) published a similar
+method, which also uses minimum cost ﬂow techniques for isoform
+
+ 
+
+2450
+
+112 /310's112u1n0fp101x0"sotJBurJOJHtotq/ﬁduq 111011 pap1201umoq
+
+9103 ‘0g15n8nv uo ::
+
+Efﬁcient RNA isoform identification and quantification with network flows
+
+ 
+
+recovery. However, their method only involves bins corresponding to
+exons and exonaexon junction and, more importantly, does not solve the
+penalized likelihood approach. They have therefore no principle way to
+balance the sparsity of the solution with its likelihood, and even mention
+that this leads to a NP-hard problem. To our knowledge, our work is the
+ﬁrst to show that the sparsity-inducing Z1 penalty can be integrated with
+the likelihood term in the language of network ﬂow, to estimate a flow with
+large likelihood that can be easily decomposed in a number of paths as
+small as we wish.
+
+2.5 Flow decomposition
+
+We have seen that after solving (5) we need to decompose f“ into (s, t)-
+path ﬂows to obtain a solution 6’F of (2). As illustrated in Figure 2, this
+corresponds to ﬁnding the two isoforms from 2(b). Although the decom-
+position might not be ambiguous when f“ is a sum of few (s, t)-path
+ﬂows, it is not unique in general. Our approach to ﬂow decomposition
+consists of ﬁnding an (s, t)-path carrying the maximum amount of ﬂow
+(equivalently ﬁnding an isoform with maximum expression), removing its
+contribution from the ﬂow and repeating until convergence. We remark
+that ﬁnding (s, t)-path ﬂows according to this criterion can be done effl-
+ciently using dynamic programming, similarly as for ﬁnding a shortest
+path in a directed acyclic graph (Ahuja et al., 1993). We insist on the fact
+that the ﬂow decomposition returns one solution of the Zl-penalized es-
+timator given by problem 3. This problem can have several solutions
+yielding the same objective value, and which are typically sparse in the
+number of transcripts (see Supplementary Fig. S2). The non-uniqueness
+of the solution is not an artifact of our network ﬂow approach, but a
+property of the Zl-penalized estimator. Algorithms such as SLIDE,
+NSMAP or others that explicitly enumerate the candidates and minimize
+the parameter in the candidate space also return one of several solutions.
+In parallel, the stability of the estimator is investigated in Section 4 of the
+Supplementary Material.
+
+2.6 Model selection
+
+The last problem we need to solve is model selection: even if we know
+how to solve (2) efﬁciently, we need to choose a regularization parameter
+A. For large values of A, (2) yields solutions involving few expressed iso-
+forms. As we decrease A, more isoforms have a non-zero estimated ex-
+pression 61-, leading to a better data fit but also leading to a more complex
+model. A classical way of balancing ﬁt and model complexity is to use
+likelihood ratio tests. Xia et al. (2011) chose this approach, but we found
+the log likelihood ratio statistics to be empirically poorly calibrated be-
+cause of the typically small number of samples unitsiexonsiand the
+non-independence of the observed read counts. We choose a related ap-
+proach, which we found better behaved, and select the model having the
+largest bayesian information criterion (BIC) (Schwarz, 1978). An alter-
+native approach taken by Li et al. (2011a) would be to use stability
+selection (Meinshausen and Biihlmann, 2010).
+
+3 RESULTS
+
+We now compare our proposed method FlipFlop to Cufﬂinks
+(Trapnell et al., 2010) version 2.0.0, IsoLasso (Li et al., 2011b)
+version 2.6.1 and NSMAP Oiia et al., 2011) on both simulated
+and real data. All experiments were run on a desktop computer
+on a single core of an Intel Xeon CPU X5460 3.16Ghz with
+16GB of RAM. Reads are aligned to a reference genome by
+using TopHat (Trapnell et al., 2009) version 2.0.6, and the con-
+structed alignment files are used as input to the methods we
+compare. IsoLasso, Cufﬂinks and FlipFlop only use these
+aligned reads as input, and estimate their exon boundaries and
+TSS/PAS from read density. NSMAP additionally requires exon
+
+boundaries and known TSS/PAS as input. For paired-end ex-
+periments, we extended our initial model designed for single-end:
+a pair of reads is considered as a long single-end read. When the
+two reads of a pair span bins potentially separated by some
+exons, we use heuristics based on genomic distances to decide
+whether these exons are spliced. All software programs are used
+with default parameters, except that for paired-end experiments,
+we provide fragment length mean and standard deviation to
+IsoLasso, Cufﬂinks and FlipFlop. Note that all results can be
+easily reproduced by following the tutorials available at http://
+cbio.ensmp.fr/ﬂipflop/experiments.html.
+
+3.1 Simulated human RNA-Seq data
+
+Because little is known about the true set of isoforms expressed
+in real data, we start our experimental validation with a set of
+simulations. We use the RNASeqReadSimulator software
+(http://alumni.cs.ucr.edu/~liw/rnaseqreadsimulator.html) to
+generate single-end and paired-end reads from the annotated
+human transcripts available in the UCSC genome browser
+(hg19). We restrict ourselves to the 1137 multi-exons genes on
+the positive strand for chromosome 1, corresponding to 3709
+expressed transcripts.
+
+We follow the protocol of Isolasso (Li et al., 201 lb) and con-
+sider that a transcript from the annotation has been detected by a
+method if it predicts a transcript that (i) includes the same set of
+exons, and such that (ii) all internal boundary coordinates (i.e. all
+the exon coordinates except the beginning of the ﬁrst exon and
+the end of the last exon) are identical. The objective for each
+method is to recover a large proportion of transcripts that
+were used for read generationihigh recalliwithout detecting
+too many transcripts that were not used to generate the
+readsihigh precision.
+
+Figure 3 shows the precision and recall of the compared meth-
+ods on single-end and paired-end simulations. Because we expect
+the difﬁculty of the deconvolution problem to increase with the
+number of transcripts of the gene, we stratify the result by this
+number: each dot represents the precision and recall of one
+method for genes with a particular number of transcripts in
+the UCSC annotation. As expected, genes with more transcripts
+lead to more difﬁcult estimation problems and decreased per-
+formances for all methods. Figure 3a shows single-end results
+for different read lengths from 100 to 300bp and a ﬁxed
+number of 1 million reads per experiment. FlipFlop clearly
+takes advantage of longer reads: the longer the read the better
+the accuracy for all transcript levels. For 100bp long reads,
+FlipFlop and Cufﬂinks show similar results, while NSMAP
+gives slightly better precision and recall for two transcript level
+and degraded results compared with FlipFlop for more than four
+expressed transcripts. These differences might arise from the fact
+that NSMAP restricts its search to the TSS and PAS observed in
+the annotation, whereas FlipFlop estimates them from reads,
+and the fact that the two methods use different graphs and
+model selection techniques. For 300 bp long reads, FlipFlop out-
+performs all other methods as soon as there is more than one
+expressed transcript. For instance, for the three to four tran-
+scripts levels, FlipFlop achieves 75% of precision and 67% of
+recall, while Cufﬂinks reaches 74 and 52% and IsoLasso reaches
+64 and 51%. This demonstrates that an adapted model for long
+
+ 
+
+2451
+
+112 /310's112u1n0fp101x0"sotJBurJOJHtotq/ﬁduq 111011 pap1201umoq
+
+9103 ‘0g15n8nv uo ::
+
+E.Bemard et al.
+
+ 
+
+I IsoLasso l Cufﬂlnks I FlipFIop if NSMAP
+
+I 1transcript I Ztranscripts I (Htranscripts l 5-‘ftranscrlpts l B-ﬂtranscrlpts
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+a
+( ) 100 hp (1" reads} 200 hp {1" reads} 300 hp (1" reads)
+100 -
+*Ir" ,3 a t
+A is
+75 — a I It];
+.
+.rl .
+2' o
+B so - II“ . *1 I *
+I: o
+O *h
+it . l 4 I ‘
+25 ~ ‘ as o
+o ‘ 9*
+i 1 *_ a? T
+I I I I I I I I I I I I
+40 50 80 100 40 30 80 100 40 50 30 100
+PRECISION
+
+Single-end roads with diffci'cni lengths ( 100. 200. 300th
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+b .
+I I 100 hp (1111 read pairs) | 125 bp [1M road pairs) | 150 bp {1M rsad psirsi | . 115 hp (1" rssd pairs} |
+100 -
+In It '- 1..
+U I O
+. a a a a
+75 - I . s I
+.1 O .
+g I ‘ o ‘ ‘ A
+u 50 - l I I l
+n: . O
+O
+I ‘ ‘ l A
+I I I I
+25 - . a
+o 1‘ .1 ,. a
+' I l I
+I i I 'I I I I I 'I ' I l' I
+so so so 4o so so 4o so so no so so
+PRECISION
+Paired—end reads with different lengths [1111}. |2_"L 15!}. l'i'Shp}
+(C) 1 11111501») 5 lil {150bp} | 10 M (150bp}
+1oo - '
+1} £1.36 .iule
+‘, air
+a I ’9 IA
+75 — I
+. O
+3 s
+an air
+0 _ a I’I‘ n I a
+0 so I at
+C 0
+° 1
+25 _ ﬂ. ‘ ¥ ‘ A
+U C O
+I *9 A I all- A .3.(— a
+I I I I I I I I I
+4|) ED 80 40 60 BI) 40 ED 80
+PRECISION
+
+Single-end reads with a ﬁxed 1,51pr length and an increasing amout ot'matcrial il. 5. ll] million}
+
+Fig. 3. Precision and recall of compared methods on simulated reads from the UCSC annotated human transcripts. (a) Single-end reads with different
+lengths (100, 200, 300 bp). (b) Paired-end reads with different lengths (100, 125, 150, 175 bp). (0) Single-end reads with a ﬁxed 150 bp length and an
+
+increasing amout of material (1, 5, 10 million)
+
+reads is critical for isoform recovery. NSMAP optimizes a similar
+Poisson objective function as FlipFlop but only models reads at
+the exon or exonaexon junction levels; it looses statistical power
+when the read length increases. Figure 3b shows paired-end re-
+sults for 400 bp fragment length, 20 bp SD, 1 million read pairs
+and read lengths from 100 to 175 bp. Although our model is
+designed for single-end reads and is particularly adapted to
+
+long reads, it shows competitive or better accuracy for paired-
+end reads. Once again, when the read length increases, FlipFlop
+performance improves proportionally more than other methods.
+In Figure 3c, the read length is set to 150 bp and the number of
+simulated reads varies from 1 million to 10 million. Increasing
+the coverage clearly helps FlipFlop, whereas it does not change
+much for Cufﬂinks and IsoLasso. Cufﬂinks constructs its set of
+
+ 
+
+2452
+
+12 /810's12u1n0[p101x0'so112111101u101q//:d1111 111011 pap201um0q
+
+9103 ‘0g1sn8nv 110 ::
+
+Efﬁcient RNA isoform identification and quantification with network flows
+
+ 
+
+ 
+
+2—5 exons 5—10 exons
+
+10-20 exons 20—116 exons
+
+ 
+
+ 
+
+1 e+05
+
+1 e+04
+
+ 
+
+ 
+
+ 
+
+1 e+03
+
+ 
+
+ 
+
+ 
+
+1 e+02
+
+1e+01
+
+CPU time (ms) by gene
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+lsoLassoCuftllnks FllpFlop NSMAP lsoLassoCuﬂllnks FllpFlop NSMAP lsoLassoCuﬂllnks FllpFlop NSMAP lsoLassoCuﬂllnks FllpFlop NSMAP
+
+Fig. 4. Average CPU times in milliseconds (logarithmic scale) for the compared methods with process a gene from human simulated 100 bp single-end
+
+reads
+
+transcripts and estimates their abundances in two separate steps,
+and the construction of the set of returned transcripts does not
+take read density into account: it intends to ﬁnd the smallest set
+of isoforms covering all the observed reads. IsoLasso is based on
+penalized likelihood maximization like FlipFlop and NSMAP,
+but starts from a restricted set of isoformsithe same set
+returned by Cufﬁinks for single-end data. Consequently, this
+family of methods discards some information that can help iden-
+tifying the set of expressed isoforms.
+
+While results in Figure 3 are obtained with default parameters
+for all methods, Supplementary Figure S6 of the supplementary
+shows performances when parameters are ﬁrst tuned on an inde-
+pendent training set; in that case, results are not significantly
+different. Note that the number of exons of a gene signiﬁcantly
+affects the difﬁculty of isoform reconstruction. We show in the
+Supplementary Material (Supplementary Fig. S3) similar results
+to the ones presented in Figure 3 with stratiﬁcation by number of
+exons instead of number of transcripts. We also detail in Section
+6 of the Supplementary Material more realistic simulations that
+include typical library preparation and sequencing biases
+using another simulatorithe Flux-Simulator (Griebel et al.,
+2012), which aims at modeling RNA-Seq experiments in
+silicwand we show results that are consistent with the ones of
+Figure 3.
+
+Figure 4 shows the mean CPU time taken by each method to
+perform the deconvolution of genes with different sizes. Genes
+with more exons tend to have more candidate isoforms and ex-
+periments involving such genes are expected to take more time.
+Therefore, we stratify the observed times by exon number of the
+genes: each barplot represents the mean time taken by each
+method for ﬁnding the transcripts of genes having a particular
+number of exons. As expected, FlipFlop is always faster than
+NSMAP, more than a hundred times faster for genes with >20
+exons. FlipFlop speed is comparable with Cufﬁinks, and about
+four times slower than IsoLasso. This is because IsoLasso maxi-
+mizes its objective over a very restricted set of candidatesiin
+these simulations never more than nine and around two to
+three on an average. Overall, FlipFlop estimates the set of
+expressed isoforms for 1137 genes in <9min, i.e. about two
+genes per second. Note also that the time for data pre-
+preprocessing (ﬁnding exon boundaries and read counts for
+exons and junctions) is taken into account for all methods
+except NSMAP.
+
+These simulations conﬁrm several facts. First, methods that
+identify and quantify transcripts as a single penalized max-
+imum likelihood problem show good performances and take
+clear advantage of an increase in coverage. Second,
+
+correctly modeling long reads allows to greatly improve the ac-
+curacy of isoform reconstruction. Third, the proposed network
+ﬂow strategy allows to solve the penalized likelihood approach
+quickly even when the set of candidate isoforms is extremely
+large.
+
+3.2 Real RNA-Seq data
+
+Our second round of experiments involves two independent real
+human embryonic stem cell datasets. They both contain about 50
+million 75 bp reads, either paired-end or single-end, with respect-
+ively NCBI SRA accession number SRR065504 and
+ERR361241.
+
+In the experiments of Section 3.1, we generated the reads based
+on a known set of transcripts. In the present case, the reads come
+from actual human tissues, and we do not have access to the true
+set of expressed transcripts. Following Xia et al. (2011) and Li
+et al. (2011a), we choose to use the UCSC annotation as ground
+truth in the evaluation. Admittedly, this is not perfect as some
+expressed transcripts may be missing from the annotation, and
+some annotated transcripts may not be expressed in this particu-
+lar experiment. However, agreement of the prediction with the
+set of known transcripts could be a good sign.
+
+Figure 5 shows precision and recall of each method for differ-
+ent FPKM (Fragments Per Kilobase of exon per Million frag-
+ments mapped) levels. When considering all transcripts with
+predicted abundances higher than 1 FPKM, FlipFlop has a
+higher precision for both the paired-end and single-end datasets,
+while Cufﬁinks has a better recall. For transcripts with more
+than 5 FPKM abundance, all methods have a similar recall,
+with a slight advantage to Cufﬁinks, while FlipFlop shows a
+much better precision. Section 7 of the supplementary gives add-
+itional details on the real RNA-Seq data experiments:
+Supplementary Figure S8 shows the running time of the com-
+pared methods and Supplementary Figure S9 corresponds to the
+precision-recall curves obtained for FlipFop when varying the
+model selection rule.
+
+4 DISCUSSION
+
+Simultaneously tackling identiﬁcation and quantitation using
+penalized likelihood maximization is known to be a powerful
+approach to estimate the set of expressed transcripts. However,
+existing Zl-regularized regression techniques cannot deal with
+genes that contain too many exons, as the set of candidate iso-
+forms grows exponentially with the number n of exons. By lever-
+aging network ﬂow optimization algorithms, we discover a few
+expressed transcripts among the exponential number of
+
+ 
+
+2453
+
+12 /310's12u1n0[p101x0'so112111101u101q//:d1111 111011 pap201um0q
+
+9103 ‘0g1sn8nv 110 ::
+
+E.Bemard et al.
+
+ 
+
+ 
+
+ 
+
+ 
+
+SRR085504 PAIRED-END ERR361241 SINGLE-END I FPKM“
+24-4 o I FPKM>3
+j . l FPKMs5
+g 20 — A ‘ e
+E
+16 _ i ‘ . I ‘ . I IsoLasso
+l A Cufflinks
+1 I I I I
+so 40 so 40 so ' F'IPF'°P
+PRECISION
+Fig. 5. Precision and recall of compared methods on human embryonic stem cells data
+candidates by solving a problem with a number of variables ACKNOWLEDGMENTS
+
+polynomial in n.
+
+We compared our approach to existing ll-penalized likelihood
+maximization methods as well as methods that define expressed
+isoforms as the smallest set of transcripts covering all observed
+reads; the latter methods perform abundance estimation in a
+separate step. We observed on simulation dataiwhere the true
+set of expressed transcripts is knownithat, unlike the second set
+of methods, penalized likelihood maximization methods take ad-
+vantage of an increase in read coverage. Moreover, we show that
+correctly modeling long reads is of primary importance for iso-
+form recovery. Our approach, which models reads covering any
+number of exons, outperforms other methods for 300 bp long
+reads. We believe this is an important improvement as RNA-
+Seq technologies are moving forward longer reads. Our FlipFlop
+method has also shown to be competitive with state-of-the-art
+methods on real single-end and paired-end human stem cells
+data, especially for transcripts whose abundance was signiﬁcant.
+In addition, the runtime of our method was comparable with the
+runtime of the second set of methods, and orders of magnitude
+faster than existing software for penalized likelihood
+maximization.
+
+We believe these results have important practical implica-
+tions. In addition to the obvious gain in time when estimating
+the expression of transcripts for a single gene and a single
+sample, our approach makes the task amenable in a reason-
+able amount of time for all genes in a large number of sam-
+ples. This is a necessary step for high-throughput differential
+expression studies at the transcript level, a direction we are
+planning to explore in future work. Differential expression
+studies were until now restricted to gene level studies, i.e.
+ignoring the transcript level information, to cases where the
+set of expressed transcripts was known in advance or to meth-
+ods which were not using the read density to estimate the set
+of expressed transcriptsia less efﬁcient approach as illustrated
+in our experiments. Furthermore, accurately estimating the
+transcript-level expression for all genes of all samples in a
+study may lead to improvements in molecular based diagnosis
+or prognosis tools, as well as in clustering of samples, e.g for
+cancer subtype discovery. The ability of our approach to deal
+with splicing graphs with potentially hundreds of nodes also
+paves the way to efﬁcient de novo transcript identification,
+where we do not restrict ourselves to annotated exons within
+a single gene.
+
+The authors thank Wei Li for sharing the source code of
+IsoLasso for preprocessing RNA-Seq reads, and Matahi
+Moarii and Edouard Pauwels for insightful discussions.
+
+Funding: This work was supported by the European Research
+Council (SMAC—ERC—280032 to J—P.V., E.B.); the European
+Commission (HEALTH-F5-2012-305626 to J-P.V., E.B.); the
+French National Research Agency (ANR-09-BLAN—0051-04
+and ANR-ll-BINF-0001 to J—P.V., E.B.); the Stand Up to
+Cancer grant (SU2C-AACR-DT0409 to L.J.); the National
+Science Foundation (SES-0835531, CCF-0939370 t0 J.M.); and
+the CNRS (project FlipFlop, under program PEPS-BMI).
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Ahuja,R.K. et al. (1993) Network Flows: Theory, Algorithms, and Applications.
+Prentice Hall, Englewood Cliffs, New Jersey.
+
+Behr,l. et al. (2013) Mitie: simultaneous RNA—Seq based transcript identiﬁcation
+and quantiﬁcation in multiple samples. Bioinformatics, 29, 252972538.
+
+Bertsekas,D.P. (1998) Network Optimization: Continuous and Discrete Models.
+Athena Scientiﬁc, Athena Scientiﬁc, Belmont, Massachusetts.
+
+Bohnert,R. and Ratsch,G. (2010) rQuant.wcb: a tool for RNA—Seq—based transcript
+quantitation. Nucleic Acids Res., 38, W348rW351.
+
+Goldberg,A.V. (1997) An efﬁcient implementation of a scaling minimum—cost ﬂow
+algorithm. J. Algorithm, 22, 1729.
+
+Griebel,T. et al. (2012) Modelling and simulating generic rna—seq experiments with
+the ﬂux simulator. Nucleic Acids Res., 40, 10073710083.
+
+Heber,S. et al. (2002) Splicing graphs and EST assembly problem. Bioinformatics, l8
+(SuppL 1), 318173188.
+
+Huang,Y. et al. (2013) A robust method for transcript quantiﬁcation with RNA—Seq
+data. J. Comput. Biol, 20, 1677187.
+
+liang,H. and Wong,W.H. (2009) Statistical inferences for isoform expression in
+RNA—Seq. Bioinformatics, 25, 102(r1032.
+
+Li,l.l. et al. (2011a) Sparse linear modeling of next—generation mRNA sequencing
+(RNA—Seq) data for isoform discovery and abundance estimation. Proc. Natl
+Acad. Sci. USA, 108, 19867719872.
+
+Li,W. et al. (2011b) IsoLasso: a LASSO regression approach to RNA—Seq based
+transcriptome assembly. J. Comput. Biol, 18, 169371707.
+
+Mairal,l. and Yu,B. (2013) Supervised feature selection in graphs with path coding
+penalties and network ﬂows. JMLR, l4, 244%2485.
+
+Medvedev,P. and Brudno,M. (2009) Maximum likelihood genome assembly.
+J. Comput. Biol, 16, 110171116.
+
+Meinshausen,N. and Buhlrnann,P. (2010) Stability selection. J. Roy. Stat. Soc. B,
+72, 4174173.
+
+Mezlini,A.M. et al. (2013) iReckon: Simultaneous isoform discovery and abundance
+estimation from RNA—seq data. Genome Res., 23, 5197529.
+
+ 
+
+2454
+
+12 /310's12u1n0[p101x0'so112111101u101q//:d11q 111011 pap201um0q
+
+9103 ‘0g1sn8nv 110 ::
+
+Efﬁcient RNA isoform identification and quantification with network flows
+
+ 
+
+Montgomery,S.B. et al. (2010) Transcriptome genetics using second generation
+sequencing in a Caucasian population. Nature, 464, 7737777.
+
+Mortazavi,A. et al. (2008) Mapping and quantifying mammalian transcriptomes by
+RNA—Seq. Nat. Methods, 5, 621$28.
+
+Mortazavi,A. et al. (2010) Scaffolding a caenorhabditis nematode genome with
+RNA—Seq. Genome Res., 20, 174(Fl747.
+
+Pan,Q. et al. (2008) Deep surveying of alternative splicing complexity in the human
+transcriptome by high—throughput sequencing. Nat. Genet., 40, 141371415.
+Perou,C.M. et al. (2000) Molecular portraits of human breast tumours. Nature, 406,
+
+7477752.
+Schwarz,G. (1978) Estimating the dimension of a model. Ann. Stat., 6, 4614164.
+Singh,D. et al. (2011) FDM: a graph—based statistical method to detect differential
+transcription using RNA—seq data. Bioinformatics, 27, 263372640.
+Tibshirani,R. (1996) Regression shrinkage and selection via the Lasso. J. R. Stat.
+Soc. B, 58, 2677288.
+
+Tomescu,A. et al. (2013) A novel min—cost flow method for estimating transcript
+expression with rna—seq. BMC Bioinformatics, 14 (Suppl, 5), SIS.
+
+Trapnell,C. et al. (2009) TopHat: discovering splice junctions with RNA—Seq.
+Bioinformatics, 25, 1 105711 1 l.
+
+Trapnell,C. et al. (2010) Transcript assembly and quantiﬁcation by RNA—Seq re—
+veals unannotated transcripts and isoform switching during cell differentiation.
+Nat. Biotechnol, 28, 5117515.
+
+van’t Veer,L.l. et al. (2002) Gene expression proﬁling predicts clinical outcome of
+breast cancers. Nature, 415, 533536.
+
+Xia,Z. et al. (2011) NSMAP: a method for spliced isoforms identiﬁcation and quan—
+tiﬁcation from RNA—Seq. BMC Bioinformatics, 12, 162.
+
+Xing,Y. et al. (2006) An expectation—maximization algorithm for probabilistic re—
+constructions of full—length isoforms from splice graphs. Nucleic Acids Res., 34,
+31533160.
+
+ 
+
+2455
+
+12 /310's12u1n0[p101x0'so112111101u101q//:d11q 111011 pap201um0q
+
+9103 ‘0g1sn8nv 110 ::
+

@@ -1,0 +1,1653 @@
+Vol. 30 ISMB 2014, pages i283—i292
+doi:1 0. 1093/bioinfonnatics/btu288
+
+ 
+
+RNA-Skim: a rapid method for RNA-Seq quantification
+
+at transcript level
+Zhaojun Zhang1 and Wei Wang”
+
+1Department of Computer Science, University of North Carolina at Chapel Hill, Chapel Hill, NC, USA and 2Department of
+Computer Science, University of California, Los Angeles, CA, USA
+
+ 
+
+ABSTRACT
+
+Motivation: RNA-Seq technique has been demonstrated as a revolu-
+tionary means for exploring transcriptome because it provides deep
+coverage and base pair-level resolution. RNA-Seq quantification is
+proven to be an efficient alternative to Microarray technique in gene
+expression study, and it is a critical component in RNA-Seq differential
+expression analysis. Most existing RNA-Seq quantification tools
+require the alignments of fragments to either a genome or a tran-
+scriptome, entailing a time-consuming and intricate alignment step.
+To improve the performance of RNA-Seq quantification, an align-
+ment-free method, Sailfish, has been recently proposed to quantify
+transcript abundances using all k-mers in the transcriptome, demon-
+strating the feasibility of designing an efficient alignment-free method
+for transcriptome quantification. Even though Sailfish is substantially
+faster than alternative alignment-dependent methods such as
+Cufflinks, using all k-mers in the transcriptome quantiﬁcation impedes
+the scalability of the method.
+
+Results: We propose a novel RNA-Seq quantification method, RNA-
+Skim, which partitions the transcriptome into disjoint transcript clus-
+ters based on sequence similarity, and introduces the notion of
+sig-mers, which are a special type of k-mers uniquely associated
+with each cluster. We demonstrate that the sig-mer counts within
+a cluster are sufficient for estimating transcript abundances with ac-
+curacy comparable with any state-of-the-art method. This enables
+RNA-Skim to perform transcript quantification on each cluster inde-
+pendently, reducing a complex optimization problem into smaller op-
+timization tasks that can be run in parallel. As a result, RNA-Skim uses
+<4% of the k-mers and <10% of the CPU time required by Sailfish. It
+is able to finish transcriptome quantification in <10 min per sample by
+using just a single thread on a commodity computer, which represents
+>100 speedup over the state-of—the-art alignment-based methods,
+while delivering comparable or higher accuracy.
+
+Availability and implementation: The software is available at http://
+www.csbio.unc.edu/rs.
+
+Contact: weiwang@cs.uc|a.edu
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+1 INTRODUCTION
+
+RNA-Seq technique has been demonstrated as a revolutionary
+means for examining transcriptome because it provides incom-
+parable deep coverage and base pair-level resolution (Ozsolak
+and Milos, 2010). Though RNA-Seq sequencing exhibits itself
+as an efﬁcient alternative to Microarray techniques in gene ex-
+pression study (Wang et al., 2009), it also brings unprecedented
+
+ 
+
+*To whom correspondence should be addressed.
+
+challenges, including (but not limited to) how to rapidly and
+effectively process the massive data produced by the proliferation
+of RNA-Seq high-throughput sequencing, how to build statis-
+tical model for accurate quantification of transcript abundances
+for transcriptome, etc.
+
+Most of current RNA-Seq tools for RNA-Seq quantiﬁcation
+contain two main steps: an alignment step and a quantiﬁcation
+step. Various aligners [TopHat (Trapnell et al., 2009), SpliceMap
+(Au et al., 2010), MapSplice (Wang et al., 2010)] are devised to
+infer the origin of each RNA-Seq fragment in the genome. The
+alignment step is usually time-consuming, requiring substantial
+computational resources and demanding hours to align even one
+individual’s RNA-Seq data. Because there are multiple variations
+of RNA-Seq sequencing techniques, e.g. single-end sequencing
+and paired-end sequencing, to facilitate the discussion in this
+article, we simply refer to the read or the pair of reads from a
+RNA-Seq fragment as a fragment. More importantly, a signiﬁ-
+cant percentage of the fragments cannot be aligned without am-
+biguity, which yields a complicated problem in the quantiﬁcation
+step: how to assign the ambiguous fragments to compatible tran-
+scripts and to accurately estimate the transcript abundances. To
+tackle the fragment multiple-assignment problem, an expect-
+ation-maximization (EM) algorithm (Pachter, 2011) is often
+used to probabilistically resolve the ambiguity of fragment as-
+signments: at each iteration, it assigns fragments to their com-
+patible transcripts with a probability proportional to the
+transcript abundances, and then updates the transcript abun-
+dances to be the total weights contributed from the assigned
+fragments, until a convergence is reached. The EM algorithm’s
+simplicity in its formulation and implementation makes it a
+popular choice in several RNA-Seq quantiﬁcation methods
+[Cufﬂinks (Trapnell et al., 2010), Scripture (Guttman et al.,
+2010), RSEM (Li and Dewey, 2011), eXpress (Roberts and
+Pachter, 2013)]. Because all fragments and all transcripts are
+quantiﬁed at the same time in the EM algorithm, it usually re-
+quires considerable running time. Some studies [IsoEM (Nicolae
+et al., 2011), MMSEQ (Turro et al., 2011)] reduced the scale of
+the problem by collapsing reads if they can be aligned to the
+same set of transcripts. It is also worth mentioning that RNA-
+Seq quantification is an important first step for differential ana-
+lysis on the transcript abundances among different samples
+(Trapnell et al., 2012).
+
+The alignment step is a vital step in the RNA-Seq assembly
+study (Trapnell et al., 2010) and has become the computational
+bottleneck for RNA-Seq quantiﬁcation tasks. If users are only
+interested in RNA-Seq quantification of an annotated transcrip-
+tome, aligning RNA-Seq fragments to the genome seems cum-
+bersome: not only do the RNA-Seq aligners take a long time to
+align fragments to the genome by exhaustively searching all
+
+ 
+
+© The Author 2014. Published by Oxford University Press.
+
+This is an Open Access article distributed under the terms of the Creative Commons Attribution Non-Commercial License (http://creativecommons.org/licenses/by-nc/3.0/), which
+permits non-commercial re-use, distribution, and reproduction in any medium, provided the original work is properly cited. For commercial re-use, please contact
+
+journals. permissions@ou p.com
+
+112 /310'S[BIIJHO[pJOJXO'SOTJBLUJOJIITOTCI”Zduq 11101} papeolumoq
+
+9103 ‘Og isanV uo ::
+
+Z.Zhang and W.Wang
+
+ 
+
+possible splice junctions in the fragments, they may also generate
+misaligned results owing to repetitive regions in the genome or
+sequencing errors, introducing errors in the quantiﬁcation results
+(Zhang et al., 2013).
+
+From another perspective, the annotation databases of tran-
+scriptome, e.g. RefSeq (Pruitt et al., 2007) and Ensembl (Flicek
+et al., 2011), play an increasingly important role in RNA-Seq
+quantiﬁcation. For example, TopHat/Cufﬁinks supports a
+mode that allows users to specify the transcriptome by supplying
+an annotation database (a GTF file). RSEM (Li and Dewey,
+2011) uses bowtie (Langmead et al., 2009Fa DNA sequence
+alignerito align fragments directly to the transcriptome.
+Aligning RNA-Seq fragments to transcriptome avoids the com-
+putation to detect novel splice junctions in fragments and elim-
+inates the non-transcriptome regions in the genome from further
+examination, and thus reduces the total running time of the
+quantiﬁcation method and the number of erroneous alignments
+in the results.
+
+To further improve the performance, the utility of k-mers was
+recently proposed. The concept of k-merSﬂhort and consecu-
+tive sequences containing k nucleic acidsihas been widely used
+in bioinformatics, including genome and transcriptome assembly
+(Fu et al., 2014; Grabherr et al., 2011), error correction in
+sequence reads (Le et al., 2013), etc. Because the number of
+k-mers in the genome or transcriptome is enormous when k is
+large (e.g. k 3 25), the need to store all k-mers impedes their
+counting. Most of existing methods save memory usage during
+the computation by using sophisticated algorithms and advanced
+data structures [bloom ﬁlter (Melsted and Pritchard, 2011), lock-
+free memory-efﬁcient hash table (Marcais and Kingsford, 2011),
+sufﬁx array (Kurtz et al., 2008)] or relying on disk space to com-
+pensate memory space (Rizk et al., 2013).
+
+Thanks to the recent advances in both annotated transcrip-
+tome and algorithms to rapidly count k-mers, the transcriptome-
+based alignment-free method, Sailﬁsh (Patro et al., 2013),
+requires 20 times less running time and generates comparable
+results with alignment-dependent quantiﬁcation methods.
+Sailﬁsh is a lightweight method: it first builds a unique index
+of all k-mers that appear at least once in the transcriptome,
+counts the occurrences of the k-mers in the RNA-Seq fragments
+and quantiﬁes the transcripts by the number of occurrences of
+the k-mers through an EM algorithm.
+
+Regardless of being alignment-dependent or alignment-free,
+all methods need to recover the fragment depthithe number
+of fragments that cover a speciﬁc locationiacross the whole
+transcriptome as one of the initial steps. However, none of the
+existing methods exploit the strong redundancy of the fragment
+depth in RNA-Seq data. More speciﬁcally, Fig. 1 shows a strong
+correlation between the fragment depth of any two locations that
+are a certain distance apart on the transcriptome, varying the
+distance from 1 to 100bp. Even when the two locations are
+20bp away from each other, the Pearson correlation score is
+still as high as 0.985. In other words, if an RNA-Seq quantiﬁca-
+tion method that is able to recover the fragment depths for every
+20 bp and quantify the abundance levels based on such informa-
+tion, there should be no significant accuracy loss in the result.
+Recently, Uziela and Honkela (2013) developed a method that
+simply counts the number of alignments that covers the locations
+of hybridization probes used in the gene expression studies.
+
+ 
+
+1.00 -
+
+0.95 -
+
+0.90 -
+
+0.85 -
+
+ 
+
+ 
+
+ 
+
+Pearson correlation coefﬁcient
+
+I I I I I I
+
+0 20 4O 60 80 100
+
+Fig. 1. This ﬁgure shows the correlations of the fragment depth of any
+pair of locations as a function of the distance between the two locations
+
+from 1 to 100 bp. This ﬁgure is generated based on the alignments re-
+ported by TopHat on a real RNA-Seq data
+
+Though these probes only represent a sparse sampling on every
+transcript in the transcriptome, the method still provides reason-
+ably accurate results. The observation and the method inspire us
+to ask the following question: what is the minimum information
+we need to achieve comparable accuracy in RNA-Seq quantiﬁ-
+cation to the state-of-the-art methods? More speciﬁcally, does
+there exist a subset of k-mers that can provide accurate transcrip-
+tome quantiﬁcation? And if so, how do we identify and use them
+to quantify transcriptome efﬁciently?
+
+To answer these questions, we introduced a special type of
+k-mers called sig—mers, which only appear in a (small) subset of
+transcripts in the transcriptome. Based on these sig-mers, we
+developed a method, RNA-Skim, which is much faster than
+Sailfish and also maintains the same level of accuracy in the
+results. RNA-Skim includes two stages, preparation and quanti-
+ﬁcation. In the preparation stage, RNA-Skim first partitions
+transcripts into clusters and uses bloom ﬁlters to discover all
+sig-mers for each transcript cluster, from which a small yet in-
+formative subset of sig-mers is selected to be used in the quanti-
+fication stage. In the quantiﬁcation stage, a rolling hash method
+(Karp and Rabin, 1987) is developed to rapidly count the occur-
+rences of the selected sig—mers, and an EM algorithm is used to
+properly estimate the transcript abundance levels using the sig-
+mer counts. Because no sig-mer is shared by two transcript clus-
+ters, the task can be easily divided into many small quantification
+problems, which signiﬁcantly reduces the scale of each EM pro-
+cess and also makes it trivial to be parallelized. While RNA-Skim
+provides similar results to those of alternative methods, it only
+consumes 10% of the computational resources required by
+Sailfish.
+
+In this article, we first describe the RNA-Skim method, then
+discuss how we compared RNA-Skim with other methods, fol-
+lowed by the experimental results using both simulated and real
+data.
+
+2 METHOD
+
+In this section, we introduced the notion of sig-mers, which is a special
+type of k-mers that may serve as signatures of a cluster of transcripts,
+distinguishing them from transcripts in other clusters in the transcriptome
+that do not contain these k-mers.
+
+ 
+
+i284
+
+112 /310'S[BIIJHO[pJOJXO'SOIJ’BLUJOJIIIOICI”Zduq 11101} papeolumoq
+
+9103 ‘Og isnﬁnV uo ::
+
+RNA-Skim
+
+ 
+
+2.1 sig-mer
+
+In this article, an annotated transcriptome 6 consists of a set of T tran-
+scripts: Q = {t1, ..., tT}. A transcript t is an RNA sequence composed of a
+string of four bases ‘A’, ‘U’, ‘C’ and ‘G’. In this article, we use the
+corresponding four DNA nucleotide bases ‘A’, ‘T’, ‘C’, ‘G’ to represent.
+The length of a transcript sequence may vary from 100 to 10000 bp.
+A partition of a given transcriptome 6 groups all transcripts into P dis-
+joint non-empty subsets or clusters, denoted by (®)={¢>1, ..., (1)19}. For
+example, one commonly adopted partition of transcriptome is to group
+transcripts into genes based on their locations on the genome. For any
+transcript t, we use ¢(t) to denote the cluster to which t belongs.
+
+A substring of length k from a transcript sequence, its reverse se-
+quence, its complimentary sequence or its reverse and complimentary
+sequence is called a k-mer of the transcript. We deﬁne a function
+k-mer() to represent the set of all k-mers from a single transcript or a
+cluster of transcripts, denoted as k-mer(t) or k-mer(¢1,), respectively. For
+simplicity, if a string s is a k-mer of transcript t, we say s e k-mer(t). In
+this case, s e k-mer(¢>(t)) is also true.
+
+DEFINITION. Given a length k, a transcriptome ® and its partition (6), if
+a k-mer s only exists in one cluster (1)], and never appears in other clusters
+6 \ (p1,, we call it a sig-mer of cluster (1:1,. And for any given cluster (1:1,, we
+denote all of its sig-mers as Q(¢P). That is,
+
+9015,): {sls e k-mer(¢1,), V125,, 6 ® \ (p1,, s e k-mer(¢>q)}.
+
+Sig-mers characterize the uniqueness of each cluster. It is obvious that
+the number of sig-mers heavily depends on the transcriptome partition. If
+transcripts with similar sequences are assigned to different clusters,
+k-mers from these transcripts may not qualify as sig-mers.
+Consequently, fewer sig-mers may be identiﬁed, and in the worst case,
+some cluster may not have any sig-mers.
+
+2.2 Workﬂow of RNA-Skim
+
+Because sig-mers are unique to only one cluster of transcripts, if a sig-mer
+occurs in some RNA-Seq reads, it indicates the sig-mer’s corresponding
+transcripts may be expressed. Therefore, its occurrence in the RNA-Seq
+data may serve as an accurate and reliable indicator of the abundance
+levels of these transcripts. We proposed a method, RNA-Skim, for quan-
+tifying the transcripts using the sig-mer counts in RNA-Seq data. Because
+no sig-mer is shared between transcript clusters, the problem reduces to
+quantifying transcript abundances using sig-mer counts within each clus-
+ter, which can be solved much more efficiently and can be easily paralle-
+lized. This is different from Sailﬁsh that uses all k-mers in the
+transcriptome. In fact, RNA-Skim can be considered as a generalization
+of Sailﬁsh: if the whole transcriptome is treated as a single cluster that
+includes all transcripts, all k-mers become sig-mers, and RNA-Skim de-
+generates to the exact formulation of Sailﬁsh.
+
+The workﬂow of RNA-Skim includes two stages: preparation and
+quantification. In preparation, RNA-Skim clusters the transcripts based
+on their sequence similarities, ﬁnds all sig—mers for each transcript cluster
+and selects a subset of sig-mers to be used in the quantification stage. In
+quantiﬁcation, RNA-Skim quickly counts the occurrences of sig-mers
+and quantiﬁes transcripts within each cluster. The preparation stage of
+RNA-Skim does not require RNA-Seq read data and thus can be com-
+puted once as an offline process and be repeatedly used in the quantiﬁ-
+cation stage.
+
+2.3 Preparation stage
+
+In the preparation stage, RNA-Skim only requires users to supply a
+transcriptome (including all transcript sequences and gene annotations)
+and speciﬁes a desired sig-mer length to be used in RNA-Skim.
+
+Transcriptome Partitioning A straightforward way to partition tran-
+scripts is based on their genome locations from an annotation database.
+However, the result of this partitioning approach may not be optimal
+because some transcripts of different genes may have similar sequences or
+share common subsequences. To minimize the number of common
+k-mers shared between clusters, RNA-Skim uses a sequence similarity-
+based algorithm to generate a partition of transcriptome, instead of using
+any existing partition. We ﬁrst deﬁne the k-mer-based similarity, which is
+used as the sequence similarity in the algorithm.
+
+DEFINITION. The k-mer-based similarity of two sets of sequences d),- and d)!-
+is deﬁned as the higher of the two ratios: the number of common k-mers
+divided by the total number of k-mers in ¢,-, and the number of common
+k-mers divided by the total number of k-mers in 11>]:
+
+k-mer-Similarity(¢,—, dy) = (1)
+
+ 
+
+ax (lk-mer(¢,—) ﬂ k-mer(¢>j)| |k-mer(¢>,—) ﬂ k-mer(¢j)|) (2)
+
+lk-mer(¢,-)l ’ lk-mef(¢j)|
+
+Transcripts from the same gene are likely to be similar to each other.
+To avoid unnecessary computation, RNA-Skim operates at the level of
+genes rather than transcripts. However, calculating the exact similarity
+between a pair of genes requires generating all k-mers appearing in each
+gene and taking the intersection of the two sets. This is computationally
+expensive. To expedite the computation, RNA-Skim uses the data struc-
+tureibloom ﬁlter (Bloom, 1970)—coupled with a sampling-based ap-
+proach to approximate the similarity between two genes. The bloom
+ﬁlter is a space-efﬁcient probabilistic data structure that is used to test
+whether an element is a member of a set, without the need of storing the
+set explicitly. A bloom filter includes a vector of bits and several inde-
+pendent hash functions. Initially, all bits are set to 0. When an element is
+added to the bloom ﬁlter, the bits based on the hash values of the element
+are set to 1. The bloom ﬁlter reports an element is in the bloom ﬁlter if its
+corresponding bits are all set to 1. A bloom ﬁlter may yield a small
+number of false positives, but no false negatives. The false-positive rate
+is bounded if the number of elements in the set is known. It can be
+maintained efficiently when new members are added to the set.
+
+RNA-Skim ﬁrst builds a bloom ﬁlter for the set of k-mers of each
+gene. Then, it randomly samples two subsets of k-mersinoted as X(¢>,—)
+and X ¢- ifrom the air of enes, and the k-mer-Similarit (1),-nix is
+approx(irf1)ated by maﬁWf‘jjﬂw/ﬂ ,  (our ezperirrfgnts
+show that we only need a small number (e.g./10) of k-mers from each
+gene to achieve approximation with high accuracy). After we calculate the
+approximated similarities for every pair of genes, an undirected graph is
+built with each node representing a gene. There is an edge between two
+nodes if the similarity of the two corresponding genes exceeds a user-
+speciﬁed threshold y. Each connected component of this graph naturally
+forms a cluster of nodes; each cluster of nodes forms a cluster of genes
+and transcripts of the genes.
+
+Sig-mers discovery By deﬁnition, the sig-mers are essentially the k-mers
+occurring in only one cluster of transcripts. A brute force way to ﬁnd all
+sig-mers is, for every k-mer in the transcriptome, to determine whether
+the k-mer that appears in one cluster also appears in some other cluster.
+Because the number of possible k-mers is in the order of billions, without
+any sophisticated data structure and data compression algorithms, stor-
+ing the k-mers alone will easily take at least tens of gigabytes of memory
+space, which is way beyond the capacity of any commodity computer.
+
+RNA-Skim again uses bloom ﬁlters to reduce memory usage. Three
+types of bloom ﬁlters are used: a bloom ﬁlter BF.ALL for checking
+whether a given k-mer has been examined, a bloom filter BF.DUP for
+checking whether a given k-mer appears in more than one cluster and a
+bloom ﬁlter BF.S(¢P) for each cluster (1)], for checking whether a given
+k-mer is in k-mer(¢1,).
+
+ 
+
+i285
+
+112 /310's1eu1nofp101x0'soIJBuIJOJurorq/ﬁduq 111011 pap1201umoq
+
+9103 ‘0g isnﬁnV uo ::
+
+Z.Zhang and W.Wang
+
+ 
+
+First, for each cluster (p1,, all distinct k-mers in it are enumerated:
+RNA-Skim enumerates all k-mers for every transcript in the cluster,
+and adds them to BF.S(¢I,); if a k-mer is already in BF.S(¢I,), it will be
+ignored. Second, every distinct k-mer in (1)], is added into BF.ALL, and if
+it is already in BF .ALL (that is, it was added when RNA-Skim examined
+other clusters), it is added into BF .DUP. Therefore, if a k-mer occurs in
+multiple clusters, it is added in BF.DUP. Last, every k-mer of the tran-
+scriptome is enumerated again, and if the k-mer is not in BF.DUP, it is
+reported as a sig-mer, as it only occurs in one cluster.
+
+Because bloom ﬁlters may have false-positive reports, but never have
+false-negative reports, through this approach, some genuine sig-mer
+strings may be missed, but a non-sig-mer will never be labeled as a sig-
+mer. Figure 2 shows the pseudocode of our algorithm.
+
+Sig-mers selection RNA-Skim does not use all sig-mers because they
+are still numerous. Instead, RNA-Skim selects a subset of sig-mers for the
+quantiﬁcation stage. We used a simple approach to select sig-mers from
+all sig-mers found by the previous step: for every transcript, sig-mers are
+evenly chosen based on the sig-mer locations such that any two sig-mers
+are at least 50 base pair away from each other in the given transcript.
+Because some sig-mers may appear in multiple transcripts in the same
+cluster, for every selected sig-mer, all transcripts are re-examined, and the
+ones that contain the sig-mer are also recorded. Through this approach,
+we can guarantee that every transcript is associated with some sig-mers
+(as long as there exist some sig-mers). A good sig-mer coverage is crucial
+for accurate quantiﬁcation of transcript abundance. The ﬁnal output of
+the preparation step includes the partition of the transcriptome, selected
+sig-mers and their associating clusters and transcripts.
+
+2.4 Quantiﬁcation stage
+
+The quantiﬁcation stage requires users to provide RNA-Seq data (e.g.
+FASTQ/FASTA ﬁles) and the selected sig-mers associated with tran-
+scripts containing them from the preparation stage.
+
+Sig-mei- counting Because the number of sig-mers used in RNA-Skim is
+much smaller than the number of k-mers typically used by other k-mer-
+based approaches, all sig-mers can be stored in a hash table in memory.
+The number of occurrences of all sig-mers can be counted by enumerating
+all k-mers in the RNA-Seq reads and looking up the k-mers in the hash
+table to update the corresponding counters. RNA-Skim basically follows
+
+1. foreach partition of transcripts pp 6 6)
+2 foreach locationl E 43,,
+
+3 generate the k-mcr s at the location l
+4 ifs ¢ BF.S(¢p) then
+
+5. Add 3 into BF.S(¢>p)
+6 ifs g1 BF.ALL then
+
+7 Add 3 into BF.ALL
+8 else
+
+9 Add 3 into BF.DUP
+10. end foreach
+
+11. end foreach
+
+12. foreach partition of transcripts (pp 6 9
+
+13. foreach locationl 6 $1,
+
+14. generate the k—mer s at the location l
+15. ifs ¢ BF.DUP then
+
+16. Report 3 as a sig-mer of ¢p.
+17. end foreach
+
+18. end foreach
+Fig. 2. The pseudocode to ﬁnd all sig-mers
+
+this scheme with a tweak on the hash function to further speed up the
+computation.
+
+In a straightforward implementation of the previously described algo-
+rithm, every k-mer incurs an O(k) operation to calculate its hash value,
+and this hash operation can be further reduced to 0(1) by the Robina
+Karp pattern matching algorithm (Karp and Rabin, 1987). The Robina
+Karp pattern matching algorithm requires a special hash functioni
+rolling hashithat only uses multiplications, additions and subtractions.
+
+In rolling hash, the hash value H(r) of the ﬁrst k-mer in the RNA-Seq
+read r is calculated by
+
+H(r[0,  k —1])= x(r[0]) x h"’1 + x(r[l]) x W +  + x(r[k — 1]) x h”,
+
+where h is the base of the hash function, r[i] is the ith character in s and
+the character hash function x() maps a character to an integer value. One
+way to calculate the hash value for the (sequentially ordered) second k-
+mer r[1, ...,k] is
+
+H(r[1,  k])= x(r[l]) x h"’1 + x(r[2]) x W +  + x(r[k]) x h”.
+
+But thanks to the structure of the rolling hash function, H(r[1, ..., k])
+can be calculated in a much faster way:
+
+H(r[1,  kl)=(H(r[0,  k —1l)— X(r[01) X k“) X h + X(r[kl) X ho,
+
+which only requires one subtraction, three multiplications and one add-
+ition. We can look up the hash value in the hash table, and if it is in the
+hash table, its associated counter is incremented accordingly. Because
+RNA-Skim uses this specially designed hash function, we implemented
+our own hash table in RNA-Skim using open addressing with linear
+probing. The base h is arbitrarily set to be a prime number 37, and the
+function x() maps every character to its actual ASCII value.
+
+Quantiﬁcation Because every cluster of transcripts has a unique set of
+sig-mers, which are the k-mers that never appear in other transcript clus-
+ters, every cluster can be independently quantiﬁed by RNA-Skim, resulting
+in a set of smaller independent quantiﬁcation problems, instead of one
+huge whole transcriptome quantiﬁcation problem in other approaches.
+
+Formally, if (1)], is a cluster of transcripts, the set of sig-mers of (1),, is
+denoted by S(¢>1,), a sig-mer is denoted by s (s e S(¢>1,)), the set of all
+occurrences of sig-mers is denoted by O(qbp), an occurrence of a sig-mer
+in the RNA-Seq dataset is denoted by 0 (o e O(qbp» and the sig-mer of
+the occurrence is denoted by 20. From the previous steps, we obtained cS
+(the number of occurrences of the sig-mer s in the RNA-Seq data), y”
+(binary variables indicating whether the sig-mer s is contained in the
+sequence of transcript t) and bl (the number of sig-mers that are contained
+by transcript t). C is the number of occurrences of all sig-mers
+(C = Z a).
+
+Same as in the previous study (Pachter, 2011), we deﬁne ‘1’: {amen
+where or, is the proportion of all selected sig-mers that are included by the
+reads from transcript t, and Zen: 1. For an occurrence 0, p(0 e t)
+represents the probability that o is chosen from transcript t, in a genera-
+tive model,
+
+at
+
+17(0 E 0 WW?! (3)
+
+Therefore, the likelihood of observing all occurrences of the sig-mers as
+a function of the parameter ‘I’ is
+
+£(w)= H ZpIoet)= H 2mg (4)
+
+060015,) tE¢,, 060015,) tE¢,,
+
+= 1‘1 (X)  (5)
+
+sES(¢,,) tE¢,,
+
+ 
+
+i286
+
+112 /310's1eu1nofp101x0'soIJBuIJOJurorq/ﬁduq 111011 papeo1umoq
+
+9103 ‘0g isanV uo ::
+
+RNA-Skim
+
+ 
+
+This is in spirit similar to the likelihood function used in other studies,
+except that this is the likelihood of observing sig—mers rather than frag-
+ments (Li and Dewey, 2011) or k-mers (Patro et al., 2013). Thus, we also
+used an EM algorithm to ﬁnd ‘11 that maximizes the likelihood: it alter-
+nates between allocating the fraction of counts of observed sig-mers to
+transcripts according to the proportions III and updating III given the
+amount of sig-mers assigned to transcripts. RNA-Skim also applies the
+same technique used in Patro et a]. (2013), Nicolae et a]. (2011) and Turro
+et a]. (2011) to collapse sig-mers if they are contained by the same set of
+transcripts. (See the Supplementary Material)
+
+RNA-Skim reports both Reads Per Kilobase per Million mapped
+reads (RPKM) and Transcripts Per Million as the relative abundance
+estimations of the transcripts, and both metrics are calculated by the
+way used in Sailﬁsh (Patro et al., 2013).
+
+So far, we have described both preparation and quantiﬁcation stages in
+RNA-Skim. In the last, a toy example is provided to illustrate how each
+stage works in RNA-Skim in Figure 3.
+
+3 SOFTWARE FOR COMPARISON
+
+RNA-Skim is implemented in C-I- + with heavy usage of the
+open-source libraries bloomd (Dadgar, 2013), protobuf
+(Google, 2013) and an open-source class StringPiece (Hsieh,
+2013). The parameter settings will be discussed in the Section 5.
+
+We compared RNA-Skim with four different quantiﬁcation
+methods: Sailﬁsh (0.6.2), Cufﬁinks (2.1.1), RSEM (1.2.8) and
+eXpress (1.5.1) in both simulated and real datasets. TopHat
+(2.0.10) and Bowtie (1.0.0) are used as the aligners when needed.
+
+For Sailﬁsh, we set k-mer size to be 31 because this value gives
+the highest accuracy in the simulation study, among all k-mer
+sizes supported by Sailﬁsh (k 5 31). For other software, we
+
+followed the experiments in Patro et a]. (2013) to set the param-
+eters. Input to Cufﬂinks was generated by TopHat, which used
+Bowtie (ebowtiel), allowing up to three mismatches per read (-N
+3 and eread-edit-dist 3). Both TopHat and Cufﬂinks were pro-
+vided with a reference transcriptome. RSEM and eXpress dir-
+ectly used Bowtie to align the reads to the transcriptome, with
+the argument (-N 3) to allow up to three mismatches per read.
+The eXpress was executed in the streaming mode, to save the
+total quantiﬁcation running time. For simulation study, we used
+the estimations without bias correction for Sailﬁsh, Cufﬁinks and
+eXpress. For real datasets, the estimations with bias correction
+are used for these three methods. For RSEM, since it does not
+provide an option to control the bias correction, we did not
+differentiate its usage in the simulation and real data studies.
+Other parameters were set to default values for these methods.
+
+All methods were run on a shared cluster managed by the
+Load Sharing Facility (LSF) system. The running time and
+CPU time of these methods are measured by LSF. Each cluster
+node is equipped with Intel(R) Xeon(R) 12-core 2.93 GHz CPU
+and at least 48 GB memory. All ﬁles were served by the Lustre
+ﬁle system.
+
+4 MATERIALS
+
+All materials including both simulated and real data are based on
+the mouse population and consist of paired-end reads with 100 bp
+length per read. We used C57BL/6J downloaded from Ensembl
+(Build 70) as the reference genome in all experiments. All methods
+studied in this article were provided with 74215 protein-coding
+annotated transcripts from the Ensembl database. The simulation
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+- I I preparation Stage 5 Sig-mars are selected and reported with the
+RNA-Skim clusters genes Instead of transcriptsto There are two clusters reported by the transcriptome transcripts containing themThisIs in the
+save'computation time. For the sake of SimpIICIty, partitioning. Colors are only for the demonstration purpose, format ofthe binary matrix Y, which Will be
+In th'5 example' we assume eaCh gene conta'ns only and they are not results from RNA-Skim. Colors other than gray used in the quantiﬁcation Step'
+one transcript mean the corresponding sequences only appear in the given :' ..... .EI-uﬁ-z-H-‘ES- -------- "
+Transcripts (e.g. in FASTA ﬁle) cluster. The k-mers With underlines-aile- selected Sig-mars. E 0 1 0 GGTT
+t . GGG CTCTC t1: AAAGGGAAAACTCTC Sig-mers E
+
+1 ' m MW‘ Transcriptome t2: AAAGGGAAAAGGGTT discovery and EY= 1 1 1 GGAA;
+t2: AAAGGGAAAAGGGTT Parﬁﬁonin t GGG CTATC . E 0 0 1 TATc:
+t3: ATTTCATCGA g .___§_' ________ u: .... “m ____ __ selecuon i _______________________________ .5
+t4: ATTTCCTCTC  1‘ """ "t'3'""E; """"""" "
+t5: AAAGGGAAAACTATC t3 ' MCMA 5 1 0 ATCG
+
+t4: mccaiwc 5y
+
+ 1 1 1 ATTT
+RNA-seq data Uses sig-mers U535
+(e.g. in FASTA ﬁle) 1 c=32 v matrices
+
+AAAGGGAAA
+AAAGGGAAA _ ' AAAACTCTC cGGTT=12 Quantiﬁcation at ca Result
+AAAACTCTC Filtering by WCTCTC CGGAA=20 —> my) = 611 1%; My) _>
+. . 5 p p
+
+AAAACTCTC rolling hash AAAAGGGTT Counting CTATC=0
+
+MW‘GGGTT ATTTCATCG ,
+
+ TTTCCTCTC  0 Quantiﬁcation £01,) H (2 ya tﬁys Result
+
+# = 7
+AAAACTCTC CATCG=2 0 Since no sigma, is sew,» tea? I" —>
+AAAACTCTC c =5 0 shared between clusters,
+ATTT we can run separate EM _
+algorithms on the counts EM algorlthm
+Quantiﬁcation Stage of different clusters
+
+ 
+
+ 
+
+ 
+
+Fig. 3. An illustration of how RNA-Skim works on a toy transcriptome of ﬁve transcripts
+
+ 
+
+i287
+
+112 /310's1eu1nofp101x0'soIJBuIJOJuioIq/ﬁduq 111011 papeo1umoq
+
+9103 ‘0g isanV uo ::
+
+Z.Zhang and W.Wang
+
+ 
+
+Table 1. This table compares three different partitions
+
+ 
+
+ 
+
+Type Number of Average number of Size of the
+clusters transcripts per cluster largest cluster
+
+Transcript 74 215 1 1
+
+Gene 22 584 3.29 39
+
+RNA-Skim 18 269 4.06 6107
+
+Sailﬁsh 1 74 215 74 215
+
+ 
+
+Note: If the partition contains only one cluster of all transcripts, RNA—Skim degen—
+erates to Sailﬁsh. We thus listed it in the table for comparison.
+
+datasets, including 100 mouse samples with the number of reads
+varying from 20 millions to 100 millions, were generated by the
+ﬂux-simulator (Griebel et al., 2012) with its default error model
+enabled. For real datasets, we used the RNA-Seq data from 18
+inbred samples and 58 F1 samples derived from three inbred
+mouse strains CAST/EiJ, PWK/PhJ and WSB/EiJ. The RNA-
+Seq data was sequenced from mRNA extracted from brain tissues
+of both sexes and from all six possible crosses (including the
+reciprocal).
+
+5 RESULTS
+
+In this section, we ﬁrst compared alternative partition algorithms
+and how they impact sig-mer selections in RNA-Skim and then
+furnish a comparison with four alternative methods on both
+simulated and real data. At last, we demonstrated that RNA-
+Skim is the fastest method among all considered methods.
+
+5.1 Similarity-based partition algorithm
+We compared the result of our similarity-based partition algo-
+rithm with those from two alternative ways to partition tran-
+scripts: transcript-based partition (every cluster contains a
+transcript) and gene-based partition (every cluster contains the
+transcripts from an annotated gene). The similarity threshold y
+in our partition algorithm was set to be 0.2 (more details are
+provided later on the parameter choice). Table 1 compares
+these partitions on the same transcriptome. The number of clus-
+ters generated by our similarity-based partition is 20% fewer
+than the number of genes. The average number of transcripts
+per cluster is ~20% more than the average number of transcripts
+per gene. Most clusters only contain transcripts from a single
+gene, though the largest cluster contains 6107 transcripts.
+These transcripts in the largest cluster share a substantial
+number of k-mers (e.g. from paralogous genes), which need to
+be examined altogether to accurately estimate their abundance
+levels. Failing to consider them together (e. g. by using transcript-
+based or gene-based partitions) will compromise the number of
+sig-mers that help distinguish transcripts and hence impair the
+accuracy of transcriptome quantiﬁcation. Even though this clus-
+ter contains many transcripts, it represents <10% of the total
+number of transcripts.
+
+We used these three types of partitions as the input to the sig-
+mer discovery method. To evaluate the goodness of a partition,
+we measured the proportion of each transcript that is covered by
+
+ 
+
+ 
+
+   
+   
+  
+  
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1  _ ’l
+I,,;’
+I], I
+(D "’ I
+c: "' I
+g 0.8 — "I,
+a) "I
+a 
+.l
+o u"
+L _
+a, 0.6 .,,
+E "I
+I Ii
+C) a,
+‘0 0_4 — Ii — si ' sad partition, k-mer size=20
+a I. ' ‘based partition, k-mer size=40
+-: .I . . -based partition, k-mer size=60
+o I milarity-based partition, k-mer size=BO
+(I) ' en's-based partilion. k-mer size=20
+C 0 2 _ 'l _g‘ene-based partilion. k-mersize=40
+(D ' ll ‘ gene-based partilion. k-mersize=60
+h .l gene-based partilion. k-mer size=80
+' ~- transcript-based partition. k-rnersize=20
+- - transcript-based partition. k-rnersize=40
+I \- - - transcript-based partition. k-rnersize=60
+ — ‘ ‘ ' ' ' ' ‘ - s - - transcript-based partition. k-rner size=80
+| | | |
+0 20000 40000 60000
+
+transcript
+
+Fig. 4. The distribution sig-mer coverages across all transcripts an as-
+cending order of the sig-mer coverage. The upper the curve is, the better
+the corresponding partition is
+
+sig-mers and plot the cumulative distribution of all transcripts
+sorted in ascending order of their sig-mer coverage in Figure 4,
+with varying k-mer sizes. For any transcript, the higher the sig-
+mer coverage is, the more accurate the abundance estimation will
+be. Our similarity-based partition is the best: almost all tran-
+scripts have at least 80% sig-mer coverage, which pushes the
+curves to the upper left corner of the plot regardless of the k-
+mer size. The gene-based partition is slightly worse: ~95% of
+transcripts have at least 80% sig—mer coverage. The gene-based
+partition tends to result in low sig-mer coverage for genes sharing
+similar sequences. The transcript-based partition is the worst for
+an obvious reason: transcripts from the same genes may share
+exons and thus the number of sig-mers that can distinguish a
+transcript may be very small. We also observed that using longer
+k-mer improves the sig-mer coverage.
+
+In the end, RNA-Skim selects 2 586 388 sig-mers to be used in
+the quantiﬁcation stage, and these sig-mers count for <3.5% of
+74 651 849 distinguished k-mers used by Sailfish. Because RNA-
+Skim uses a much smaller set of sig-mers, it is able to use the
+rolling hash methodia very fast but memory-inefﬁcient meth-
+odito count sig-mers in RNA-Seq reads.
+
+5.2 Simulation study
+
+Figure 5 compares the performance of the five methods on the
+simulated data using four metrics: Pearson’s correlation coefﬁ-
+cient, Spearman’s rank correlation coefficient, significant false-
+positive rate (SFPR) and significant false-negative rate (SFNR).
+For brevity, we use Pearson (Truth), Spearman (Truth), SFPR
+and SFNR to denote these metrics, respectively. The Pearson’s
+correlation coefﬁcient is calculated in a logarithmic scale, using
+all transcripts whose true and estimated abundance values are
+>0.01 RPKM. This calculation is the same as that used by
+Sailfish (Patro et al., 2013). The Spearman’s rank correlation is
+calculated on the set of transcripts whose true abundance values
+are >0.01 RPKM. The SFPR and SFNR are calculated to assess
+the estimation distributions on the set of transcripts excluded by
+
+ 
+
+i288
+
+:: 112 /310's1eu1nofp101x0'soIJBuIJOJuioIq/ﬁduq 111011 papeo1umoq
+
+910z ‘09 isnﬁnv 110
+
+RNA-Skim
+
+ 
+
+ 
+
+ 
+
+   
+
+ 
+
+ 
+
+a b
+( )094 — ( )0.94 -
+0 93 - A _
+g g 0.92
+E e
+E 0 92 — c
+o g 0.90 —
+5 a
+g 0.91 — 5;}
+0.88
+0.90 _—0— RNA—Skim- - - - RSEM —o— RNA—skim. _ . _ RSEM
+- - - Sailﬁsh — — - eXpres - - - Sailﬁsh — — - eXpre
+' ' - ' " Cufﬂinks 0.86 _. . . . .. Cuminks
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+o'89IIIIIIIIIIIIIIII
+20 30 40 5o 60 70 so 90
+
+I|I|I|II|I|I|I|I
+20 30 40 50 60 70 80 90
+
+The length of the sig-mers
+Pearson (Truth) Higher is better.
+
+The length of the sig-mers
+Spearman (Trudi) Higher is better.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+(c) (d)
+025 ——O— RNA-Skim~ - - - RSEM
+9 0.12 — g - - - Sailﬁsh — — ~ eXpre
+§ 0: - - - - -- Cufﬂinks
+g 3
+:7; '1'; 0.20 —
+a E”
+i: g 0.15 —
+E a
+% RNA Sk' RSEM 
+2, _—o— — im~ - ~ - C _
+VJ 0'04 - - - Sailﬁsh — — - eXpress  0'10
+- - - - -- Cufﬂinks
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+I|I|I|II|I|I|I|I
+20 30 40 50 60 70 80 90
+
+I|I|I|II|I|I|I|I
+20 30 40 50 60 70 80 90
+
+The length of the sig—mers The length of the sig—mers
+
+SFPR Lower is better SFNR Lower is better
+Fig. 5. (a), (b), (c) and (d) plot Pearson (Truth), Spearman (Truth), SFPR
+and SFNR of RNA-Skim as a function of sig-mer length, respectively.
+For comparison, we also plotted that of the other four methods as the
+horizontal lines. The reported values are the average across 100 simulated
+samples. The red crosses indicate the sig-mer length (i.e. 60 bp) used in
+other experiments in this article
+
+the previous metrics: if a transcript’s estimation is >0.l RPKM,
+but its true abundance value is <0.01 RPKM (a 10-fold suppres-
+sion), we call it a significant false positive; similarity, if a tran-
+script’s estimation is <0.01 RPKM, but its true abundance value
+is >0.l RPKM (a 10-fold ampliﬁcation), we call it a signiﬁcant
+false negative. There are two reasons that we chose SFPR and
+SFNR instead of the regular false-positive rate and false-negative
+rate: first, we prefer the transcripts with relatively large abun-
+dance values (>0.1 RPKM) because they are accountable for
+99% the RNA-Seq data; second, owing to the noisy nature of
+RNA-Seq, for the transcripts with small abundance values
+(<0.01 RPKM), it is difﬁcult to calculate accurately, e.g. both
+RSEM and Sailfish set the default minimal abundance value to
+be 0.01 RPKM.
+
+For RNA-Skim, we varied the sig-mer length from 20 to 95 bp.
+Other methods are presented as horizontal lines for comparisons.
+Despite the small differences by individual metrics, Figure 5
+shows that these ﬁve methods exhibit comparable performance:
+no method outperforms the remaining methods across all metrics
+and the maximal difference by any metric is within 0.05.
+
+Figure 5(a) and 5(b) show two concave curves of Pearson
+(Truth) and Spearman (Truth) for RNA-Skim by varying its
+sig-mer length. There are two factors explaining the concave
+curves. First, when the sig—mer length increases, sig-mers
+become more distinct and the sig-mer coverage increases,
+which improves the correlations between the truth and estima-
+tion. Second, for any ﬁxed read length, when we increased the
+sig-mer length, the probability that a sig-mer is contained by a
+
+single read drops, causing the decrease in the number of sig-mers
+observed in the RNA-Seq data, which may exacerbate the cor-
+relations. In summary, there is a clear trade-off on the sig-mer
+length. Empirically, the best sig-mer length is between 55 to 60,
+and we thus used 60 in other experiments.
+
+For the same reason, in Figure 5(c) and 5(d), we found that the
+increase in the sig-mer length affects positively on SFPR, but
+negatively on SFNR. When the sig—mer length equals 30, it has
+similar SFPR with Sailﬁsh, but worse SFNR score than Sailﬁsh,
+indicating that the complete set of k-mers still has its advantage
+than a small set of sig-mers. However, RNA-Skim is able to use
+much longer k-mers that Sailﬁsh does not support, so RNA-
+Skim using longer k-mers can have a better SFPR than
+Sailﬁsh. Other methods also follow the same inverse correlation:
+while Sailfish and eXpress are the worst in SFPR among these
+ﬁve methods, they are the best two in SFNR.
+
+Figure 6 shows the Pearson (Truth), Spearman (Truth), SFPR
+and SFNR as a function of the number of sig-mers used in
+RNA-Skim. In Figure 6(a), 6(b) and 6(d), when the number of
+sig-mers increases, the three metrics improve substantially,
+though at different paces. Figure 6(c) shows no signiﬁcant
+change in SFPR for different numbers of sig-mers. This obser-
+vation suggests that we should use as many sig—mers as possible
+given available memory space. To ensure RNA-Skim to have
+similar memory usage to that of other methods, RNA-Skim
+uses 2.58 million sig-mers. This is also the default setting in
+other experiments in this article.
+
+Table 2 shows that the metrics do not vary much when using
+different similarity thresholds. In the simulation study, we varied
+the similarity threshold y from 0.06 to 0.28 and observed at most
+0.005 change across all metrics. Owing to limited space, the de-
+tailed results for the thresholds between 0.06 and 0.28 are
+omitted.
+
+Figure 7 shows a strong and clear linear correlation between
+the estimated RPKM scores by RNA-Skim and the true RPKM
+scores on one simulated sample.
+
+In simulation study, we note that the accuracy of RNA-Skim
+depends on the sig-mer length and the number of sig-mers, but is
+insensitive to the threshold y. When these parameters are chosen
+properly, RNA-Skim produces similar results to those by other
+methods.
+
+5.3 Study using real RNA-Seq data
+
+Because the ﬂux simulator cannot simulate RNA-Seq data with
+bias effects, and there might also be other unknown factors in the
+real RNA-Seq data that the simulator fails to capture, we also
+compared RNA-Skim with other methods on real data. Because
+we do not know the ground truth on real data, we computed the
+Pearson correlation and Spearman correlation between the re-
+sults produced by RNA-Skim and one other method, referred to
+as Pearson (methods) and Spearman (methods) to distinguish
+from the previous computed correlations between RNA-Skim
+result and the ground truth.
+
+Figure 8 shows that the distributions of the Pearson (methods)
+and Spearman (methods) are not signiﬁcantly different between
+real data and simulated data. For example, the differences be-
+tween the mean values of the correlations on both simulated and
+real data are no more than 0.02 across all methods. This
+
+ 
+
+i289
+
+112 /310's1eu1nofp101x0'soIJBuIJOJuioIq/ﬁduq 111011 papeo1umoq
+
+9103 ‘0g isanV uo ::
+
+Z.Zhang and W.Wang
+
+ 
+
+ 
+
+ 
+
+   
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+a b
+( ) ( >03, _
+0.94 — - - - - - - - - - - - - - - -
+A E 0.93 —
+5 a
+E 0.93 -_ E 0.92 —
+C m
+E E
+m E 0.91 -
+a: a:
+EL 0.92 — a
+—O— RNA-Skim: - - - RSEM 0'90 _ RNA-Skim: - - - RSEM
+- - - Sailﬁsh — — - eXpress - - - Sailﬁsh — — - eXpress
+0-91 ‘; '_'"_C_Uf"i_"ks_ _ _ _ _ _ _ 0-39 “ ......... . .QUfﬂhKS. . . . . . . . . . . . . . . .
+i i i i i I I i i i i i i i I I i i
+1.1 1.47 1.87 2.58 3.2 1.1 1.47 1.87 2.58 3.2
+The number of selected sig-mers (million) The number of selected sig-mers (million)
+Pearson (Truth) Higher is better. Spearman (Truth) Higher is better.
+(c)  RNA-Sk' ‘ - - -
+0'16 _ im RSEM
+g 0-12 ‘ ﬁ - - Sailﬁsh — — - eXpress
+,5? a:  - - Cufﬁinks
+E (110 _-_-_-_-: -_-_-_-: -_-_-_-_' 5 0,14 —
+e ~+H_._.__+__. i
+l 2
+g 0.08 - . _ i i _ . _ _ i _ . _ _ i _ . _ _ i _ . . _ i _ . ._ g 0.12 —
+LL“ E
+Eo_06__ . _ . _ . _ . . . _ . _ . _ . _ . -. E 0.10—
+U U
+“3 —.— RNA—Skim~ - - - RSEM %
+51; 0.04 — . .9-
+- - - Sailﬁsh — — - eXpress in (108 _ - - - - - - - - - - - - - - -
+- - - - ~~Cufflinks ____________
+i i i i i i i i i i i i i i i i i i
+1.1 1.47 1.87 2.58 3.2 1.1 1.47 1.87 2.58 3.2
+
+The number of selected sig—mers (million)
+
+SFPR Lower is better
+
+The number of selected sig—mers (million)
+
+SFNR Lower is better
+
+Fig. 6. (a), (b), (c) and (d) plot Pearson (Truth), Spearman (Truth), SFPR
+and SFNR as a function of the number of sig-mers used in RNA-Skim,
+respectively. For comparison, we also showed that of the other four
+methods as horizontal lines. The reported values are the average across
+100 simulated samples. The red crosses indicate the number of sig-mers
+(i.e. 2.58 million sig-mers) used in other experiments in this article
+
+Table 2. This table shows that the four metrics do not change much for
+different similarity threshold y
+
+ 
+
+ 
+
+y Pearson Spearman SFP SFN
+0.06 0.9438 0.9242 0.0692 0.0233
+0.28 0.9440 0.9237 0.0698 0.0235
+
+ 
+
+consistency suggests that the result from RNA-Skim may have
+similar correlations with the unobserved truth. The slightly wider
+distribution of the correlations in real data (than that in simu-
+lated data) suggests the real data may exhibit more diversity than
+simulated data. (For the comparison with gene expression data,
+please see the Supplementary Material).
+
+5.4 Running time
+
+For the preparation stage (including transcriptome partitioning
+and sig—mer selection), RNA-Skim takes ~3h to finish on the
+mouse transcriptome by using a single thread. Most time is spent
+on calculating the k-mer-based similarities between different
+pairs of genes. It takes ~10min to ﬁnish sig-mer discovery and
+selection. It is worth noting that these steps only need to be run
+once for one population beforehand, and after sig-mers are se-
+lected and their connections with transcripts are established, the
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+E
+5, 8.
+i O T
+< O
+z ‘—
+a:
+3‘
+E
+E
+II 8 _
+1: \—'
+o
+18'
+.E
+17)
+LIJ
+
+S _
+
+O i i i
+
+0.01 1.00 100.00
+Ground Truth
+
+Fig. 7. The scatterplot of the estimated RPKM scores by RNA-Skim
+versus the true RPKM scores. Both axes are in a logarithmic scale, and
+all transcripts whose true RPKM or estimated RPKM is <0.01 are
+omitted
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+  
+ 
+    
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+(a) I Simulation Results  I Simulation Results
+0 Real Results 0'75 _ a Real Results
+A 035 _ I Mean (Simulation) A I Mean (Simulation)
+g I Mean (Real) g I Mean (Real) .
+o o
+5 5 'o ' '
+: 0,80 — c o“
+g g o I .0. "5 o I I
+g g 0 65 — .- . ll ﬂ. -
+O
+m . o m 0. ‘.o o I; I
+0.75 — v
+' 0.60 — o
+i i i i i i i i
+0.84 0.86 0.88 0.90 0.86 0.87 0.88 0.89 0.90
+Pearson (Methods) Pearson (Methods)
+Sailﬁsh Cufﬂinks
+(c) I Simulation Results ((1)080 _ I Simulation Results
+I Real Results I Real Results
+I Mean (Simulation) 075 _ I Mean (Simulation)
+% 0.70 — I Mean (Real) -‘ u g I Mean (Real)
+5 E.
+g g 0.70 -
+E 0.65 — E
+(U N
+E E 0.65 — ' o "' '
+a 9 . ,'
+«8 0.60 — :3 - o'. ,
+0.60 — ' ' o o. I
+o
+0'55 _ I I I i i i I I i I i I i i I
+0.85 0.87 0.89 0.91 0.84 0.86 0.88 0.90
+
+Pearson (Methods) Pearson (Methods)
+
+RSEM eXpress
+
+Fig. 8. (a), (b), (c) and ((1) show the distributions of the Pearson
+(methods) and Spearman (methods) correlations between the results
+from RNA-Skim and the results from each of the remaining methods
+on both simulated and real data
+
+result can be repeatedly used on quantifying the transcriptome of
+many samples. Therefore, the running time for the preparation
+stage is less critical than the running time of the quantification
+stage, and the one-time investment of 3 h is acceptable.
+
+For the quantiﬁcation stage, we compared both the running
+time and the CPU time of these ﬁve methods on a real sample
+with 44 millions of paired-end reads. The running time is the
+
+ 
+
+i290
+
+112 /310's1eu.inofp101xo"soiieuIJOJquIq/ﬁduq 111011 popeo1umoq
+
+9103 ‘0g isanV uo ::
+
+RNA-Skim
+
+ 
+
+Table 3. This table shows the running time of these ﬁve methods on a
+real sample with 44 millions of paired-end reads
+
+ 
+
+ 
+
+Method Number of Running CPU Speedup
+threads time (s) time (9) (CPU time)
+
+RNA-Skim 1 592 592 1x
+
+Sailﬁsh 8 972 7005 1 1.8x
+
+TopHat -I- Cufflinks 8 12480 68 834 116x
+
+Bowtie -I- RSEM 8 17 60 79 222 133x
+
+Bowtie -I- eXpress 8 13 800 111 273 188x
+
+ 
+
+elapsed time between the start and end of a method, and the
+CPU time is the total time a method uses on each core of the
+CPU. For a single thread method, the running time is exactly the
+same as the CPU time. And for a multi-threading method run-
+ning on a multi-core CPU, the running time is typically shorter
+than the CPU time. RNA-Skim is submitted as a single thread
+method. Sailfish, Cufﬂinks with TopHat as the aligner and
+RSEM with Bowtie as the aligner are submitted with multi-
+threading enabled and requiring eight threads. eXpress is an
+online algorithm, and it can quantify a streaming input of align-
+ments generated by Bowtie in real time. Bowtie and eXpress use
+six and two threads for alignment and quantiﬁcation,
+respectively.
+
+Table 3 summarizes the running time of all ﬁve methods.
+RNA-Skim is the fastest, ~llx faster than the second best
+method, Sailﬁsh, on the CPU time. Even when Sailfish uses
+eight threads, RNA-Skim is ~1.6x faster on the running time
+by just using one thread. Because the aligner usually consumes
+lots of computation time, RNA-Skim has >100 times speedup on
+the CPU time compared with Cufﬂinks, RSEM and eXpress.
+
+Overall, these results demonstrate that RNA-Skim provides
+comparable accuracy with other methods on both simulated
+and real data, using a much shorter running time.
+
+6 DISCUSSION AND CONCLUSION
+
+We introduced RNA-Skim, a lightweight method that can rap-
+idly and efﬁciently estimate the transcript abundance levels in
+RNA-Seq data. RNA-Skim exploits the property of sig-mers,
+significantly reducing the number of k-mers used by the
+method and the scale of the optimization problem solved by
+the EM algorithm. Based on our benchmark, it is at least 10x
+faster than any alternative methods. To the best of our know-
+ledge, the design principle of almost all existing methods is to use
+as much data as possible for RNA-Seq quantification. Our re-
+sults are encouraging, in the sense that they demonstrate a dif-
+ferent, yet promising, direction of building a much faster method
+by discovering and using only informative and reliable featuresi
+the counts of sig-mers in RNA-Seq data.
+
+Currently, the annotation databases are incomplete and still
+under development. Aligners and alignment-dependent RNA-
+Seq methods are commonly used to allow unknown transcript
+discovery, which will further improve the completeness and ac-
+curacy of the annotation databases. The performance of tools
+like Sailﬁsh and RNA-Skim depends on the quality of the
+
+annotation database. Their accuracy is likely to improve when
+annotation databases become complete or nearly complete in the
+future. They will become better choices when we have a better
+understanding of transcriptome and transcript discovery task be-
+comes less important.
+
+Because RNA-Skim is still under development, there are sev-
+eral directions to further improve its performance. (i) RNA-Skim
+uses a simple hash table implementation without any optimiza-
+tion on the memory usage. We will investigate advanced data
+structures enabling better memory utilization. (ii) Currently, the
+sig-mer selection algorithm in RNA-Skim only ensures uniform
+coverage. In the future, we will explore variable selection tech-
+niques to select fewer but more informative sig-mers. (iii) The
+current version of RNA-Skim does not have built-in bias correc-
+tion capability, even though it already produces results compar-
+able with the state-of-the-art methods with bias correction on
+real data. We plan to incorporate bias correction in the next
+version of RNA-Skim, which is likely to improve the perform-
+ance further. In addition, we also plan to support multi-thread
+implementation and deploy RNA-Skim in differential expression
+analysis. We are optimistic that, when we add the multi-thread-
+ing capability to RNA-Skim, the running time will be further
+improved.
+
+ACKNOWLEDGEMENTS
+
+We would like to thank those center members who prepared and
+processed samples as well as those who commented on and
+encouraged the development of RNA-Skim, in particular,
+Leonard McMillan, Vladimir Jojic, William Valdar and
+Yunjung Kim. We also would like to thank three anonymous
+reviewers for their thoughtful comments.
+
+Funding: This work was funded by NIH R01HG006703, NIH
+P50 GM076468-08 and NSF IIS-l3l3606.
+
+Conflict of Interest: none declared.
+
+REFERENCES
+
+Au,K.F. et a]. (2010) Detection of splice junctions from paired—end RNA—seq data
+by SpliceMap. Nucleic Acids Res., 38, 457(P4578.
+
+Bloom,B.H. (1970) Space/time trade—offs in hash coding with allowable errors.
+Commun. ACM, 13, 4224126.
+
+Dadgar,A. (2013) Bloomd library. https://github.com/armon/bloomd (14 May
+2014, date last accessed).
+
+Flicek,P. et a]. (2011) Ensembl 2012. Nucleic Acids Res., 40, D8¢D90.
+
+Fu,C.P. et a]. (2014) An alignment—free regression approach for estimating allele—
+speciﬁc expression using RNA—seq data. In Sharan,R. (ed.) Research in
+Computational Molecular Biology. Vol. 8394, Springer, pp. 6284.
+
+Google. (2013) Protocal buffers. https://code.google.com/p/protobuf/ (14 May 2014,
+date last accessed).
+
+Grabherr,M.G. et a]. (2011) Full—length transcriptome assembly from RNA—Seq
+data without a reference genome. Nat. Biotechnol, 29, 644$52.
+
+Griebel,T. et a]. (2012) Modelling and simulating generic rna—seq experiments with
+the flux simulator. Nucleic Acids Res., 40, 10073710083.
+
+Guttman,M. et a]. (2010) Ab initio reconstruction of cell typeLspeciﬁc transcrip—
+tomes in mouse reveals the conserved multi—exonic structure of lincRNAs. Nat.
+Biotechnol, 28, 5037510.
+
+Hsieh,W. (2013) Stringpiece. https://chromium.googlesource.com/chromium/
+(14 May 2014, date last accessed).
+
+Karp,R.M. and Rabin,M.O. (1987) Efﬁcient randomized pattern—matching algo—
+rithms. IBM J. Res. Dev., 31, 2497260.
+
+ 
+
+i291
+
+112 /310's1eu.inofp101xo"soiieuIJOJquIq/ﬁduq 111011 popeo1umoq
+
+9103 ‘0g isanV uo ::
+
+Z.Zhang and W.Wang
+
+ 
+
+Kurtz,S. et al (2008) A new method to compute K—mer frequencies and its applica—
+tion to annotate large repetitive plant genomes. BMC Genomics, 9, 517.
+
+Langmead,B. et al (2009) Ultrafast and memory—efficient alignment of short DNA
+sequences to the human genome. Genome Biol, 10, R25.
+
+Le,H.S. et al (2013) Probabilistic error correction for RNA sequencing. Nucleic
+Acids Res., 41, e109.
+
+Li,B. and Dewey,C.N. (2011) RSEM: accurate transcript quantiﬁcation from
+RNA—Seq data with or without a reference genome. BMC Bioinformatics, 12,
+323.
+
+Marcais,G. and Kingsford,C. (2011) A fast, lock—free approach for efficient parallel
+counting of occurrences of k—mers. Bioinformatics, 27, 76¢770.
+
+Melsted,P. and Pritchard,].K. (2011) Efficient counting of k—mers in DNA se—
+quences using a bloom filter. BMC Bioinformatics, 12, 333.
+
+Nicolae,M. et al (2011) Estimation of alternative splicing isoform frequencies from
+RNA—Seq data. Algorithms Mol Biol, 6, 9.
+
+Ozsolak,F. and Milos,P.M. (2010) RNA sequencing: advances, challenges and
+opportunities. Nat. Rev. Genet, 12, 87798.
+
+Pachter,L. (2011) Models for transcript quantification from RNA—Seq. arXivorg,
+1104.3889v2.
+
+Patro,R. et al (2014) Sailfish: alignment—free Isoform quantification from RNA—seq
+reads using lightweight algorithms. Nat. Biotech., 32, 4627464.
+
+Pruitt,K.D. et al (2007) NCBI reference sequences (RefSeq): a curated non—redun—
+dant sequence database of genomes, transcripts and proteins. Nucleic Acids Res.,
+35, D617D65.
+
+Rizk,G. et al (2013) DSK: k—mer counting with very low memory usage.
+Bioinformatics, 29, 6527653.
+
+Roberts,A. and Pachter,L. (2013) Streaming fragment assignment for real—time ana—
+lysis of sequencing experiments. Nat. Methods, 10, 71773.
+
+Trapnell,C. et al (2009) TopHat: discovering splice junctions with RNA—Seq.
+Bioinformatics, 25, 110571111.
+
+Trapnell,C. et al (2010) Transcript assembly and quantification by RNA—Seq re—
+veals unannotated transcripts and isoform switching during cell differentiation.
+Nat. Biotechnol, 28, 51(r520.
+
+Trapnell,C. et al (2012) Differential gene and transcript expression analysis
+of RNA—seq experiments with TopHat and Cufﬂinks. Nat. Protocols, 7,
+5627578.
+
+Turro,E. et al (2011) Haplotype and isoform specific expression estimation using
+multi—mapping RNA—seq reads. Genome Biol, 12, R13.
+
+Uziela,K. and Honkela,A. (2013) Probe region expression estimation for
+RNA—seq data for improved microarray comparability. ArXiv e—prints,
+1304.1698v1.
+
+Wang,K. et al (2010) MapSplice: accurate mapping of RNA—seq reads for splice
+junction discovery. Nucleic Acids Res., 38, e178.
+
+Wang,Z. et al (2009) RNA—Seq: a revolutionary tool for transcriptomics. Nat. Rev.
+Genet., 10, 57%}
+
+Zhang,Z. et al (2013) GeneScissors: a comprehensive approach to detecting and
+correcting spurious transcriptome inference owing to RNA—seq reads misalign—
+ment. Bioinformatics, 29, 2917299.
+
+ 
+
+i292
+
+112 /3.10'speumo[p1q1xo'sopBHJJOJuioiq/ﬁduq 11101} papeolumoq
+
+91oz ‘Og anBnV uo ::
+

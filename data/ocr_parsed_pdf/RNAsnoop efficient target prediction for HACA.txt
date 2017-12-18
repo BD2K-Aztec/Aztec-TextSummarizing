@@ -1,0 +1,956 @@
+ORIGINAL PAPER
+
+Vol. 26 no. 5 2010, pages 610—616
+doi: 1 0. 1093/bioinformatics/btp680
+
+ 
+
+Structural bioinformatics
+
+Advance Access publication December 16, 2009
+
+RNAsnoop: efficient target prediction for H/ACA snoRNAs
+Hakim Tafer1’2’3a*, Stephanie Kehr2’3, Jana Hertel2’3, Ivo L. Hofacker1 and
+
+Peter F. Stadler1 ‘6
+
+1Institute for Theoretical Chemistry, University of Vienna, W hringerstrasse 17, A—1090 Vienna, Austria,
+ZBioinformatics Group, Department of Computer Science, 3Interdisciplinary Center for Bioinformatios, University of
+Leipzig, H rtelstrasse 16—18, D—O4107 Leipzig, 4Max Planck Institute for Mathematics in the Sciences,
+Inselstrasse 22, 5FINomics Group, Fraunhofer Institut for Cell Therapy and Immunology, PerlikstraBe 1,D—O4103
+Leipzig, Germany and 6The Santa Fe Institute, 1399 Hyde Park Rd, Santa Fe, NM, USA
+
+Associate Editor: Anna Tramontano
+
+ 
+
+ABSTRACT
+
+Motivation: Small nucleolar RNAs are an abundant class of non-
+coding RNAs that guide chemical modifications of rRNAs, snRNAs
+and some mRNAs. In the case of many ‘orphan’ snoRNAs, the
+targeted nucleotides remain unknown, however. The box H/ACA
+subclass determines uridine residues that are to be converted
+into pseudouridines via specific complementary binding in a well-
+defined secondary structure configuration that is outside the scope
+of common RNA (co-)folding algorithms.
+
+Results: RNASnoop implements a dynamic programming algorithm
+that computes thermodynamically optimal H/ACA-RNA interactions
+in an efficient scanning variant. Complemented by an support vector
+machine (SVM)-based machine learning approach to distinguish true
+binding sites from spurious solutions and a system to evaluate
+comparative information, it presents an efficient and reliable tool for
+the prediction of H/ACA snoRNA target sites. We apply RNAsnoop
+to identify the snoRNAs that are responsible for several of the
+remaining ‘orphan’ pseudouridine modifications in human rRNAs,
+and we assign a target to one of the five orphan H/ACA snoRNAs in
+Drosophila.
+
+Availability: The C source code of RNAsnoop is freely available at
+http://www.tbi.univie.ac.at/~htafer/RNAsnoop
+
+Contact: htafer@tbi.univie.ac.at
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on August 26, 2009; revised on November 30, 2009;
+accepted on December 6, 2009
+
+1 INTRODUCTION
+
+Box H/ACA snoRNA facilitates the conversion of Uracil to
+pseudouracil (W) in a speciﬁc sequence context (Bachellerie
+et (11., 2002). The speciﬁcity for a particular target site is the
+consequence of the hybridization of snoRNA and target RNA,
+in most cases a ribosomal RNA. The target U is positioned by
+two speciﬁc interactions of the ﬂanking target RNA sequence
+with the complementary sequence of the recognition loop of the
+snoRNA (Ni et (11., 1997), see Figure l. The ‘correct’ secondary
+
+ 
+
+*To whom correspondence should be addressed.
+
+structures of snoRNAs are typically hard to predict. Thus, the
+exact structure of the interior loop, and hence the sequence motifs
+complementary to the binding site, are unknown. We employ here
+the idea of Thermodynamic Matchers (Hochsmann et (11., 2006)
+to determine the energetically optimal structure of an H/ACA
+snoRNA that is bound to a given putative target sequence. The
+implementation of Thermodynamic Matchers (Reeder et (11., 2007)
+is not directly applicable, however, since the snoRNA—target
+interaction corresponds to a complex pseudoknot (in the conceptual
+concatenation of snoRNA and mRNA) that is beyond the scope of
+existing RNA folding software.
+
+The prediction of putative snoRNA target sites is an integral
+part of two programs [snoGPS (Schattner et (11., 2004) and
+Fisher (Freyhult et (11., 2008)] that attempt to detect H/ACA
+snoRNAs in genomic DNA. Both programs search for sequence
+complementarities between a list of possible target sites and
+the binding region of the snoRNA candidate. In these models,
+mismatches between the target and the snoRNA are not allowed.
+Furthermore, neither program provides information on the energetics
+of the interaction or the stability of the stems, two factors that
+were recently shown to be important for correctly predicting
+snoRNA—target interactions (Xiao et (11., 2009).
+
+We present here a dynamic programming algorithm named
+RNAsno op, that speciﬁcally captures the structure of the snoRNA—
+target interaction and is optimized for scanning speed. The
+thermodynamic considerations are combined with a machine
+learning component to increase the speciﬁcity of target predictions,
+which can be improved even further by including comparative
+information.
+
+2 SINGLE-SEQUENCE RNASNOOP
+2.1 Specialized folding algorithm
+
+RNAsnoop implements a specialized co-folding algorithm that
+takes into account that stringent structural constraints must be
+satisﬁed for a ﬁinctional interaction of a box H/ACA snoRNA
+stem—loop and its target. As input, RNAsnoop takes one of the
+typical two stem—loop components of a known or predicted H/ACA
+snoRNA. The closing stem, T is assumed to be known from the a
+priori prediction of the snoRNA structure. The part of the snoRNA
+sequence enclosed by T is allowed to interact with the target
+structure. Figure 1 outlines the general principle.
+
+ 
+
+610 © The Author 2009. Published by Oxford University Press. All rights reserved. For Permissions, please email: journals.permissions@oxfordjournals.org
+
+112 /3.Io's[Bumo[pJOJXO'sorwurJOJurorqﬂ:duq 11101} papeolumoq
+
+9103 ‘{g anﬁnv 110::
+
+RNAsnoop
+
+ 
+
+ ......  snoRNA y
+
+    
+
+ 
+
+“éllllllll
+
+Fig. 1. Box H/ACA snoRNAs typically interact with both stemiloop
+structures with regions of a target RNA ﬂanking the Uracil residue that is to
+be pseudouridylated. Computation of the interaction structure is performed
+separately for the two stemsiloop components of a H/ACA snoRNA. The
+closing stem T at the root of each branch is assumed to be given from
+the structure prediction. The region inside of T is decomposed into the
+upper stemiloop structure with an energy contribution M , left and right
+interaction structures with their energy contribution L and R, respectively.
+Since RNAsnoop scans the target RNA in 5/73 direction, the snoRNA is
+read in 375’ direction.
+
+The interaction structure can be decomposed into the unbranched
+stem—loop ‘above’ the pseudouridylation site, and the left and right
+‘arms’ of the binding site itself. The total energy of these components
+will be optimized by dynamic programming. In addition, the
+snoRNA—target interaction is inﬂuenced by the short closing stem
+of the interaction loop.
+
+The upper stem—loop structure of the snoRNA (with sequence y)
+is simply modeled as an unbranched fold. The energies of its optimal
+substructures satisfy the recursion
+
+HOD?qu
+
+MM =mm 121i?Mp—k,q+l + I(y[p—k.p],y[q.q+l]).
+
+(1)
+
+where 7-1(y[p,q]) denotes the energy parameters (Lu et (11.,
+2006; Mathews et (11., 1999) for a hairpin loop formed by
+the subsequence y[p,q]=ypyp+1...yq including the closing pair
+(yp,yq). Analogously, I(y[u,p],y[q,v]) is the energy of an interior
+loop composed of the sequences y[u,p] and y[q,v], again including
+the delimiting base pairs (yp, yq) and (ymyv).
+
+Inspection of known snoRNA—rRNA interactions revealed that
+the interaction region can contain only single and tandem
+mismatches but no bulges. Therefore, we allow only stacked base
+pairs and symmetrical loops of lengths 2 and 4. Thus, the left part
+satisﬁes the recursion
+
+Li,j=kll}i1213Li—k,j+k+I(x[i—k,il,y[f,j+k]). (2)
+
+The index 1' runs along the target RNAx, while j refers to the position
+on the snoRNA y. To ensure that all interactions start inside the
+recursion matrix we set Lisj :0
+
+The r.h.s. array R contains the optimal folding energies of the
+interaction structure up to positions 1' on the target and j on the
+snoRNA consisting of the l.h.s. binding region L, the snoRNA stem—
+loop M and the partial r.h.s. binding region Riﬁj. It thus extends
+a r.h.s. binding region or refers to its ﬁrst base pair. In the latter
+
+case, nucleotide xi_2 is the uracil that is pseudouridylated. The
+corresponding recursion reads
+
+min R-_ ~ +Ix i—k,i, '7 '+1
+
+[@152 z k,]+1 ( I lyUJ 
+
+Ri ‘=H1in min Li—3 ‘+l+1+M‘+1 ‘+1 (3)
+J team—j] ’1 J ’1
+
+if x[i—2] = ’U’.
+
+For each i, the best binding energy at target position i is max]~ Riﬁj.
+
+Space and time requirements for the M -matrix are limited by the
+size |y| of the snoRNA stem—loop structure, which is a user-speciﬁed
+constant, typically 120 nt. Formally, the space and time complexity
+is O(|y|2) and O(|y|4), respectively. The space requirements for the
+L and R arrays are limited to 5 X |y| independent of the target |x| of
+the target RNA. This is possible because the length of interior loops
+in the recursions is restricted to not more than 4 and the transition
+from L to R recursion only looks back to i— 4. The time complexity
+for L is O(|x| - |y|), while for R we need O(|x| - |y|2) operations. The
+total run time is thus (9(le |y|2 + Iyl4), i.e. we have a linear ‘scanning
+algorithm’ for long target RNAs.
+
+Due to the difference in accessibility between sites with
+pseudouridine and uridine residues in both human and yeast (see
+Fig. 2 and Supplementary Fig. 51), we extended RNAsnoop so
+that accessibility information are considered in the folding step.
+Accessibility proﬁles as computed by RNAup (Muckstein et (11.,
+2006) or RNApl f 0 1d (Bemhart et (11., 2006; Bompfiinewerer et (11.,
+2008) describe the energy necessary to open the secondary structure
+on an interval of the target sequence. The full implementation of
+RNA—RNA interactions is too expensive in terms of computational
+resources for a target search program. We therefore borrow the
+approach from RNAplex (Tafer and Hofacker, 2008a), which
+uses an afﬁne approximation to speed up the computation of
+RNA—RNA interaction energies. A recent extension (Tafer and
+Hofacker, 2008b) shows that the accuracy can be improved
+substantially by incorporating precomputed accessibility proﬁles in
+the parameterization of the interaction energies. Here, we use the
+same idea to approximate the inﬂuence of the target site accessibility
+on the snoRNA—rRNA interactions, while preserving the linear run
+time of RNAsnoop.
+
+2.2 Machine learning component
+
+Xiao et (11. (2009) showed that the interaction energy is necessary
+but not sufﬁcient to distinguish functional from non-functional
+snoRNA—rRNA interactions. Stability of the stems enclosing the
+pseudourydilation pocket as well as structural features relative to
+the stems and the interaction regions are equally relevant. In order
+to take those parameters into account we used a machine learning
+method [support vector machine (SVM)] to analyze the output of
+RNAsnoop. We developed two models depending on whether or
+not RNAsnoop considers the target site accessibility. We used the
+experimentally veriﬁed interactions from yeast (Schattner et (11.,
+2004) and human (Xiao et (11., 2009). When using the human
+interactions for testing we trained exclusively on the yeast dataset.
+Since the training dataset did not contain experimentally conﬁrmed
+non-ﬁinctional interactions, we augmented it by adding artiﬁcial
+ones. For each snoRNA-stem involved in a veriﬁed interaction,
+we let RNAsnoop run against yeast 28S and 185 sequence. All
+hits that had an interaction energy smaller than the one of the
+experimentally validated interaction and that do not target a known
+
+ 
+
+611
+
+112 /3.Io's[Bumo[pJOJXO'sorwurJOJurorqﬂ:duq 11101} papeolumoq
+
+9103 ‘{g anﬁnv 110::
+
+H. Tafer et al.
+
+ 
+
+ 
+
+ 
+
+ 
+
+3 - u Accessibility U a
+stem_1ength i i Accessibility W a Z
+88— 0 ° 0
+z o o o i
+ a s i i
+7‘5 0 j s
+38- 9  l i T
+9 o I z :
+a: a 9 , a
+:m' 8 1 ' : :1—
+mv- i I : z T I:
+E’ 5 i to i. i7 IT a :
+'ES— 3 ;°: 5: 7: 5H; I
+8 -°: 5T '2  B
+0 1°3+=TB:B'EBB:Ei
+l“— !3 ‘EB‘ ' E: i g, 55
+giBaiEiEi. is ii 31:1
+0. iEliiiiiiiiiii+i i
+
+ 
+
+5 L7 L9 L11 L13 L15 L17 L19
+Size of the Unpaired Region
+
+I__
+
+L3
+
+ 
+
+Fig. 2. Features considered in the SVM model. (Left) Structural (black bold lines) and energy features (shaded regions). TE: lower stem energy, LE: 5’
+interaction energy, DE: upper stem energy, RE: 3’ interaction energy, For each nucleotide in the target, its local opening energy is represented by a gray circle,
+where light gray represents low local opening energy and dark gray high local opening energy. The target total opening energy (OE) is the sum of all local
+opening energies, YE: YE = LE + RE + TE + DE, XE: XE = LE + RE + DE, dYE: dYE = YE + OE, t_i_gap: number of nucleotides between the 5’ end
+of the upper stem and 3’ end of the 5’ interaction on the snoRNA, U_gap: number of nucleotides between the 3’ end of the 5’ interaction and the 5’ end of
+the 3’ interaction on the mRNA. i_b_gap: number of nucleotides between the end of the lower stem and the 3’ end of the 5’ interaction on the snoRNA,
+i_t_gap: number of nucleotides between the 5’ end of the 5’ interaction and the 5’ end of the snoRNA stem, stem_length: length of the upper stem,
+stem_asymmetry: difference in the number of nucleotides located in loops between the 5’ and 3’ side of the upper stem, gap_right: number of gaps in
+the 3’ interaction on the mRNA. (Right) Box-plots showing the accessibility distribution for all known uridines (gray, 1062 datapoints) and pseudouridines
+(white, 92 datapoints) sites in human 285 and 185 rRNAs. The target accessibility was computed by using RNAup on the whole length sequences of 285 and
+
+185 rRNAs. The target size was varied between 3 and 19 nt in steps of 2 nt and was centered around the (pseudo)uridine site.
+
+pseudouridylation site were considered non-ﬁinctional. The ﬁnal
+training dataset contained 43 positive and 103 negative interactions.
+
+For both models we derived a set of 29 features to pass to
+the SVM, and then selected a subset following the approach
+described by Chen and Lin (2006). Features that were included at
+the end are described in some detail in Figure 2. We used different
+feature set depending on whether accessibility is taken into account
+or not.
+
+For the case where the target accessibility was neglected, only
+ﬁve features are used, four of which describe the geometry of the
+interaction itself (t_i_gap, U_gap, i_t_gap and gap_right)
+and the length of the intervening stem stem_l ength.
+
+For the model with accessibility, 11 features are used. In addition
+to features describing the geometry of the interaction (t_i_gap,
+U_gap, i_b_gap, i_t_gap and gap_right) and of the upper
+stem (stem_length and stem_asymmetry), we utilize the
+four energy values YE, DE, XE and dYE deﬁned in the caption of
+Figure 2.
+
+Training and test datasets can be found in Supplementary Tables
+T3 and T4.
+
+2.3 Performance
+
+2.3.] Accuracy We compared the prediction accuracy of
+RNAsnoop, snoGPS and fisher on the human (Xiao et (11.,
+2009) and yeast (Schattner et (11., 2004) datasets of experimentally
+conﬁrmed/rejected snoRNA—rRNA interactions. For a given
+snoRNA involved in a conﬁrmed interaction, we determined how
+many target sites were predicted to bind with a better score/energy
+than the experimentally reported one. Table 1 summarizes these rank
+values for the conﬁrmed interactions in yeast. We clearly see that
+
+fisher is less sensitive, detecting only 16 of the 44 interactions
+in yeast. Still, these 16 interactions were all ranked ﬁrst, indicating
+that fisher has a high speciﬁcity. In comparison, RNAsnoop and
+snoGPS detect 43 and 41 of the 44 veriﬁed interactions in yeast,
+and 11 and 10, respectively, in human. We remark that RNAsnoop
+did not identify the interaction of snR82 with LSU-U2349, because
+RNAsnoop predicts the adjacent position LSU-U2351 as preferred
+target. On average, RNAsnoop ranks the conﬁrmed interactions
+higher in the list than snoGPS. This trend is also seen in the ROC
+curve in Figure 3, where RNAsnoop shows a higher prediction
+accuracy than snoGPS.
+
+In human, RNAsnoop performs better than snoGPS. In
+particular, the SVM version successfully rejects the four non-
+functional snoRNA—rRNA interactions and successfully ranks 11
+out of the 12 conﬁrmed interactions ﬁrst (Table 2). Still, one of the
+conﬁrmed interaction was rejected by the SVM.
+
+Further, we looked at the false positive rate of RNAsnoop. To
+this aim, we considered the putative targets of orphan snoRNA
+HBI-36 (Cavaille et (11., 2000), a brain-speciﬁc snoRNA found in
+all vertebrates (Gardner et (11., 2009) returned by RNAsnoop. We
+downloaded from BI OMART (Haider et (11., 2009) the unprocessed
+transcript sequences that are expressed in brain and that have
+homologs in chicken. We did not limit ourselves to exons as it
+was proven that at least C/D snoRNA can bind intronic regions
+and subsequently inﬂuence the splicing process (Bazeley et (11.,
+2008). We downloaded a total of 9429 unspliced sequences,
+summing a total of 0.75 Gb, roughly a quarter of total human
+genome. For each sequence, we used RNAplfold to compute
+the local accessibility (Bompfiinewerer et (11., 2008). Based on this
+RNAsnoop returned a total of 1 278 134 putative targets (515 751
+hits for the 5’ stem and 762383 hits for the 3’ stem) with a SVM
+
+ 
+
+612
+
+112 /3.Io's[Bumo[pJOJXO'sorwurJOJurorqﬂ:duq 11101} papeolumoq
+
+9103 ‘{g anﬁnv 110::
+
+RNAsnoop
+
+ 
+
+Table 1. Prediction comparison of RNAsnoop (abbreviated as RNAsn . ), snoGPS and Fisher for the known snoRNA7rRNA interactions in yeast
+
+ 
+
+snoRNA Target Position snoGPS
+
+ 
+
+snoRNA Target Position snoGPS f i sher RNAsn. RNAsn. A
+snR11 255 2416 3 7 12 14
+snR161 185 632 6 1 8 5
+san61 185 766 1 7 11 2
+san89 185 466 2 1 1 1
+san89 255 2735 1 7 1 1
+san91 255 2258 1 7 5 2
+san91 255 2260 99 7 8 1
+snR3 255 2129 4 7 1 1
+snR3 255 2133 1 7 1 1
+snR3 255 2264 2 7 3 1
+snR31 185 999 1 1 1 1
+snR32 255 2191 1 1 1 1
+snR33 255 1042 1 1 1 1
+snR34 255 2826 2 7 1 1
+snR34 255 2880 1 7 1 1
+snR35 185 1191 1 7 1 1
+snR36 185 1187 12 1 7 2
+snR37 255 294-4 1 7 2 2
+snR42 255 2975 1 1 4 1
+snR43 255 966 1 7 1 1
+snR44 185 106 1 7 2 2
+snR44 255 1056 2 1 1 2
+
+sanO 258 2923 2 1 28 26
+snR46 258 2865 1 1 1 1
+snR49 188 120 3 1 1 1
+snR49 18$ 2 1 1 2 7 5 5
+snR49 188 302 1 7 5 4
+snR49 258 990 4 7 7 1
+snR5 258 1004 3 1 1 1
+snR5 25 S 1 124 1 7 8 1
+snR8 255 960 68 7 3 5
+snR8 255 986 55 1 2 3
+snR80 188 759 7 7 2 2
+snR80 258 776 7 7 2 2
+snR81 258 1052 57 1 2 1
+snR82 258 2349 1 1 7 7
+
+snR82 258 235 1 1 7 1 2
+snR82 25$ 1 1 10 7 2 4
+snR83 188 1290 1 7 5 8 7
+snR83 188 1415 4 7 1 1
+snR84 258 2266 1 7 2 2
+snR85 18$ 1 1 81 1 1 1 1
+snR86 25 S 23 14 13 7 3 1
+snR9 258 2340 33 7 18 19
+
+ 
+
+RNAsn. A, accessibility version of RNAsnoop.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+1.0 — ' ' ' _._' .._ . . —.— '
+ _ 1_0 i J —
+q) — 0.8 — —
+RS. _
+k _ 0.6 — _
+0.6
+.2 -
+E 0.4 —
+U) _ _ _
+8. 0.2 —
+u) 0.47 - ___.-—-—-—-
+E 0.0 . --|""i I
+-I 0 00 0.02 0 04 -
+0.2 7 _
+1g 2' ' ' "D snoGPS
+_g 0—0 RNAsnoop _
+a?
+0.0 I I | | | I |
+
+0.0 0.2 0.4 0.6 0.8 1.0
+False positive rate
+
+Fig. 3. ROC curve for RNAsnoop and snoGPS on the yeast data set
+(Schattner 21111., 2004). RNAsnoop was used without the SVM functionality.
+
+P-value >0.5. This corresponds to one hit every 586 nt. At a
+P-value of 0.844, the false positive rate drops to 0.00001 predictions
+per nucleotide (Supplementary Fig. S6). While the number of
+false positives diminishes uniformly with increasing P-values,
+the energy dependency of the false positives is sigmoid shaped.
+The false positives rate grows slowly between —40 kcal/mol and
+—30kcal/mol, then increases strongly between —30kcal/mol and
+—20 kcal/mol before reaching a plateau between —20kcal/mol
+
+Table 2. Prediction performance in human for snoGPS, RNAsnoop
+(RNAsn.), RNAsnoop with accessibility (RNAsn. A) and the SVM in human
+
+ 
+
+ 
+
+snoRNA Target Position Type snoGPS RNAsn. RNAsn. A SVM
+ACA19_1 285 3709 + 1 1 1 1
+ACA19_2 285 3618 + 25 2 1 1
+ACA19_1 185 863 — 10 1 4 7
+ACA19_1 185 866 — 10 7 7 7
+ACA24_1 18S 863 + 7 1 1 1
+ACA24_2 18S 612 — 86 3 6 7
+ACA2 8_1 1 8S 815 + 1 4 1 1
+ACA2 8_2 18S 866 + 7 2 4 1
+ACA42_1 18S 572 — 3 4 19 7
+ACA42_2 18S 109 + 1 1 1 1
+ACA50_1 18S 34 + 1 1 1 7
+ACA5 O_2 1 SS 105 + 2 1 1 1
+ACA62_1 18S 34 + 3 24 1 1
+ACA62_2 18S 105 + 2 1 1 1
+ACA67_1 18S 572 + 2 2 1 1
+ACA67_2 18S 109 + 1 1 1 1
+
+ 
+
+The numbers represent the rank of the interaction for the corresponding snoRNA stem.
+In column ‘Type’, +,— represent experimentally conﬁrmed or rejected interactions,
+respectively. When using the human interactions for testing, we trained the SVM
+exclusively on the yeast dataset.
+
+and —10kcal/mol. A false positive rate of 0.00001 predictions per
+nucleotide is reached for an energy of —28 kcal/mol (Supplementary
+Fig. S6).
+
+2.3.2 Run time We compared the run time of RNAsnoop with
+that of snoGPS and RNAhybrid. We modiﬁed fisher to turn it
+
+ 
+
+613
+
+fisher RNAsn. RNAsn.A
+
+112 /3.Io's[Bumo[pJOJXO'sotwuiJOJurorqﬂ:duq uroii papaolumoq
+
+9103 ‘{g isnﬁnv 110::
+
+H. Tafer et al.
+
+ 
+
+into a target ﬁnder; the resulting run time, however, was so high that
+we decided not to evaluate it ﬁirther. RNAhybrid uses a dynamic
+programming algorithm to ﬁnd putative miRNA—targets and has a
+run time of O(|x| - |y|). Since the run time of RNAsnoop is linear
+in the target size but quadratic in the snoRNA size, we varied the
+length of both sequences. Since H/ACA snoRNA stems vary greatly
+in length (Bally et (11., 1988; Torchet et (11., 2005), we incremented the
+snoRNA stem size in steps of 30 nt from 60 up to 420 nt, keeping the
+target RNA length ﬁxed to 5000 nt. Conversely, the target length was
+varied between 1000 and 256 000 nt with a snoRNA stem length set
+to 200. We set the threshold for each program so that they returned
+at most one hit. Independently of the snoRNA or target sequence
+size, snoGPS and RNAsnoop have a similar run time. They are
+around 15 times faster than RNAhybrid (Supplementary Figs S2
+and S3).
+
+3 A COMPARATIVE VERSION
+
+The use of alignments in the target search can further help to ﬁnd real
+snoRNA—RNA interactions. On one hand, the absence of conserved
+target site in closely related species may indicate that the proposed
+interaction does not occur in nature. The presence of compensatory
+mutations between the snoRNA binding bucket and the target site,
+on the other hand, can lend ﬁirther credibility to single-sequence
+target predictions (Chen et (11., 2007).
+
+The alignment extension of RNAsnoop is based on the same
+approach used in RNAalifold (Bemhart et (11., 2008; Hofacker
+et (11., 2002), where a thermodynamic energy minimization folding
+algorithm is coupled with a simple scoring model to assess
+evolutionary conservation. As in the single sequence algorithm,
+the upper stem is modeled as an unbranched fold by a slightly
+modiﬁed RNAalifold algorithm. The interaction part uses the
+same approach as RNAalifold, with the sole difference that only
+interior loops are allowed between the snoRNA and its target.
+
+For an efﬁcient analysis of data, we provide and recommend the
+perl script SNOOPY. It uses both the SVM as well as the homology
+information to predict putative target interactions. SNOOPY takes as
+input a snoRNA alignment and a target alignment. In a ﬁrst step
+SNOOPY uses mLocARNA to obtain sequence/structure alignments
+of the snoRNAs (Will et (11., 2007). If the sum of scores of
+mLocARNA pairwise alignments for a sequence is <2500, then
+the sequence is discarded. Duplicates and sequences belonging
+to species that are present in only one of the two alignments
+are also removed. SNOOPY preselects possible targets in a user-
+deﬁned reference organism by means of the single-sequence version
+of RNAsnoop and one of the two SVM models. For each
+reported targets, SNOOPY extracts the corresponding slice from
+the alignments and then realigns the corresponding subsequences
+with Clustalw (Thompson et (11., 1994). Target sequences for
+which the pairwise alignment score is below a threshold, or which
+do not exhibit a U residue at the previously predicted site, are
+removed together with the snoRNA sequences from the same
+organisms. Whenever the number of retained sequences is above
+a user-deﬁned threshold, the alignment version of RNAsnoop is
+applied. Finally, SNOOPY reports for each snoRNA alignment a
+user-speciﬁed number of putative interactions. These interactions
+can be ranked either by their SVM score or by the single sequence
+interaction energy for the reference organism.
+
+4 APPLICATIONS
+
+In order to test the usability of RNAsnoop, we consider
+the problems of ﬁnding snoRNAs associated with ‘orphan’
+pseudouridylation sites in human rRNAs. Although the role of
+snoRNAs in locating target uridine residues was discovered more
+than a decade ago, there are still a few pseudouridylation sites
+in human rRNAs (Maden and Wakeman, 1988; Ofengand and
+Bakin, 1997) for which the responsible snoRNAs have not yet been
+determined. We used the single sequence version of RNAsnoop to
+predict the possible snoRNAs that may pseudouridylate these orphan
+sites. For this we used all the known human H/ACA sequences
+reported in snoRNA—LBME—db (Lestrade and Weber, 2006) and
+tested them against the 11 reported orphan sites in the human LSU
+and SSU. Based on the currently available snoRNA data, eight
+orphan sites can be mapped to existing snoRNA stems. Interestingly,
+two orphan snoRNAs (ACA38B,ACA51), and two stems, for which
+no ﬁinction was reported, were among the predictions. Additionally,
+four stems with known targets were predicted to target four of the
+orphan sites. The predicted interactions are listed in Table 3, Figure 4
+and Supplementary Figure S4.
+
+We used SNOOPY to assign putative targets to the ﬁve orphan
+snoRNAs found in Drosophila (Or-acal, Or-aca2, Or-aca3, Or-aca4
+and Or-aca5). For each orphan snoRNAs reported in Flybase
+(Ashburner and Drysdale, 1994), we searched for homologous
+sequences in the 11 other Drosophila species by using blast
+(Altschul et (11., 1990). For each species, the sequence with the
+highest homology with D.me1(1n0g(1ster was selected. The sequences
+were then aligned with mLocARNA, a variant of the Sankoff
+algorithm. For each snoRNA, the ﬁill-length alignment was then
+divided into a 5’ and 3’ stem alignments.
+
+The rRNA alignments were retrieved from the arb—silva
+database (Pruesse et (11., 2007). In order to get the best possible
+alignments, we realigned them with Clustalw, Muscle (Edgar,
+2004), and RNAsalsa (Stocsits et (11., 2009). The quality of the
+alignments was assessed by determining how well the conserved
+pseudouridylation sites in D.me1(1n0g(1ster and Homo sapiens were
+aligned in the 12 drosophilid rRNA sequences. Based on this quality
+measure, RNAsalsa was found to perform best (Supplementary
+Tables T1 and T2). Alignments of snRNAs were taken from Marz
+et (11. (2008).
+
+Of the ﬁve orphan snoRNAs, only Oaca-4 was reported to have
+a target. We predict that the ﬁrst stem modiﬁes U2499 on the
+28S rRNA (Fig. 5 and Supplementary Fig. S5). This target site is
+interesting since it was reported to be pseudouridylated (Giordano
+et (11., 1999), but no corresponding snoRNA is known. Moreover, in
+human and yeast, this position which correspond to U3674 in human
+and U2191 in yeast, is conserved and pseudouridylated (Lestrade
+and Weber, 2006). U3674, ﬁnally, remains an orphan site in human.
+
+Interestingly, both the target and binding buckets are completely
+conserved from D.me1(1n0g(1ster to D.willistoni, see Figure 5. On
+the other hand, 6 out of the 12 bp found in the upper stem exhibit
+compensatory mutations.
+
+The fact that no credible targets have been predicted for the
+remaining four orphan snoRNAs is not unexpected. First, snoRNAs
+have also been implicated in modifying ‘non-canonical targets’ such
+as mRNAs (Bazeley et (11., 2008; Kishore and Stamm, 2006; Uliel
+et (11., 2004), some cause cleavage of pre-rRNAs (Fayet-Lebaron
+et (11., 2009), and Taft et (11. (2009) recently showed that Or-aca5 is
+
+ 
+
+614
+
+112 /3.Io's[Bumo[pJOJXO'sotwuiJOJurorqﬂ:duq uroii papaolumoq
+
+9103 ‘{g isnﬁnv 110::
+
+RNAsnoop
+
+ 
+
+Table 3. Predicted snoRNAs targeting the orphan pseudouridines in human
+ribosomal RNAs
+
+ 
+
+ 
+
+rRNA Position snoRNA Stem Function SVM-score Energy
+185 681 ACA55 2 185-36 0.76 734.32
+185 918 ACA13 1 185-1248 0.81 —35.90
+285 1523 SNORA38B* 1 7 0.66 — 18.08
+285 1849 7 7 7 7 7
+
+285 3674 7 7 7 7 7
+
+285 3747 ACA52 2 7 0.87 —28.94
+285 3749 7 7 7 7 7
+
+285 3863 U71c 2 185-406 0.53 — 19.14
+285 4266 ACA64 1 7 0.75 —32.00
+285 4323 ACA51* 2 7 0.63 720.39
+285 4501 ACA10 1 285-4491 0.54 — 15.00
+
+ 
+
+No snoRNAs were found for position 1849, 3674 and 3749 on rRNA 28S. ACA51 and
+SNORA38B are orphan snoRNAs while ACA52-2 and ACA64-1 are orphan stems.
+
+ 
+
+Fig. 4. Structure of the interactions between human \11 orphan
+sites and orphan snoRNAs returned by RNAsnoop. From left to
+rght SNORA38B—12288—152& ACA51—2:28S—432& whae Le
+ACA51—2228874323, means that the second stem of ACA51 binds
+to position 4323 on rRNA 285. The single nucleotide opening energy
+for the target is gray coded and is represented as circles on top of the
+corresponding nucleotide. Structures drawings were produced automatically
+by RNAsnoop.
+
+processed by Dicer, suggesting a function in the RNA interference
+pathway.
+
+5 DSCUSSON
+
+We presented here RNAsnoop, a tool speciﬁcally designed
+to predict complex H/ACA snoRNA—RNA interactions that are
+outside the scope of conventional RNA—RNA prediction tools.
+In contrast with previous tools, it uses a dynamic programming
+approach coupled with a nearest-neighbor energy model to identify
+putative targets. This allows RNAsnoop to capture structural and
+
+."elanoqaster
+re ta
+
+c
+. etslmills
+. echellla
+
+. unulans
+akuba
+..).lll.3toni
+
+ 
+
+anew-me
+
+ 
+
+Fig. 5. Structure of the interactions between Or-aca4 and its putative target.
+(Left) Single sequence structure and (right) multiple sequences structure.
+(Below) Alternative representation of the multiple sequences structure. The
+consensus structure is represented in dot bracket format on top of the target
+and snoRNA alignments. The angle brackets represent intermolecular base
+pairs and the braces represent intramolecular base pairs. The & column
+separates the alignment of the snoRNA sequences on the right side and the
+corresponding slice of the target sequences alignment on the left side. For
+the multiple sequences and alignment ﬁgures, the shade in the order light,
+middle and dark gray indicate 173 different types of base pairs.
+
+energetic features essential for correctly predicting snoRNA—target
+interactions (Xiao et (11., 2009). Coupled with a SVM classiﬁcation,
+SNOOPY achieves good performance ranking ﬁrst 11 out of 12
+conﬁrmed snoRNA—mRNA interactions in human and excluding
+all experimentally rejected interactions. These good results should,
+however, not be overestimated as both the training and test datasets
+are small and were extracted from only two species.
+
+The run time of RNAsnoop is comparable with that of snoGPS,
+and scales linearly with the length of the target sequence. Together
+with the improved accuracy, this makes RNAsnoop not only
+suitable for target search in rRNA and snRNA sequences or
+in speciﬁc putative mRNA candidates, but also for large-scale
+genome-wide surveys.
+
+Funding: European Union under the auspices of the FP-6 SYNLET
+and the FP-7 QUANTOMICS project (in part); the Austrian GEN-
+AU project ‘Regulatory Noncoding RNA’ (in part).
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Altschu1,S.F. et a1. (1990) Basic local alignment search tool. J. Mol. Biol, 215, 4037110.
+
+Ashburner,M. and Drysdale,R. (1994) Flybase7the Dmsophila genetic database.
+Development, 120, 207772079.
+
+BachellerieJP. et a1. (2002) The expanding snoRNA world. Biochimie, 84, 7757790.
+
+Bally,M. et a1. (1988) SnR30: a new, essential small nuclear RNA from Saccharomyces
+cerevisiae. Nucleic Acids Res., 16, 529175303.
+
+Bazeley,P.S. et a1. (2008) snoTARGET shows that human orphan snoRNAtargets locate
+close to alternative splice junctions. Gene, 408, 1727179.
+
+Bernhart,S.H. et a1. (2008) RNAal ifold: improved consensus structure prediction for
+RNA alignments. BMC Bioinformatics, 9, 474.
+
+Bernhart,S. et a1. (2006) Local RNA base pairing probabilities in large sequences.
+Bioinformatics, 22, 614$15.
+
+ 
+
+615
+
+112 /3.Io's[Bumo[pJOJXO'sotwuiJOJurorqﬂ:dnq 111011 papeo1umoq
+
+9103 ‘1gisn8nv 110::
+
+H. Tafer et al.
+
+ 
+
+Bompfiinewerer,A.F. et al. (2008) Variations on RNA folding and alignment: Lessons
+from benasque. J. Math. Biol., 56, 1197144.
+
+Cavaillé,J. et al. (2000) Identiﬁcation of brain-speciﬁc and imprinted small nucleolar
+RNA genes exhibiting an unusual genomic organization. Proc. Natl Acad. Sci. USA,
+97, 14311714316.
+
+Chen,Y.-W. and Lin,C.-J. (2006) Combining SVMs with various feature selection
+strategies. In Guyon,I. et al. (eds) Feature Extraction, Foundations
+and Applications, Studies in Fuzziness and Soft Computing. Springer,
+Berlin/Heidelberg, pp. 3157324.
+
+Chen,C.L. et al. (2007) Exploration of pairing constraints identiﬁes a 9 base-pair core
+within box C/D snoRNA-rRNA duplexes. J. Mol. Biol., 369, 7717783.
+
+Edgar,R.C. (2004) MUSCLE: a multiple sequence alignment method with reduced
+time and space complexity. BMC Bioinformatics, 5, 1137132.
+
+Fayet-Lebaron,E. et al. (2009) 18S rRNA processing requires base pairings of snR30
+H/ACA snoRNA to eukaryote-speciﬁc 18S sequences. EMBO J., 28, 126&1270.
+
+Freyhult,E. et al. (2008) Fisher: a program for the detection of H/ACA snoRNAs
+using MFE secondary structure prediction and comparative genomics 4 assessment
+and update. BMC Res. Notes, 1, 49.
+
+Gardner,P.P. et al. (2009) Rfam: updates to the RNA families database. Nucleic Acids
+Res, 37, 1367140.
+
+Giordano,E. et al. (1999) miniﬂy, a Drosopliila gene required for ribosome biogenesis.
+J. Cell Biol., 144, 112371133.
+
+Haider,S. et al. (2009) BioMart central portal7uniﬁed access to biological data. Nucleic
+Acids Res, 37, 23727.
+
+Hochsmann,T. et al. (2006) Thermodynamic matchers: strengthening the signiﬁcance
+of RNA folding energies. In Markstein,P. and Xu,Y. (eds) Computational Systems
+Bioinformatics, CSB 2006. World Scientiﬁc, Singapore, pp. 1117121.
+
+Hofacker,I.L. et al. (2002) Secondary structure prediction for aligned RNA sequences.
+J. Mol. Biol., 319, 105971066.
+
+Kishore,S. and Stamm,S. (2006) The snoRNA HBII-52 regulates alternative splicing of
+the serotonin receptor 2C. Science, 311, 2307232.
+
+Lestrade,L. and Weber,M.J. (2006) snoRNA-LBME-db, a comprehensive database of
+human H/ACA and C/D box snoRNAs. Nucleic Acids Res, 34, 1587162.
+
+Lu,Z.J. et al. (2006) A set of nearest neighbor parameters for predicting the enthalpy
+change of RNA secondary structure formation. Nucleic Acids Res, 34, 49124924.
+
+Maden,B.E.H. and Wakeman,].A. (1988) Pseudouridine distribution in mammalian 18
+S ribosomal RNA A major cluster in the central region of the molecule. Biochem.
+J., 249, 459464.
+
+Marz,M. et al. (2008) Evolution of spliceosomal snRNA genes in metazoan animals.
+J. Mol. Evol., 67, 594407.
+
+Mathews,D.H. et al. (1999) Expanded sequence dependence of thermodynamic
+parameters improves prediction of RNA secondary structure. J. Mol. Biol., 288,
+9117940.
+
+Muckstein,U. et al. (2006) Thermodynamics of RNA-RNA binding. Bioinformatics,
+22, 117771182.
+
+Ni,J. et al. (1997) Small nucleolar RNAs direct site-speciﬁc synthesis of pseudouridine
+in ribosomal RNA Cell, 89, 5657573.
+
+Ofengand,J. and Bakin,A. (1997) Mapping to nucleotide resolution of pseudouridine
+residues in large subunit ribosomal RNAs from representative eukaryotes,
+prokaryotes, archaebacteria, mitochondria and chloroplasts. J. Mol. Biol., 266,
+2467268.
+
+Pruesse,E. et al. (2007) SILVA: a comprehensive online resource for quality checked
+and aligned ribosomal RNA sequence data compatible with ARB. Nucleic Acids
+Res, 35, 718877196.
+
+Reeder,J. et al. (2007) Locomoti f: from graphical motif description to RNA motif
+search. Bioinformatics, 23, i3927i400.
+
+Schattner,P. et al. (2004). Genome-wide searching for pseudouridylation guide
+snoRNAs: analysis of the Saccharomyces cerevisiae genome. Nucleic Acids Res,
+32, 42814296.
+
+Stocsits,R.R. et al. (2009) Accurate and efﬁcient reconstruction of deep phylogenies
+from structured RNAs. Nucleic Acids Res, 37, 618476193.
+
+Tafer,H. and Hofacker,I.L. (2008a) RNAplex: a fast tool for RNA-RNA interaction
+search. Bioinformatics, 24, 265772663.
+
+Tafer,H. and Hofacker,I.L. (2008b) RNAplex a fast interaction tool incorporating target
+site accessibility. In ISMB 2008, poster, Toronto, Canada.
+
+Taft,R.J. et a1. (2009) Small RNAs derived from snoRNAs. RNA, 15, 123371240.
+
+Thompson,J.D. et al. (1994) CLUSTAL W: improving the sensitivity of progressive
+multiple sequence alignment through sequence weighting, position-speciﬁc gap
+penalties and weight matrix choice. Nucleic Acids Res, 22, 46734680.
+
+Torchet,C. et al. (2005) The complete set of H/ACA snoRNAs that guide rRNA
+pseudouridylations in Saccliaromyces cerevisiae. RNA, 11, 9287938.
+
+Uliel,S. et al. (2004) Small nucleolar RNAs that guide modiﬁcation in trypanosomatids:
+repertoire, targets, genome organisation, and unique functions. Int. J. Parasitol., 34,
+445454.
+
+Will,S. et al. (2007) Inferring non-coding RNA families and classes by means of
+genome-scale structure-based clustering. PLoS Comp. Biol., 3, e65.
+
+Xiao,M. et al. (2009) Functionality and substrate speciﬁcity of human box H/ACA
+guide RNAs. RNA, 15, 1767186.
+
+ 
+
+616
+
+112 /3.Io's[Bumo[pJOJXO'sotwuiJOJurorqp:duq 111011 papeo1umoq
+
+9103 ‘1gisn8nv 110::
+

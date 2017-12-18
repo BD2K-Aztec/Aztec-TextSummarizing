@@ -1,0 +1,965 @@
+ORIGINAL PAPER
+
+Vol. 29 no. 23 2013, pages 2964—2970
+doi:10. 1 093/bioinformatics/btt521
+
+ 
+
+Genome analysis
+
+Advance Access publication September 9, 2013
+
+Precise inference of copy number alterations in tumor samples
+
+from SNP arrays
+
+Gary K. Chen”, Xiao Changz, Christina Curtis1 and Kai Wangl'2'3'*
+
+1Department of Preventive Medicine, 2Zilkha Neurogenetic Institute and 3Department of Psychiatry, University of
+
+Southern California, Los Angeles, CA 90089, USA
+Associate Editor: Alfonso Valencia
+
+ 
+
+ABSTRACT
+
+Motivation: The accurate detection of copy number alterations
+(CNAs) in human genomes is important for understanding suscepti-
+bility to cancer and mechanisms of tumor progression. CNA de-
+tection in tumors from single nucleotide polymorphism (SNP)
+genotyping arrays is a challenging problem due to phenomena
+such as aneuploidy, stromal contamination, genomic waves and
+intra-tumor heterogeneity, issues that leading methods do not opti-
+mally address.
+
+Results: Here we introduce methods and software (PennCNV-tumor)
+for fast and accurate CNA detection using signal intensity data
+from SNP genotyping arrays. We estimate stromal contamination by
+applying a maximum likelihood approach over multiple discrete gen-
+omic intervals. By conditioning on signal intensity across the genome,
+our method accounts for both aneuploidy and genomic waves. Finally,
+our method uses a hidden Markov model to integrate multiple sources
+of information, including total and allele-specific signal intensity at
+each SNP, as well as physical maps to make posterior inferences of
+CNAs. Using real data from cancer cell-lines and patient tumors, we
+demonstrate substantial improvements in accuracy and computa-
+tional efficiency compared with existing methods.
+
+Availability: Source code, documentation and example datasets are
+freely available at http://sourceforge.net/projects/penncnv-2.
+Contact: gary.k.chen@usc.edu or kaichop@gmail.com
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on October 17, 2013; revised on August 30, 2013; accepted
+on September 2, 2013
+
+1 INTRODUCTION
+
+Copy number alterations (CNAs) refer to the copy number
+change of a chromosomal segment that is of somatic origin,
+often observed in tumor tissues (Albertson et al., 2003; Pollack
+et al., 2002). In contrast to inherited copy number variants
+(CNVs) present in the germline, CNAs tend to be longer and
+occupy a signiﬁcantly larger proportion of the genome. The
+recent application of single nucleotide polymorphism (SNP) gen-
+otyping arrays has led to the characterization of genomic aber-
+rations associated with cancer development and prognosis
+(Beroukhim et al., 2007; Caren et al., 2010; Waddell et al.,
+2010; Weir et al., 2007), and some studies have investigated
+CNAs in cancer cell lines (Bignell et al., 2010) and tumor
+
+ 
+
+*To whom correspondence should be addressed.
+
+subtypes (Beroukhim et al., 2010; Curtis et al., 2012). The com-
+prehensive characterization of CNAs in cancer genomes is crit-
+ical for understanding disease etiology and for advancing the
+development of targeted therapies for individual cancer patients
+(Attiyeh et al., 2005; Perez et al., 2011; Slamon et al., 1987;
+Zhang et al., 2009).
+
+A number of methods have been proposed to detect both
+CNVs and CNAs using SNP genotyping array-based technolo-
+gies such as those from Affymetrix or Illumina. Compared with
+array-comparative genomic hybridization (CGH) platforms,
+which measure only the total intensity at each marker, SNP
+arrays report both the overall intensities of the probe hybrid-
+ization reaction for each SNP, as well as the ratio of the inten-
+sities between the two alleles. Recent versions of high-density
+SNP arrays have incorporated non-polymorphic markers to
+better interrogate genomic regions for which SNP information
+is not adequate or not available. By leveraging signal intensity
+data from SNP arrays, statistical methods can measure both
+total copy number and allelic states with high resolution due
+to the high density of SNPs featured on these microarrays (typ-
+ically ranging from 500 000 to >25 million markers across the
+genome). Dozens of computational algorithms have been de-
+veloped for CNV detection on SNP arrays, and these methods
+have already been widely used in human genetics research
+(Winchester et al., 2009). However, the problem of CNA de-
+tection is considerably more difﬁcult than CNV detection for
+several reasons. First, whereas germline CNVs can be inferred
+based on the assumption of a baseline copy number of two,
+calibration of the baseline in tumors is not obvious, as tumor
+cells may be aneuploid (i.e. have an abnormal number of
+chromosomes). A second complication, known as stromal con-
+tamination, arises from the fact that samples derived from ma-
+lignant tissue are often contaminated with adjacent normal
+tissue. Simply modeling the copy number state of the tumors
+may lead to inaccurate estimates, as the true copy number state
+is distributed as a mixture of normal and one or more tumor
+cells populations. Third, intra-tumor heterogeneity is now
+appreciated as a common feature of cancer genomes
+(Gerlinger et al., 2012; Michor and Polyak, 2010), and sub-
+populations of cancer cells may harbor distinct copy number
+changes. Fourth, although CNAs and CNVs can both be re-
+current events, CNA boundaries may be more variable in a
+region across samples, so sensitivity may be an issue for
+CNA methods. Continuous time hidden Markov Models
+(HMMs) are traditionally favored for modeling the underlying
+state space (i.e. copy number and allelic state) for CNV/CNA
+
+ 
+
+2964 © The Author 2013. Published by Oxford University Press. All rights reserved. For Permissions, please e—mail: journals.permissions@oup.com
+
+112 /310's112u1n0fp10}x0"sotJButJOJutotq/ﬁduq 11101} papBOIII/lAOG
+
+9103 ‘Og isnﬁnV uo ::
+
+Precise inference of CNAs
+
+ 
+
+inference, as they integrate over all parameters in the model,
+including the spatial relationship between SNPs along the
+genome, allowing one to obtain both point estimates and
+their conﬁdence intervals for the parameters of interest. In
+the current study, we present an HMM-based solution to
+CNA detection that addresses each of the issues speciﬁc to
+tumor genomes. Because several previously published methods
+have also considered some of these complications, we compare
+these with our approach and highlight its advantages.
+
+2 METHODS
+
+2.1 Overview
+
+Our CNA calling algorithm, PennCNV-tumor, is an HMM-based
+method that is loosely based on the model used in PennCNV (Wang
+et al., 2007), an algorithm developed speciﬁcally for germline CNV
+detection. Later in the text, we describe the key features that are
+unique to the proposed method.
+
+For each sample, we include global parameters that model stromal
+contamination (y) and aneuploidy (via a correction factor ,8), and SNP
+speciﬁc parameters that model intra-tumor heterogeneity (01,-), allelic im-
+balance (baci) and copy number (cni) at each SNP i. Aneuploidy estima-
+tion is an essential a component of chip-wide normalization in tumor
+samples so that a baseline Log R ratio (LRR) of 0 is assigned to SNPs
+whose CN corresponds to the overall DNA index (which may not equal 2
+as in hypo- or hyper- diploid tumor samples). Formally, stromal contam-
+ination is the overall fraction of normal cells among a mixture of tumor
+and normal cells. In contrast, we characterize intratumor heterogeneity,
+at each SNP 1', based on the fraction of subclones in addition to the
+dominant tumor clone. Such events may suggest functionally important
+somatic events during tumor progression. Allelic imbalance provides
+information as to which germline allele is more likely to have somatic
+gain/loss at heterozygous sites, offering biological insights into the func-
+tional role of germline mutations (Wang et al., 2011). Furthermore,
+unlike CNVs that typically represent single-copy deletions or duplica-
+tions, tumor CNAs often involve ampliﬁcation of multiple copies.
+Finally, our current HMM accommodates the fact that CNA events
+are more prevalent and usually much larger than CNVs in cancer
+samples.
+
+2.2 Estimation of stromal contamination
+
+Although stromal contamination and CNA calls can in principle be sim-
+ultaneously estimated, our analyses on real data suggest that CNA calls
+are more reliable if we ﬁrst estimate stromal contamination (y) in a pre-
+processing step. The parameter y can then be used in the HMM for CNA
+detection. To estimate y, we apply a maximum likelihood estimation
+procedure at each contiguous k non-overlapping window (e.g. 100 mar-
+kers) across the genome. We exclude non-polymorphic markers, as well
+as SNP markers in the sex chromosomes and mitochondria from the
+estimation procedure. The method leverages the fact that at regions
+where there is a single copy number loss or an ampliﬁcation event, a
+mixture of tumor and stromal samples will likely shift the B allele fre-
+quency (BAF; i.e. the ratio of intensities between the B allele and both
+alleles) distributions for heterozygous SNPs. By default, half of the win-
+dows with the lowest average LRR values are considered. Our model
+assumes a baseline average heterozygosity level for the genome is already
+known, derived from empirical evidence (e.g. h=0.3 for Illumina 550K
+array for any given Caucasian sample). For this model, rather than using
+the BAF, we consider the B minor allele frequency (BMAF), which is
+equivalent to BAF for BAF< .5 and l-BAF in all other cases. Suppose
+that s is the index of the ﬁrst marker of a window. We consider w can-
+didate values for yk ranging from 0 to 1 (e. g. w = 50 candidates provide a
+
+resolution for yk of 0.02). At each candidate c (c: 1, 2, . . . , w), we com-
+pute the log-likelihood ykc at a sliding window with m markers and ﬁnally
+choose c that maximizes the expression:
+
+s+m 7 1
+
+IogL(ykrBAp=argmax( Z) 103((1—h)¢(BMAE-;0,00) (1)
+
++hrp(BMAF,—; 0.5ka. 01cc)»
+
+where (p() is the density function of a univariate Gaussian distribution.
+Assuming that higher BMAF values have higher variance, okc is assigned
+from a linear interpolation of ammo and oh”, the standard deviations of
+BMAF for homozygous and heterozygous SNPs, respectively (both par-
+ameters are pre-speciﬁed in PennCNV for Illumina or Affymetrix arrays).
+For windows where tumor and normal copy numbers are concordant
+(e.g. CN=2), yk is not informative and is uniformly distributed across
+the set of candidate values c. For informative regions however, yk will be
+consistent. Hence, we select the mode of yk, taken across all windows, as
+our estimate of the global parameter y. The standard deviation param-
+eters ammo and Che, can also be estimated from the data, but from our
+experience, these estimates do not vary substantially from pre-speciﬁed
+values. Similarly, choosing alternative values for h between 0.1 and 0.5
+has little impact on estimation of y. These ﬁndings suggest that our
+procedure for estimating y is robust to prior assumptions.
+
+2.3 Adjustment of signal intensity by aneuploidy and
+genomic waves
+
+For SNP genotyping arrays, values for the LRR,- and BAF,- at each SNP
+can be generated from the Illumina GenomeStudio software for Illumina
+arrays or from the PennCNV-Affy pipeline for Affymetrix arrays at each
+SNP (indexed by [in our notation). LRR,- is a normalized measure of total
+signal intensity of two alleles (i.e. sum of A and B allele intensities) and
+BAF,- is a normalized measure of allelic intensity ratio. Further details can
+be found in (Wang et al., 2007). We now describe our pre-processing
+procedure, which adjusts observed LRR,- values to account for both
+aneuploidy and genomic waves.
+
+Tumor samples may have large-scale duplications and deletions of one
+or more chromosomes, so the average ploidy levels cannot safely be
+assumed to be two, as is the case for germline samples. After evaluating
+several aneuploidy estimation methods, we adopted a straightforward
+method of exploiting the empirical LRR,- distribution for SNPs with
+BAF,- values within a narrow range. The approach is an integral part of
+the PennCNV-tumor algorithm. We estimate the aneuploidy correction
+factor ,8 by taking a weighted average of all possible copy numbers at sites
+where BAF,- is near .5 (e.g. | BAF,- —.S|<.01), where the weight is the
+emission probability (described in the following section) at the HMM
+state associated with the copy number. The expected intensity value asso-
+ciated with ,8 is then added to the LRR,- at each SNP, which is similar in
+spirit to previously described methods (Attiyeh et al., 2009; Yau et al.,
+2010).
+
+In addition to aneuploidy adjustment, a second adjustment procedure
+eliminates the phenomenon known as ‘genomic waves’ (Diskin et al.,
+2008; Marioni et al., 2007). Genomic waves refer to the variation in hy-
+bridization intensity that is related to the genomic position of the clones.
+In practice, real datasets usually exhibit genomic waves and would result
+in erroneous CNA calls (see examples later in the text). Our solution
+entails ﬁtting a regression model where GC content is included as a pre-
+dictor variable (Diskin et al., 2008). This technique complements our
+aneuploidy adjustment procedure. Brieﬂy, given M markers in a geno-
+typed sample, we collect all the m autosome markers that are at least
+1 Mb away from each other. For each of the m markers, we collect its
+LRR value as L, (j: 1,. . ., m) and the average GC percentage in the
+le window around the marker, then ﬁt a linear regression model:
+sza + ,8G,+ 8,. After obtaining these estimated regression parameters,
+for each of the M marker in the genotyping array, we then calculate the
+
+ 
+
+2965
+
+112 /310'S[BIIJHO[pJOJXO'SOIJ’BLUJOJIIIOICI”K1111] 11101} papBOIH/noq
+
+9103 ‘Og isnﬁnV uo ::
+
+G.K.Chen et al.
+
+ 
+
+expected signal intensity value based on the GC percentage in the 1 Mb
+window around the marker. The adjusted signal intensity value is then
+simply calculated as the observed LRR value minus the expected value
+(residual in the regression model).
+
+2.4 Hidden states in HM
+
+The hidden states of our HMM model copy number counts, LOH status
+and intra-tumor heterogeneity. Typical CNV algorithms for SNP arrays
+model copy number ranging from 0 to 4, but higher level values may also
+be discernable for large CNAs. Unlike other software tools, we consider
+tumor copy numbers ranging from 0 to 4 by default but make this par-
+ameter user-adjustable. For copy numbers of zero and two copies, we do
+not model intra-tumor heterogeneity levels (01,) for the reason of identiﬁa-
+bility. However, we include an additional LOH state for two copy num-
+bers. For all other copy numbers, we include additional states that
+consider values for 01,- ranging from 0 to 1, in increments of .25 by default.
+Supplementary Table Sl recapitulates our state deﬁnition, but we empha-
+size that this is merely an example, and users have the ﬂexibility to adjust
+the models based on prior beliefs.
+
+2.5 Emission probability
+
+For tumor samples, the observed LRR,- and BAF,- values are assumed to
+arise from an unobserved mixture distribution of normal cells (stromal
+contamination) and tumor sub-clones. We denote the true underlying
+CN-aware genotypes of the tumor and the contaminating normal cells
+at each marker as g,,,- and gm, respectively. CN-aware genotype refers to
+the genotype call that takes into account of allelic copy numbers, such as
+A (copy: 1), ABB (copy: 3) and AABB (oopy:4). To accommodate
+stromal contamination (y) and intra-tumor heterogeneity (01,), we deﬁne
+the latent distribution as a Gaussian mixture with means that reﬂect
+contributions from stromal and tumor tissue. At any SNP i, we deﬁne
+the expected value of the R ratio (RR) as
+
+l/«m' = (1 - l/ - ai)rme0n(cn(g1, 1)) + (J/ + ai)rmean(cn(gn, 1)) (2)
+
+where the function cn() counts the total number of copies for a genotype,
+and rmean() maps a copy number to an expected RR (based on linear
+interpolation of the observed RR at copy number of 0, 1, 2 and 3 from
+real datasets). The intra-tumor heterogeneity measure can essentially be
+considered as a reﬁnement parameter that is locus speciﬁc. When 01,-: 0,
+there is no heterogeneity, and all tumor cells have the same copy number
+at each marker in the population of tumor cells. The standard deviation
+of RR,, Sm, at each SNP is assigned from a linear interpolation of the
+observed RR at copy number of 0, 1, 2 and 3 from real datasets,
+given the composite copy number of tumor and normal cells as
+(I-V-Oti)cn(g1,i)+(1/+061)C"(gn,i)-
+
+Conditional on 113,-, the emission probability of the RR is modeled as a
+mixture of a uniform and Gaussian distribution:
+
+P(RRiM-i) = n. + (1 - m)¢(r; 1m. Sn) (3)
+
+where 100 is the density function of a Gaussian distribution with mean
+11,,- and standard deviation s,,,-, and A,- is a vector for the state parameters
+(i.e. g,,,-, gm, y, 01,-). The uniform distribution :1, accommodates the
+random ﬂuctuation of signal measures in chemical assays and possible
+genome mis-annotation. By default, :1, is assigned as 0.01. We now dis-
+cuss the component of the likelihood that involves the observed BAF
+signal.
+
+In our method for CNA detection, the main challenge lies in accurately
+deﬁning 11b,- in the model. For germline CNV calling, the peaks of these
+distributions are ﬁxed at given intervals: for example, the peaks of the
+BAF distribution are located at 0, 0.33, 0.67 and 1 for three-copy regions.
+For CNA calling, the numbers need to be modiﬁed: for example, when
+y : 0.2 and 01,- : 0, the peaks of the distribution becomes 0, 0.29, 0.71 and
+1 for three-copy regions (assuming paired germline sample is not
+
+available, or gn,1:2). In the simpler case where homozygous genotypes
+(AA or BB) in normal tissues are observed, the mean 11.1,,- is constrained to
+be 0 and 1, respectively, as it is reasonable to assume that it is extremely
+rare for a new allele to arise de novo. In the case of a heterozygous
+genotype, we model the conditional BAF mean (11”) for a given SNP i as:
+
+M _ Z (1 — 1/ — 06017060711) + (J/ + ai)bac(gn,i)
+’1 (1 — 1/ — ai)cn(g1,i)+(1/ + ai)cn(gn,i)
+
+where bad) counts the number of B alleles for a CNV-aware genotype
+(e.g., bac(“AAAB”) : 1 and bac(“ABB”) : 2). For copy numbers greater
+than zero, we deﬁne the emission probability for BAF,- as a mixture of
+uniform and a Gaussian distribution conditioned on 11.1,, We review the
+model ﬁrst described by the original PennCNV article (Wang et 01., 2007).
+Let I() be an indicator function so that when BAF,- is 0 or 1, we multiply
+the binomial likelihood density BNO by a mixture of point mass M at
+0 or 1, respectively, and a truncated Gaussian distribution.
+
+P(BAFiMi) = 71b
++ (1 — 71b)BN(0; K(ch) — 1aPB)(I(b:0)M0 + I(0<b<1)¢(b; 0,Sb,1))
++ (1 — ﬂb)BN(K(ZL-n) — 1; K(ch) — 1,1717)
+(102:1)M1 + I(0<b<1)¢(b; 1,Sb,1<(z)))
+
+K(2m)
+
++ (1 — m.) X) BN(g; Kc...) — 1.1250(1); 11.1.01)
+g:1
+
+ 
+
+(4)
+
+(5)
+
+where K(zc,,) denotes the number of total possible genotypes for copy
+number state 26”, and
+
+K(Zt'n) - 1
+
+BN0: Kc...) — 1.123) = ( g
+
+)prU —pB)K<ZmH’g (6)
+is the probability of observing g copies of allele B, and [73 is the popula-
+tion frequency of the B allele, estimated from a large ethnically matched
+reference panel. As indicated in we integrate over all possible genotypes
+for any copy number state greater or equal to two.
+
+Because there is no contribution to signal from tumor cells when copy
+number is zero, in the case of copy number zero, we deﬁne the emission
+probability for BAF,- simply as
+
+P(BAFiM-i) = IT» + (1 - 110W); -5. 5) (7)
+
+As mentioned earlier, our method can account for tumor heterogeneity,
+which manifests as values of 01,- that differ from the global stromal con-
+tamination value y. To calculate the emission probability for a particular
+value of 01,-, we assume a Gaussian density function centered at 01:
+
+P(aily) = dim; Jasa) (8)
+
+The ﬁnal emission probability (likelihood) is simply the product of the
+RR, BAF and tumor heterogeneity emission probabilities.
+
+2.6 Transition probability
+
+For whole-genome SNP arrays, the transition probabilities can be calcu-
+lated in the same manner as in PennCNV by considering the distance
+between SNPs on the array. We estimate the transition matrix that
+deﬁnes all possible pairs of states by applying the forward-backward
+and Baum7Welch algorithms.
+
+2.7 Incorporating datasets with tumor-normal pairs
+
+It is reasonable to assume that in some cases, detection of CNAs in tumor
+cells is confounded by copy number changes mapping to the same regions
+in the germline. For instances where germline and tumor DNA is avail-
+able on the same individuals, one can easily disentangle CNAs that are
+unique to tumors versus those shared with germline. Statistically, infor-
+mation from germline DNA is straightforward to incorporate, as has
+
+ 
+
+2966
+
+112 /310's112u1n0[p101x0"sotwurJOJHtotq/ﬁduq 111011 pap1201um0q
+
+9103 ‘0g isanV uo ::
+
+Precise inference of CNAs
+
+ 
+
+been done in other software tools (Sun et 01., 2009; Yau et 01., 2010). In
+this case, where paired samples are available, site-speciﬁc copy number
+counts enter through the parameter cn(g,,,-), whereas in the more general
+case when the germline component in unavailable, we simply ﬁx the
+parameter at value 2.
+
+2.8 Posterior inference
+
+The Viterbi algorithm, used by programs such as PennCNV, infers copy
+number by tracing the most likely state path across all markers. However,
+this approach can be unsatisfactory in some cases (such as when stromal
+contamination levels are high), as several candidate models can plausibly
+explain the data. To account for this uncertainty, in the method proposed
+here, we use the posterior probabilities derived from the forwardiback-
+ward algorithm. Copy number calls and model parameters are therefore
+posterior averaged values. The HMM reports absolute copy number for
+tumor samples, which can be divided by aneuploidy levels to obtain a
+relative copy number, which is usually more informative.
+
+3 RESULTS
+
+In this section, we report comparisons between PennCNV-tumor
+and existing software for calling CNAs, namely, ASCAT (Van
+Loo et al., 2010), GAP (Popova et al., 2009), GenoCN (Sun
+et al., 2009), OncoSNP 0(au et al., 2010) and GPHMM
+(Li et al., 2011).
+
+3.1 Estimating stromal contamination
+
+Stromal contamination is commonly observed for tumor sam-
+ples, as the sample collection procedure may inadvertently result
+in the inclusion of normal cells. To evaluate CNA detection
+methods under varying levels of stromal contamination, we
+examined a previously published (Staaf et al., 2008) dilution
+series, which includes 12 samples with mixtures of known pro-
+portions of the normal cell line HCC1395BL and the paired
+breast carcinoma cell line HCC1395 for a variety of values
+(0, 10, 14, 21, 23, 30, 34, 45, 47, 50, 79, 100). Stromal contam-
+ination estimates made using GAP and GPHMM have been
+previously reported in (Li et al., 2011), and these results were
+incorporated into our comparison. For other programs, we ran
+the software using recommended settings. Program settings and
+full output for each method in this analysis can be downloaded
+from https://sourceforge.net/projects/pennch-2/files/supplemen
+tary_ﬁles/.
+
+This comparative analysis demonstrated the superior perform-
+ance of our method over other competing approaches. Figure 1
+shows the plot of expected versus actual estimates for each
+method. Both GPHMM and our estimation procedure were
+able to recover known stromal contamination levels across a
+broad range of values (correlation coefﬁcient of p:0.99).
+GAP produced accurate estimates at higher levels of stromal
+contamination, but over estimated at lower levels (p:.28).
+The remaining programs overall did not recover the true values
+as well: OncoSNP (p:0), GenoCN (p:—.23) and ASCAT
+(p: .02). We also note that other programs that require user-
+speciﬁed priors do not perform as well either. For example,
+PICNIC (Greenman et al., 2010) can be overly sensitive to
+user-speciﬁed priors such that they signiﬁcantly inﬂuence the
+ﬁnal computational predictions. In summary, our maximum like-
+lihood method resulted in the accurate estimation of stromal
+
+Legend
+—0— ASCAT. i=0 D2
+_ --- GAP no 23
+Al: I -I- C-‘EnDCN F-UQB ‘33:
+' -+- GPHMM. r2099 ‘
+
+-l-Om:>cISNF\r1 1:0 ,J ,-
+-u- Pennmv‘elumor, reuse ,-’ ,"
+
+Fredicted_Tumor Fraction
+
+ 
+
+Experiments l_Tumo r_Fractio n
+
+Fig. 1. Comparison of several methods’ ability to estimate the tumor cell
+fraction from the breast cancer dilution series data. Lowes smoothed
+curves are superimposed on the predictions. Results on GPHMM and
+GAP were obtained from Li et a]. (2011). PennCNV-tumor achieves
+better correlation (r : 0.99, Llnorm : 0.05, L2norm : 0.06) with experi-
+mental data than most other methods
+
+contamination, which is essential for the optimal detection of
+CNAs in subsequent steps.
+
+3.2 CNA calling on tumor samples with known
+aberrations
+
+To evaluate our ability to call CNAs, we compared our method
+and others on the breast cancer cell line SUM159. These data
+were generated on the Illumina CNV370-Duo array and were
+previously characterized extensively on four different technical
+platforms (Curtis et al., 2009). SUM159 is known to harbor
+CNAs at multiple different scales on chromosome 5, including
+a whole-arm ampliﬁcation of the p-arm, a megabase-level dele-
+tion at ~100Mb, and two kilobase-level complex duplication
+toward the telomere of 5p (Fig. 3 in Curtis et al., 2009).
+Supplementary Figure S1 illustrates a comparison of copy
+number estimates using different methods. For large events,
+inference was nearly identical in terms of localization of aberra-
+tions (albeit some differences in their magnitude) for GenoCN,
+OncoSNP, ASCAT, GPHMM and PennCNV-tumor. However,
+different algorithms yielded discordant calls for small CNAs,
+perhaps reﬂecting the different sensitivity of each algorithm
+under default settings.
+
+3.3 CNA inference in the presence of stromal
+contamination
+
+To further evaluate the sensitivity and consistency in calls using
+different methods, we tested the concordance rate of CNAs calls
+on the breast cancer dilution series. As we do not know the true
+CNA profile, for each algorithm, we treat the calls generated on
+the tumor cell line HC1395 as the reference and tested how many
+of these calls can be recovered for each diluted sample in the face
+
+ 
+
+2967
+
+112 /310's112u1n0[p101x0"sotwurJOJHtotq/ﬁduq 111011 pap1201um0q
+
+9103 ‘0g isanV uo ::
+
+G.K.Chen et al.
+
+ 
+
+of noise from stromal contamination (Supplementary Fig. S2).
+We ran each program using the recommended settings except for
+GAP, which we were not able to successfully run. However, we
+integrated into our comparison previously published results (spe-
+ciﬁcally CNA calls for this data made using GAP, which are
+available at http://bioinfo-out.curie.fr/projects/snp_gap/.) For
+each program, we calculate the proportion of calls concordant
+with the reference sample. An ideal method would have high
+concordance, and the concordance is expected to monotonically
+decrease as a function of stromal contamination. Qualitatively,
+PennCNV-tumor performs most similarly to GAP and
+GPHMM. The other programs show a noticeable drop in con-
+cordance across various levels of stromal contamination. It is
+also important to note each method’s sensitivity to detect aber-
+rations across various levels of stromal contamination. A method
+that is not sufﬁciently sensitive may call nearly every site copy
+neutral for a pure tumor sample, which in turn can artiﬁcially
+produce perfect concordance when applied to samples with
+higher levels of stromal contamination. Supplementary Figure
+S3 illustrates the distribution of percentage of sites aberrant
+across different stromal contamination levels. The ﬁgure indi-
+cates that sensitivity levels for the methods were calibrated simi-
+larly. Finally, we were also interested in how these methods
+compare in terms of concordance and percentage aberration
+when considering only large CNA events. We ﬁltered results
+across methods on only CNAs greater than 10MB and plot
+the comparison of concordance and percent aberrations in
+Supplementary Figures S4 and S5. Interestingly, the programs
+appear to diverge in their distribution of percentage sites aber-
+rant when only large (>10 MB) CNA events are considered in
+contrast to all sized events.
+
+Finally, we also tested a dilution series dataset simulated by
+CnaGen (Mosen—Ansorena et al., 2012), as the ground truth is
+known. The dataset contains 11 samples, with tumor purities
+ranging from 0.01 to .99. Each sample contains a region with
+intratumor heterogeneity of 80%, and PennCNV-tumor cor-
+rectly identified the region from those samples with tumor
+purity >50%. In contrast, other methods were not able to predict
+stromal contamination with reasonable accuracy, as summarized
+in Supplementary Table S2.
+
+3.4 CNA inference in presence of intra-tumor
+heterogeneity
+
+We assessed the ability of PennCNV-tumor to call tumors in the
+presence of intratumor heterogeneity, which is characterized by
+proportions of normal cells that can differ across sites. We are
+not aware of existing datasets in which the true proﬁle of
+intratumor heterogeneity is known, so we evaluated the perform-
+ance of our program and others through the same simulated
+datasets, which have previously been described earlier for evalu-
+ating stromal contamination. For each scenario (modeling a spe-
+ciﬁc level of stromal contamination), we simulated intratumor
+heterogeneity in random regions covering 12% of the genome,
+where each of these regions span ~15 Mb. We compared the
+accuracy of CNV calls against other methods, where OncoSNP
+was the only other competing program that could account for
+intratumor heterogeneity. Supplementary Table S2 lists the L1
+errors for estimates of tumor copy number and intratumor
+
+Table 1. Computational requirements of various programs benchmarked
+on the same machine with two Intel X5680 CPUs at 3.33 GHz
+
+ 
+
+ 
+
+Program Run-time in minutes Memory
+OncoSNP 328 605 MB
+GenoCN 104 1013 MB
+PennCNV-tumor 35 14 MB
+GPHMM 21 647 MB
+ASCAT 20 930 MB
+
+ 
+
+Note: Twelve samples across 24 chromosomes were analyzed.
+
+heterogeneity, calculated as the sum of the absolute value of
+deviations between the true and estimated values, taken across
+all sites. PennCNV-tumor generally had better concordance with
+respect to copy number estimates as compared with OncoSNP,
+whereas OncoSNP had slightly better accuracy in estimating
+intratumor heterogeneity when stromal contamination levels
+were lower. Additionally, OncoSNP has better performance to
+predict stromal contamination when the values are below 50%.
+Interestingly, ASCAT performed well for CN inference, but was
+not able to complete analyses for tumor purities outside the
+range of .4 to .9. GPHMM appeared to have the lowest sensi-
+tivity, calling most sites as copy neutral.
+
+3.5 Computational efﬁciency
+
+One dimension of performance for CNA calling that is often
+overlooked is computational efﬁciency. As the availability of
+large multi-dimensional datasets (e.g. The Cancer Genome
+Atlas) increases, the ability to complete analyses in a timely fash-
+ion is becoming more important. We recorded run times and
+memory usage across the programs GenoCNA, OncoSNP,
+GPHMM, ASCAT and PennCNV-tumor. Table 1 highlights
+the computational demands of these programs for the analysis
+of 12 samples used in the dilution series analysis across more
+than 370,000 SNPs. One should keep in mind though that
+these are based on default settings, which we have assumed the
+authors have suggested to give a good balance between accuracy
+and run time performance. ASCAT and GenoCN required 66
+and 72 times more memory, respectively, than PennCNV-tumor.
+However GPHMM and ASCAT were slightly faster than
+PennCNV-tumor.
+
+4 DISCUSSION
+
+Over 10 software tools have now been published for identifying
+CNAs from SNP arrays. Most are based on HMMs, but several
+use segmentation algorithms. Our proposed algorithm uses SNP
+genotyping arrays to identify CNAs and estimate their magni-
+tude in tumor samples, while accounting for intratumor hetero-
+geneity, stromal contamination and aneuploidy. When compared
+against other popular methods, our approach performs compar-
+ably in terms of the detection and estimation of CNAs but shows
+marked improvements in the estimation of stromal contamin-
+ation and runtime efficiency. Later in the text, we discuss the
+
+ 
+
+2968
+
+112 /810's112u1n0[p101x0"sotwurJOJHtotq/ﬁduq 111011 pap1201um0q
+
+9103 ‘0g1sn8nv uo ::
+
+Precise inference of CNAs
+
+ 
+
+major differences between various algorithms and potential
+avenues for future improvements.
+
+(i) Capability of integrating multiple sources of ‘prior’ informa-
+tion in the likelihood calculation step. To our knowledge,
+only OncoSNP and our program PennCNV-tumor com-
+prehensively account for stromal contamination, tumor
+heterogeneity, aneuploidy and genomic waves when infer-
+ring CNAs, whereas other tools consider only a subset of
+these issues.
+
+(ii) A unique but simple approach for estimating stromal con-
+tamination. Although we estimate the global y (stromal
+contamination) and the aneuploidy offset parameter 8 in
+a data pre—processing step, in principle, it should be pos-
+sible to estimate these parameters in an integrated analysis
+(e.g. learning the HMM parameters). However, our pre-
+liminary results have suggested that for reasons of iden-
+tiﬁability, it is difﬁcult to get consistent estimates: for
+example, disentangling global y from local 01 (intra-
+tumor heterogeneity) estimation when both are included
+as free parameters in the model. As domain knowledge is
+critical in most statistical learning problems, we incorpor-
+ate an a priori heterozygosity rate for each given sample in
+our pre—processing step. A good approximation of this
+ﬁxed parameter can lead to superior accuracy over com-
+peting methods, as demonstrated in the real breast cancer
+dataset with known dilutions of stromal tissue. Our simu-
+lation study suggested that this method might not be
+optimal in certain contexts however. For instance, when
+we simulated a large proportion of sites that had tumor
+heterogeneity, our stromal contamination estimates did
+not perform as well as in the real breast cancer data.
+Because this example was based on simulated data, it is
+possible that the simulated data did not properly reﬂect
+realistic distributions of intratumor heterogeneity, CNAs
+or other phenomena. Furthermore, these simulation study
+results should be balanced against our program’s ability to
+make predictions that were more robust across the entire
+spectrum of stromal contamination levels (other methods
+we tested were unable to make reliable estimates beyond
+50% stromal contamination). Inference of high stromal
+contamination levels can be of great interest in certain
+cancer contexts. In late stages of pancreatic cancer, typic-
+ally malignant cancer cells represent only 25% of the cells
+in the tumor on average (Boyd et al., 2009). The authors of
+GPHMM found that among fresh breast cancer biopsies,
+‘About 91% tumor samples (87 of 96) are mixed with
+>50% normal cells, of which 60 have normal cell propor-
+tions larger than 0.7, and 12 have normal cell proportions
+greater than 0.85’ (Li et al., 2011).
+
+(iii) The need for some users to fine-tune calling algorithms to
+achieve the desired resolution and granularity: We have pro-
+vided users withﬂexibility in specifying the state space in the
+HMM. Previous studies show that copy number states up
+to 6 can be readily discerned by eye in the signal intensity
+plots (Attiyeh et al., 2009). It is possible that even higher
+copy number can be detected by sophisticated computa-
+tional means, though they may not have much practical
+
+value. Among the features described earlier in the text, (ii)
+is unique to our algorithm, to be best of our knowledge.
+
+Several further improvements may be made to the proposed
+method. For instance, different researchers have varied require-
+ments for the sensitivity and speciﬁcity of CNV calling, depend-
+ing on their research needs. Many software tools, including
+PennCNV-tumor, rely on post-calling QC to control sensitivity
+and specificity (e. g. minimum number of probes thresholds and
+the log likelihood threshold). However, it is possible to directly
+control the sensitivity within the HMM model by arbitrarily
+setting a different set of noise parameters and transition param-
+eters. CNV filtering may also be introduced post hoc using a
+suitable ethnically matched reference. We plan to introduce
+tools in our software that can automate parameter tuning by
+applying supervised learning procedures on ‘gold standard’
+datasets. Third, it is a known problem that HMM-based algo-
+rithms tend to over-segment the data, resulting in long CNV
+regions being broken into several small calls. This depends on
+the HMM parameters, so it cannot be directly adjusted from the
+algorithm per se. However, several post-calling adjustment pro-
+cedures have been developed before; for example, PLINK and
+PennCNV both have CNV-processing steps that merge neigh-
+boring CNV calls if the ‘bridge’ between the two neighboring
+calls are less than a certain threshold (such as 20%) of the
+total combined call. For tumor CNA calling, this post-processing
+procedure can also be used. Fourth, our current approach esti-
+mates stromal contamination in a pre-processing step, rather
+than treating it as a parameter in the HMM. We have previously
+attempted to discretize alpha (e.g. from 0 to 1 in increments of
+0.1) and estimate it in HMM; however, this increases the HMM
+states by ~11-fold, but the estimation per marker is highly
+unstable.
+
+Finally, we wish to stress that a variety of genome-wide
+approaches, and technical platforms have been developed for
+CNV detection (Alkan et al., 2011). Although next-generation
+sequencing may soon replace SNP arrays in certain areas, it is
+still cost-prohibitive for genome-wide screening. In addition, the
+accurate detection of CNVs/CNAs from sequencing data is non-
+trivial, dependent on sequencing depth, and represents an area of
+ongoing development. Hence, SNP arrays remain a cost-effective
+and popular approach to interrogate CNAs, as evidenced by
+recent large-scale oncogenomic proﬁling studies such as TCGA
+(TCGA, 2012) and METABRIC (Curtis et al., 2012).
+
+ACKNOWLEDGEMENTS
+
+The authors thank members of the Wang laboratory for helpful
+discussions and comments.
+
+Funding: The study is supported by NIH/NHGRI grant
+R01HG006465.
+
+Conﬂict of Interest: None declared.
+
+REFERENCES
+
+A1bertson,D.G. et a]. (2003) Chromosome aberrations in solid tumors. Nat. Genet,
+34, 3697376.
+
+ 
+
+2969
+
+112 /810's112u1n0[p101x0"sotwurJOJHtotq/ﬁduq 111011 pap1201um0q
+
+9103 ‘0g1sn8nv uo ::
+
+G.K.Chen et al.
+
+ 
+
+A1kan,C. et al (2011) Genome structural variation discovery and genotyping. Nat.
+Rev. Genet., 12, 3637376.
+
+Attiyeh,E.F. et al (2009) Genomic copy number determination in cancer cells from
+single nucleotide polymorphism microarrays based on quantitative genotyping
+corrected for aneuploidy. Genome Re.s., 19, 27G283.
+
+Attiyeh,E.F. et al (2005) Chromosome 1p and llq deletions and outcome in neuro—
+blastoma. N. Engl. J. Med, 353, 24372253.
+
+Beroukhim,R. et al (2007) Assessing the signiﬁcance of chromosomal aberrations
+in cancer: methodology and application to glioma. Proc. Natl Acad Sci. USA,
+104, 20007720012.
+
+Beroukhim,R. et al (2010) The landscape of somatic copy—number alteration across
+human cancers. Nature, 463, 8997905.
+
+Bignell,G.R. et al (2010) Signatures of mutation and selection in the cancer genome.
+Nature, 463, 8937898.
+
+Boyd,Z.S. et al (2009) A tumor sorting protocol that enables enrichment of pan—
+creatic adenocarcinoma cells and facilitation of genetic analyses. J. Mol Diagn.,
+ll, 29(k297.
+
+Caren,H. et al (2010) High—risk neuroblastoma tumors with llq—deletion display
+a poor prognostic, chromosome instability phenotype with later onset. Proc.
+Natl Acad Sci. USA, 107, 432%4328.
+
+Curtis,C. et al (2009) The pitfalls of platform comparison: DNA copy number
+array technologies assessed. BMC Genomics, 10, 588.
+
+Curtis,C. et al (2012) The genomic and transcriptomic architecture of 2,000 breast
+tumours reveals novel subgroups. Nature, 486, 34(r352.
+
+Diskin,S.J. et al (2008) Adjustment of genomic waves in signal intensities from
+whole—genome SNP genotyping platforms. Nucleic Acids Re.s., 36, e126.
+
+Gerlinger,M. et al (2012) Intra—tumor heterogeneity and branched evolution
+revealed by multiregion sequencing. N. Engl. J. Med, 366, 8837892.
+
+Greenman,C.D. et al (2010) PICNIC: an algorithm to predict absolute
+allelic copy number variation with microarray cancer data. Biostatistics, 11,
+164475.
+
+Li,A. et al (2011) GPHMM: an integrated hidden Markov model for identiﬁcation
+of copy number alteration and loss of heterozygosity in complex tumor samples
+using whole genome SNP arrays. Nucleic Acids Re.s., 39, 492874941.
+
+Marioni,J.C. et al (2007) Breaking the waves: improved detection of copy number
+variation from microarray—based comparative genomic hybridization. Genome
+Biol, 8, R228.
+
+Michor,F. and Polyak,K. (2010) The origins and implications of intra—tumor
+heterogeneity. Cancer Prev. Res. (Phila), 3, 136171364.
+
+Mosen—Ansorena,D. et al (2012) Comparison of methods to detect copy number
+alterations in cancer using simulated and real genotyping data. BMC
+Bioinformatics, 13, 192.
+
+Perez,E.A. et al (2011) C—MYC alterations and association with patient outcome in
+early—stage HERZ—positive breast cancer from the north central cancer treatment
+group N983l adjuvant trastuzumab trial. J. Clin. Oncol, 29, 651$59.
+
+Pollack,J.R. et al (2002) Microarray analysis reveals a major direct role of DNA
+copy number alteration in the transcriptional program of human breast tumors.
+Proc. Natl Acad Sci. USA, 99, 12963712968.
+
+Popova,T. et al (2009) Genome Alteration Print (GAP): a tool to visualize and
+mine complex cancer genomic proﬁles obtained by SNP arrays. Genome Biol,
+10, R128.
+
+Slamon,D.J. et al (1987) Human breast cancer: correlation of relapse and survival
+with ampliﬁcation of the HER—Z/neu oncogene. Science, 235, 1777182.
+
+Staaf,J. et al (2008) Normalization of Illumina Inﬁnium whole—genome SNP data
+improves copy number estimates and allelic intensity ratios. BMC
+Bioinformatics, 9, 409.
+
+Sun,W. et al (2009) Integrated study of copy number states and genotype calls using
+high—density SNP arrays. Nucleic Acids Re.s., 37, 536575377.
+
+TCGA. (2012) Comprehensive molecular characterization of human colon and
+rectal cancer. Nature, 487, 3307337.
+
+Van Loo,P. et al (2010) Allele—speciﬁc copy number analysis of tumors. Proc. Natl
+Acad Sci. USA, 107, 1691(kl6915.
+
+Waddell,N. et al (2010) Subtypes of familial breast tumours revealed by expression
+and copy number proﬁling. Breast Cancer Res. T reat., 123, 6617677.
+
+Wang,K. et al (2007) PennCNV: an integrated hidden Markov model designed for
+high—resolution copy number variation detection in whole—genome SNP geno—
+typing data. Genome Re.s., 17, l66$1674.
+
+Wang,K. et al (2011) Convergent mechanisms of somatic mutations in polycy—
+themia vera. Discov. Med, 12, 25732.
+
+Weir,B.A. et al (2007) Characterizing the cancer genome in lung adenocarcinoma.
+Nature, 450, 8937898.
+
+Winchester,L. et al (2009) Comparing CNV detection methods for SNP arrays.
+Brief. Funct. Genomic Proteomic, 8, 3537366.
+
+Yau,C. et al (2010) A statistical approach for detecting genomic aberrations in
+heterogeneous tumor samples from single nucleotide polymorphism genotyping
+data. Genome Biol, 11, R92.
+
+Zhang,Y. et al (2009) Copy number alterations that predict metastatic capability of
+human breast cancer. Cancer Res, 69, 379573801.
+
+ 
+
+2970
+
+112 /810's112u1n0[p101x0"sotwuiJOJHtotq/ﬁduq 111011 pap1201um0q
+
+9103 ‘0g1sn8nv uo ::
+

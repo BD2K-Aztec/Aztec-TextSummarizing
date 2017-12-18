@@ -1,0 +1,664 @@
+BIOINFORMA TICS
+
+0'so;112u110}u101q//2duq
+
+SIBumoprOJX
+
+£10"
+
+A.Medlar et al.
+
+ 
+
+SIMWALKZ (Sobel and Lange, 1996; Sobel et al., 2001) and
+MORGAN (George et al., 2003, 2005; Heath et al., 1997), which
+have both been shown, where possible, to produce results of
+comparable accuracy to exact algorithms (W ijsman et al., 2006).
+
+To the best of our knowledge, there have been no published
+attempts to parallelize MCMC—based linkage analysis.
+
+In general, parallelizing MCMC is considered a hard problem
+because the states of the Markov chain form a strict sequential
+ordering. Successful parallel MCMC implementations tend to
+focus either on parallelizing expensive likelihood calculations
+(for example, Suchard and Rambaut, 2009) or on multiple
+chain schemes (for example, Lee et al., 2009).
+
+The approach we took with SWIFTLINK maximizes the use of
+hardware resources by combining both previous approaches,
+allowing different parts of the calculation to be distributed
+across both CPU and GPU.
+
+The Markov chain is run in parallel on the CPU, where each
+step in the chain is performed by one of two multithreaded block
+Gibbs samplers based on the locus sampler (Heath, 1997; Kong,
+1991) and the meiosis sampler (Thompson and Heath, 1999).
+Expensive likelihood calculations required to estimate LOD
+(logarithm of odds) scores are performed on the GPU, if one
+is available. High performance is achieved on the GPU by max—
+imizing hardware use, requiring us to identify substantial inde—
+pendent calculations.
+
+This article is organized as follows: we elaborate on the
+details of the Gibbs samplers used to form the Markov
+chain, what aspects of each sampler were changed to facilitate
+execution on parallel hardware and how SWIFTLINK
+orchestrates these actions to maximize hardware use. We
+report experimental results comparing SWIFTLINK with
+other MCMC—based linkage analysis software on a highly con—
+sanguineous pedigree and end with discussion and an outline
+of future work.
+
+2 METHODS
+
+SWIFTLINK was designed to explicitly harness not only multiple proces-
+sor cores, but also a GPU if one is present. We describe three core com-
+ponents for performing MCMC in the context of linkage analysis: LOD
+score calculation, the locus sampler and the meiosis sampler. For each of
+these modules, we highlight where independent calculations can be used
+to exploit parallelism and which hardware platform would be best suited
+to the algorithm in question. In addition, the structure of the application
+is such that we can safely use both CPU and GPU concurrently.
+
+2.1 Overview
+
+To simulate the inheritance of genetic material through a pedigree,
+the Markov chain operates on a descent graph, S. The descent graph
+is made up of two meiosis indicators per non-founder of the pedigree,
+per loci. A meiosis indicator is a binary variable stating which grand-
+parent that allele was inherited from (Kruglyak et al., 1996; Sobel and
+Lange, 1996). We denote a particular meiosis indicator Sig), as meiosis i at
+locus j. An example of a descent graph for a simple pedigree is shown
+in Figure 1.
+
+The Markov chain is composed of two Gibbs samplers, the locus
+sampler and the meiosis sampler. At each step of the Markov chain,
+we run the locus sampler with probability P(loeus sampler), otherwise
+we run the meiosis sampler. A single iteration is made up of a complete
+
+(a) .——I (b)
+
+0—; 14
+
+ 
+
+l
+
+O
+
+ 
+
+ 
+
+O O
+00 00 00 OO
+Descent Graph
+
+:1. F1
+
+Pedigree
+
+Fig. 1. Simple three-generation pedigree (a) and one of the possible des-
+cent graphs explicitly showing the ﬂow of genetic material from founders
+to leaf nodes (b)
+
+scan of all markers, in the case of the locus sampler; or all meioses, in the
+case of the meiosis sampler. The locus sampler is computationally
+more expensive than the meiosis sampler, but necessary as the meiosis
+sampler suffers from irreducibility issues on its own (Lin and Speed,
+1996). Although the locus sampler is known to have poor mixing, it
+is guaranteed to produce an irreducible Markov chain, given all recom-
+bination fractions between consecutive markers are positive. By combin-
+ing the two samplers, we can therefore ameliorate their respective
+shortcomings (Heath and Thompson, 1997). The Markov chain is
+thinned by only scoring every )1” sampled descent graph, and LOD
+scores are calculated at k equidistant points between consecutive markers.
+Dependent on the amount of chain burn-in and the values of k and
+n, LOD score calculations can easily take up the majority of the total
+runtime.
+
+2.2 CPU and GPU architecture
+
+A modern commodity multicore CPU will feature, at the time of
+writing, up to eight homogeneous processor cores with some architec-
+ture-speciﬁc level of cache sharing. For example, it is common to have
+a core-local L1 cache, as well as shared L2 cache. Individual processor
+cores are capable of instruction-level parallelism by the explicit use
+of SIMD (single-instruction multiple data) instructions by the program-
+mer or compiler. Course-grain parallelism using multiple cores concur-
+rently must be performed programmatically by writing multithreaded
+code.
+
+There are two dominant APIs for GPU programming: CUDA and
+OpenCL. SWIFTLINK is implemented in CUDA, so throughout we will
+use CUDA terminology. GPU architectures feature several multiproces-
+sors, each containing a number of stream processors. A function
+that runs on the GPU is called a kernel. Kernels split work into blocks
+and threads. Blocks are assigned to run on multiprocessors, each of
+which is composed of a programmer-deﬁned number of threads. The
+number of threads contained in a block need not be identical to the
+number of stream processors inside a multiprocessor, as they are run in
+groups of 32 threads called warps. Stream processors are akin to CPU
+cores; however, within the same multiprocessor, they share a single
+fetch-decode unit. The shared fetch-decode unit forces threads to execute
+in lock-step, similar to SIMD instructions, but with the distinction that
+any thread can diverge from the common execution path (with the caveat
+that thread divergent code will cause all other threads within the same
+warp to stall). Analogous to the L2 cache of a CPU, GPUs feature shared
+memory; however, it must be explicitly populated and managed in
+software.
+
+ 
+
+414
+
+/3.10's112um0fp10}x0"sonequJurorqﬂ:duq
+
+SwiftLink
+
+ 
+
+ 
+
+Algorithm 1: GPU-based parallel computation of P(YT|.Si) used in LOD
+score calculation
+
+ 
+
+begin
+
+blockDim <— num. threads per block
+
+blockID <— block index (0  num. loci - 1)
+threadID (— thread index (0  blockDim - 1)
+N <— number of pedigree members
+
+P <— pedigree peeling sequence
+
+prefetch relevant genetic map data
+
+for p e P do
+prefetch relevant descent graph, pedigree info and previous partial
+likelihood function dependencies into shared memory
+
+pshmd <— allocate partial likelihood matrix for p in shared memory
+
+for i <— threadID to 41C”, increment blockDim do
+I psharedﬁ] (— Hp(Cp[iD
+end
+ﬂush shared cache to main mem.
+pmain (— pshared
+end
+
+LOD summation += PN
+end
+
+ 
+
+ 
+
+2.3 LOD scores
+
+Samples of possible descent graphs are generated by the Markov chain
+for which we calculate the likelihood of the trait locus being at different
+locations based on observed genotype data, YM, and trait data, YT.
+The LOD score at a position d is the likelihood ratio between the disease
+trait being found at d versus being unlinked. LOD scores can be approxi-
+mated using the SobeliLange estimator (Lange and Sobel, 1991), where
+the LOD score is deﬁned as
+
+LOD = [Oglo  
+where
+P<YT|YM) = ZPWTISPGIYM)
+S (2)
+
+cx t: P(Yr|§i)
+[:1
+
+and P(YT) is the probability that the trait locus is unlinked. P(YT|§,») is
+calculated via an iterative summation using the Elston7Stewart algorithm
+(Cannings et al., 1976; Elston and Stewart, 1971) to traverse the pedigree,
+peeling individuals in sequence. The process of peeling an individual
+involves calculating partial likelihoods conditional on the members
+of their cut-set and the meiosis indicators at ﬂanking loci. The cut-set
+C is deﬁned as containing all unpeeled individuals adjacent to the
+graph cut partitioning peeled from unpeeled individuals (C, the cut-set
+of the i”7 individual in the peeling sequence, will therefore always include
+i, as it is, as yet, unpeeled). Each iteration of the peeling algorithm is
+based on the following recursion:
+
+Him.) = ZP(nlgi)P(gi)P(giIS,gm,gp) Han-(Co (3)
+
+g; ieC/
+
+where H,»(C,») peels the i”7 individual given each possible assignment of
+disease phenotypes to members of i’s cut-set C,» 2 (CO, e] , . . . CC).
+For outbred pedigrees, the optimal cut-set size will never exceed 3; how-
+ever, for inbred pedigrees, even the optimal ordering of variables can
+contain much larger cut-sets. The amount of work required to peel an indi-
+vidual increases exponentially with cut-set size as the number of disease
+phenotype assignments required to calculate each partial likelihood is 410.
+
+2.3.1 Parallel computation The calculations of LOD scores at
+different positions are independent of one another and only dependent
+on the underlying descent graph being scored. This workload is trivial
+to parallelize by dividing the total number of LOD scores between
+all CPU cores; however, this naive strategy will not be suitable for the
+GPU. In our approach on the GPU, outlined in Algorithm 1, we assign
+each LOD score to a block and additionally parallelize the internal
+sum-of-products calculations from each step of the peeling sequence
+by assigning a GPU thread to calculate the likelihood of each disease
+phenotype assignment.
+
+Peeling a pedigree of p members requires p separate peeling operations
+with different sized cut-sets, requiring different numbers of threads to
+perform optimally. Unfortunately, making a separate call to the GPU
+per peel operation incurs substantial overhead (in our measurements as
+much as twice the runtime to calculate all LOD scores for one sample).
+It is more efﬁcient to use a constant number of threads despite the
+fact many threads will sit idle at different stages of the computation.
+To calculate the data-dependent optimal number of threads prior to
+each simulation, SWI FTLINK performs several timing runs with different
+numbers of threads per block to ensure the best performance. We found
+that empirically discovering the optimal number of threads was far more
+robust than an analytical approach, as, despite using the same input data
+and graphics card, the optimum number of threads was also dependent
+on which version of CUDA was being used.
+
+GPU applications are sensitive to memory access patterns, and max-
+imizing performance requires caching via shared memory and ensuring
+the GPU can batch (‘coalesce’ in the CUDA literature) time-consuming
+reads and writes to global memory. High memory latency is balanced by
+ensuring each kernel has a high occupancy, i.e. each multiprocessor is
+assigned as many blocks as possible, so work can be done by other warps
+when I/O operations are being waited on. Given the strong dependencies
+between matrices for intermediate calculations, we make extensive use
+of shared memory by opportunistically caching as many of the intermedi-
+ate matrices needed for each iteration of peeling up to a total size of
+4 kilobytes. GPUs supporting CUDA compute capacity 2.0 or above
+have 48 kilobytes shared memory per multiprocessor, which, as there
+can only be eight active blocks at once, is within this bound. Any
+memory requirements above the 4 kilobyte limit default to being directly
+accessed from main memory, however, that was unnecessary for any of
+the example pedigrees we have tested so far. We ensure the memory
+layout is such that a majority of reads and writes to main memory are
+made for contiguous addresses when populating software caches in
+shared memory.
+
+2.4 Locus sampler
+
+The locus sampler (Heath, 1997; Kong, 1991) similarly builds on the
+Elston7Stewart algorithm, but unlike LOD scores, which are calculated
+at points between markers, the locus sampler samples a realization of the
+meiosis indicators at a given genetic marker:
+
+P(S*.j|5*.j71,5*.j+1, Y1) (4)
+
+Sampling proceeds in two steps: (i) we use reverse peeling to sample
+ordered (or phased) genotypes and (ii) ordered genotypes are converted
+to appropriate meiosis indicators. To sample ordered genotypes, we ﬁrst
+sample from the marginal distribution of the ﬁnal individual in the peel-
+ing sequence and work backwards through the peeling sequence condi-
+tioning on those genotypes already sampled. Conversion to meiosis
+indicators is unambiguous for heterozygous parents, but the meiosis
+indicators to homozygous parents must be sampled with respect to the
+ﬂanking loci in the descent graph. The locus sampler, like the calculation
+of LOD scores, can be expensive for large inbred pedigrees and reverse
+peeling must be performed sequentially. Each iteration of the locus
+
+ 
+
+415
+
+ﬁm'spzumoiprojxo'sopeuuqurorq/pdnq
+
+an?kgogmomammowoio~&o:3m7.omm\
+
+SwiftLink
+
+ 
+
+assumed to have an allele frequency of 0.0001 and to have com—
+plete penetrance.
+
+We compare the runtime performance of SIMWALK (version
+2.91), MORGAN (version 3.1, lm_linkage program) and
+SWIFTLINK in several conﬁgurations. SIMWALK was always
+run with default parameters and, as the runtime can be prohibi—
+tively slow for large numbers of markers, each dataset was run in
+windows of 50 markers (this size was chosen based on experience
+with past projects). Even with this advantage, SIMWALK still had
+to be run on a computer cluster, whereas MORGAN and
+SWIFTLINK were run on a single desktop PC. We report
+SIMWALK’s total runtime assuming sequential execution.
+MORGAN, by default, is compiled at optimization level 0, causing
+unnecessary slowdown. To ensure a fair comparison, we recom—
+piled MORGAN at optimization level 2, which we refer to as
+MORGAN Fast. Following the parameters used in a previous
+study (Wijsman et al., 2006), both MORGAN and SWIFTLINK
+were run for a total of 100 000 iterations, comprising 10000 it—
+erations of burn—in and 90 000 iterations of simulation.
+P(locus sampler) was set to 0.5. The Markov chain was
+initialized with 1000 runs of sequential imputation. During simu—
+lation, we scored every 10th sample and calculated LOD scores
+at 10 equidistant points between each consecutive pair of mar—
+kers. SWIFTLINK and MORGAN were both run on the same com—
+puter running Ubuntu 12.04.1 LTS edition with Linux kernel
+3.2.0—30 for 64—bit. The computer has an AMD Phenom II
+with four processor cores (clocked at 3.2GHz) and 4 GB
+RAM (clocked at 1.6GHz). GPU performance was tested with
+
+ 
+
+ 
+ 
+   
+
+   
+
+6 SviliftLink (C'PUx1) '—
+5 - SwiftLink(CPUx2)  
+SwiftLink (CPUx4)
+4 - §wiftLink(CPUx4+GPU)
+3 - .
+8 2 —
+_l
+1 _
+O _
+.1 _
+-2
+
+ 
+
+ 
+
+ 
+
+150 155 160 165 170 175
+Genetic Distance (cM)
+
+Fig. 3. Results from all four tested versions of SWIFTLINK showing
+region of interest from chromosome 1 of the EAST pedigree
+
+CUDA 5.0 (Release Candidate 1) on an Nvidia GTX 580. Each
+experiment was repeated 10 times, all results are averages over
+all runs.
+
+Figure 3 shows typical results for the region of interest for the
+EAST pedigree on chromosome 1 from each of the four parallel
+versions of SWIFTLINK tested. The most likely linked region
+found by all programs corresponded to the 840 kilobase region
+identiﬁed in the original study containing the KCNJ 10 gene with
+similar maximum LOD scores for the region of interest (Table 1).
+
+3.1 Runtime
+
+Table 1 shows the different performance characteristics of
+SIMWALK, MORGAN and SWIFTLINK. In addition to these re—
+sults, we anecdotally ran SIMWALK once with all markers, which
+took ~42 days, making SIMWALK by far the slowest. Even with
+the advantage of running in 50 marker windows, SIMWALK had
+the worst runtime of the three programs tested.
+
+All versions of SWIFTLINK were faster than both MORGAN
+and MORGAN Fast, with single—threaded SWIFTLINK showing
+a 1.6>< speed—up over MORGAN Fast. This difference in runtime
+between single—threaded programs can probably be attributed to
+differences in the internal representation used for pedigree peel—
+ing; SWIFTLINK peels a genotype network, whereas MORGAN
+appears to peel an allele network. While allele networks ultim—
+ately scale better than genotype networks, in our experience, a
+majority of pedigrees will be smaller than is necessary for this to
+make a difference. At its fastest, using four CPU cores and GPU,
+SWIFTLINK is 13.6>< faster than MORGAN Fast and 109.4><
+faster than SIMWALK analysing the EAST pedigree (Fig. 4).
+
+SWIFTLINK achieves a high degree of parallelism, as < 3% of
+the program’s total runtime was spent on serial tasks that could
+not be parallelized. Using all four cores of the CPU and the
+GPU, we achieve up to almost an order of magnitude (8.5x)
+speed—up over the single—threaded implementation.
+
+Compared with four CPU cores, the addition of a GPU pro—
+vides a 2.4>< speed—up. We had expected higher performance, but
+the CPU is a bottleneck which does not run the Markov chain
+fast enough to keep up with the GPU. We expect the situation to
+improve with CPUs with more cores and with improvements to
+our CPU code (so far we have not used SIMD instructions). To
+demonstrate how underused the GPU is, the LOD scoring code
+in isolation performs 24>< faster than a single—threaded CPU
+implementation.
+
+Table 1. Runtime and RAM usage for different MCMC-based linkage analysis programs operating on EAST pedigree
+
+ 
+
+ 
+
+Program Mean Max. LOD score Mean Runtime Std. dev. Peak memory usage (MB)
+SimWalk2 4.96 1356 min 02 s 11 min 13 s 5
+
+Morgan 3.1 4.97 351 min 53s 6min10s 10
+
+Morgan 3.1 Fast 4.97 168 min 20 s 2 min 43 s 10
+
+SwiftLink (CPU X 1) 4.98 105 min 10 s 2 min 43 s 19
+
+SwiftLink (CPU X 2) 4.97 55 min 01 s 1 min 12 s 19
+
+SwiftLink (CPU X 4) 4.92 28 min 04 s 0 min 38 s 19
+
+SwiftLink (CPU X 4 + GPU) 4.97 12 min 24 s 0 min 24 s 153 (+390 GPU)
+
+ 
+
+ 
+
+417
+
+ﬁio'spzumoipiojxo'sopcuuqutotq/pdnq
+
+A.Medlar et al.
+
+ 
+
+ 
+
+S'peedup versus Simwalk +
+Speedup versus Morgan Fast — —Ar —
+Speedup versus Swiﬁ:Link (CPU x1) - - I- -
+100 ------ -§ ------------  ------------  ---------- -- I ---- --
+
+S peedup
+
+ 
+
+ 
+
+ 
+
+ 
+
+CPle CPUx2 CPUx4 CPUx4+GPU
+Swiﬂiink variant
+
+Fig. 4. Speed-up achieved by all four tested versions of SWIFTLINK
+versus SIMWALK, MORGAN and single-threaded SWIFTLINK
+
+3.2 Memory usage
+
+RAM usage was lowest in SIMWALK, though this is unrelated to
+the size of the input, as all memory must be statically allocated in
+Fortran ’77. When SWIFTLINK is run without using the GPU,
+memory usage is twice that of MORGAN. Using a GPU in
+SWIFTLINK increases memory usage on the host PC 8—fold,
+partly due to converting C++ data structures into a more ap—
+propriate format for the GPU and partly due to GPU driver
+overhead. RAM usage on the GPU is high, but most modern
+GPUs feature at least 1 GB and we assume exclusive access to
+the device.
+
+4 DISCUSSION
+
+The methods presented in this article produce almost an order of
+magnitude speed—up of MCMC linkage analysis compared with
+an optimized single—threaded implementation on fairly minimal
+hardware. Compared with existing MCMC linkage software,
+SWIFTLINK achieves up to two orders of magnitude speed—up
+when using four CPU cores and a GPU concurrently. We believe
+SWIFTLINK will be especially useful to researchers in, for ex—
+ample, clinical research settings, where access and/ or experience
+with computer clusters is limited. In addition, SWIFTLINK has
+been speciﬁcally designed to fit into existing workﬂows by sup—
+porting the standard ‘LINKAGE ' ﬁle formats (ped, map and data
+ﬁles) as other popular mulitpoint linkage analysis programs, e. g.
+Allegro and Genehunter.
+
+A majority of linkage projects include only small—to—medium
+size pedigrees and can therefore be analysed using exact algo—
+rithms. Many large pedigrees can be successfully abbreviated
+to run using an exact algorithm; however, for cases where
+there are few genotyped individuals or in cases like EAST syn—
+drome (Fig. 2), where one of the branches only contains a single
+genotyped individual, any abbreviation will dramatically reduce
+the power of the study. This is a clear niche where SWIFTLINK
+can be used to great effect.
+
+Unlike many other articles detailing GPU applications, we did
+not show results for both 32— and 64—bit. As performance on the
+GPU is affected so strongly by register usage and therefore oc—
+cupancy, 32—bit code tends to run faster as pointers take up half
+the space and more blocks can be run concurrently. However,
+
+CPU code in general performs faster in 64—bit thanks to wider
+instructions. In the current version of SWIFTLINK, the GPU is
+underused because the CPU is a bottleneck, therefore it only
+makes sense for us to run in 64—bit mode. In the future, we
+will be aiming to improve SWIFTLINK by removing the bottle—
+necks from the slower execution of the Markov chain on the
+CPU. Additional speed—ups could be made by using SIMD in—
+structions as well as multithreading or by ofﬂoading some of the
+excess work to the GPU. It is not clear how to balance the load
+dynamically between both platforms and whether the additional
+complexity is warranted for a speed—up that can be provided
+more simply with additional CPUs, e. g. with more cores locally
+or in a computer cluster.
+
+ACKNOWLEDGEMENTS
+
+The authors acknowledge the use of the UCL Legion High
+Performance Computing Facility, and associated support
+services, in the completion of this work.
+
+Funding: R.K. is supported by St. Peter’s Trust for Kidney,
+Bladder and Prostate Research, The Grocers’ Charity and The
+David and Elaine Potter Charitable Foundation.
+
+Conﬂict of interest: none declared.
+
+REFERENCES
+
+B0ckenhauer,D. et al. (2009) Epilepsy, ataxia, sensorineural deafness, tubulopathy,
+and KCNJ 10 mutations. NEJM, 360, 196(kl970.
+
+Cannings,C. et al. (1976) The recursive derivation of likelihoods on complex
+pedigrees. Adv. Appl. Prohah., 8, 622%25.
+
+Conant,G. et al. (2002) Parallel Genehunter: Implementation of a linkage
+analysis package for distributed memory architectures, Proceedings IEEE
+HiCOMB’02.
+
+Dwarkadas,S. et al. (1994) Parallelization of general linkage analysis problems.
+Hum. Hered., 44, 1277141.
+
+Elston,R.C. and Stewart]. (1971) A general model for the genetic analysis of
+pedigree data. Hum. Hered., 21, 5237542.
+
+Fishelson,M. and Geiger,D. (2002) Exact genetic linkage computations for general
+pedigrees. Bioinformatics, 18 (Suppl. 1), 518978198.
+
+Fishelson,M. and Geiger,D. (2004) Optimizing exact genetic linkage computations.
+J. Comput. Biol, 11, 2637275.
+
+George,A.W. et al. (2003) Approaches to mapping genetically correlated complex
+traits. BMC Genet, 4, S71.
+
+George,A.W. et al. (2005) MCMC multilocus 10d scores: application of a new
+approach. Hum. Hered., 59, 987108.
+
+Gupta,S.K. et al. (1995) Integrating parallelization strategies for linkage analysis.
+Comput. Biomed. Res., 28, 1167139.
+
+Heath,S.C. (1997) Markov chain Monte Carlo segregation and linkage analysis for
+oligogenic models. Am. J. Hum. Genet, 61, 7487760.
+
+Heath,S. and Th0mps0n,E.A. (1997) MCMC samplers for multilocus analyses on
+complex pedigrees. Am. J. Hum. Genet, 61 (Suppl.), A278.
+
+Heath,S.C. et al. (1997) MCMC Segregation and linkage analysis. Genet.
+Epidemiol, 14, 101171016.
+
+K0ng,A. (1991) Analysis of pedigree data using methods combining peeling
+and Gibbs sampling. Computer Science and Statistics: Proceedings of the
+23rd Symposium on the Interface, 3797385.
+
+Kruglyak,L. et al. (1995) Rapid multipoint linkage analysis of reccessive traits in
+nuclear families including homozygosity mapping. Am. J. Hum. Genet, 56,
+5197527.
+
+Kruglyak,L. et al. (1996) Parametric and nonparametric linkage analysis: a uniﬁed
+multipoint approach. Am. J. Hum. Genet, 58, 134771363.
+
+Lander,E.S. and Green,P. (1987) Construction of multilocus genetic maps in
+humans, Proc. Natl Acad. Sci. USA, 84, 236372367.
+
+ 
+
+418
+
+ﬁio'spzumoipiojxo'sopcuuqutotq/pdnq
+
+SwiftLink
+
+ 
+
+Lange,K. and Sobel,E. (1991) A random walk method for computing genetic
+location scores. Am. J. Hum. Genet, 49, 132(k1334.
+
+Lee,A. et al. (2009) On the utility of graphics cards to perform massively
+parallel simulation of advanced monte carlo methods. J. Compat. Graph.
+Stat, 19, 4.
+
+Lin,S. and Speed,T.P. (1996) Incorporating crossover interference into pedigree
+analysis using the X2 model. Hum. Hered, 46, 3157322.
+
+Silberstein,M. et al. (2006) On—line system for faster linkage analysis via paral—
+lel execution on thousands of personal computers. Am. J. Hum. Genet, 78,
+9227935.
+
+Sobel,E. and Lange,K. (1996) Descent graphs in pedigree analysis: applications to
+haplotyping, location scores, and marker—sharing statistics. Am. J. Hum. Genet,
+58, 132371337.
+
+Sobel,E. et al. (2001) Multipoint estimation of identity—by—descent probabilities
+at arbitrary positions among marker loci on general pedigrees. Hum. Hered.,
+52, 1217131.
+
+Suchard,M.A. and Rambaut,A. (2009) Many—core algorithms for statistical phylo—
+genetics. Bioinformatics, 25, 137G1376.
+
+Th0mps0n,E.A. and Heath,S.C. (1999) Estimation of conditional multilocus gene
+identity among relatives. Lect. Notes Monogr. Ser., 33, 957113.
+
+Wijsman,E.M. et al. (2006) Multipoint linkage analysis with many multiallelic
+or dense diallelic markers: Markov chain—Monte Carlo provides practical
+approaches for genome scans on general pedigrees. Am. J. Hum. Genet, 79,
+84(r858.
+
+ 
+
+419
+
+/810's112um0fp10}x0'sopBLuJOJutotq”:duq
+

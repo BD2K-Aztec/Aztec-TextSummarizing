@@ -1,0 +1,1485 @@
+ORIGINAL PAPER
+
+Vol. 30 no. 6 2014, pages 775—783
+doi:1 0. 1093/bioinfonnatics/btt615
+
+ 
+
+Sequence analysis
+
+Advance Access publication October 25, 2013
+
+Discriminative motif analysis of high-throughput dataset
+
+Zizhen Yao”, Kyle L. MacQuarrie1 '2, Abraham P. Fong3'4, Stephen J. Tapscott1'3'5,
+Walter L. Ruzzow'8 and Robert C. Gentleman9
+
+1Human Biology Division, Fred Hutchinson Cancer Research Center, Seattle, WA 98109, USA, 2Molecular and Cellular
+Biology Program, University of Washington, Seattle, Washington, 98105, USA, 3Clinical Research Division, Fred
+Hutchinson Cancer Research Center, Seattle, WA 98109, USA, 4Department of Pediatrics, School of Medicine,
+5Department of Neurology, School of Medicine, University of Washington, Seattle, Washington, 98105, USA, 6Public
+Health Sciences Division, Fred Hutchinson Cancer Research Center, Seattle, WA 98109, USA, 7Department of
+Computer Science and Engineering, 8Department of Genome Sciences, University of Washington, Seattle, Washington,
+98105, USA and 9Bioinformatics and Computational Biology, Genentech, South San Francisco, CA 94080, USA
+
+Associate Editor: Gunnar Ratsch
+
+ 
+
+ABSTRACT
+
+Motivation: High-throughput ChlP-seq studies typically identify thou-
+sands of peaks for a single transcription factor (T F). It is common for
+traditional motif discovery tools to predict motifs that are statistically
+significant against a na'ive background distribution but are of question-
+able biological relevance.
+
+Results: We describe a simple yet effective algorithm for discovering
+differential motifs between two sequence datasets that is effective in
+eliminating systematic biases and scalable to large datasets. Tested
+on 207 ENCODE ChlP-seq datasets, our method identifies correct
+motifs in 78% of the datasets with known motifs, demonstrating
+improvement in both accuracy and efficiency compared with
+DREME, another state-of-art discriminative motif discovery tool.
+More interestingly, on the remaining more challenging datasets, we
+identify common technical or biological factors that compromise the
+motif search results and use advanced features of our tool to control
+for these factors. We also present case studies demonstrating the
+ability of our method to detect single base pair differences in DNA
+specificity of two similar TFs. Lastly, we demonstrate discovery of
+key TF motifs involved in tissue specification by examination of
+high-throughput DNase accessibility data.
+
+Availability: The motifRG package is publically available via the
+bioconductor repository.
+
+Contact: yzizhen@fhcrc.org
+
+Supplementary information: Supplementary data are available at
+Bioinformatics online.
+
+Received on March 13, 2013; revised on August 13, 2013; accepted
+on October 19, 2013
+
+1 INTRODUCTION
+
+The emergence of high-throughput sequencing technology for
+genome-wide proﬁling of transcription factor binding sites
+(TFBS) has made precise categorization of their DNA motifs
+possible. Harnessing the power of large quantities of data gen-
+erated by this technology presents many computational chal-
+lenges. Motif discovery is a classical bioinformatics problem
+and has been an active area of research for decades. Existing
+
+ 
+
+*To whom correspondence should be addressed.
+
+tools can be roughly classiﬁed as profile-based, such as MEME
+(Bailey and Elkan, 1995), or pattern-based like CONSENSUS
+(Hertz and Stormo, 1999) [see (Tompa et al., 2005) for a review
+and performance study of popular motif discovery tools]. Most
+of these tools, however, do not easily scale to large datasets.
+Users typically limit the motif search to top ranking peaks,
+thus sacrifice the power of the data, which may be critical for
+accurate modeling of the TFBS and for identiﬁcation of cofac-
+tors. Large amounts of data also increase the power to detect
+various non-random signals, many of which may not be directly
+related to the problem of interest. The new challenge is to under-
+stand the nature of motif signals and determine the relevant ones.
+We propose to test the motif enrichment in a foreground dataset
+against an explicitly stated background dataset, rather against a
+non-informative null distribution. The background dataset
+should be carefully selected to represent the systematic biases
+present in the foreground.
+
+Discriminative motif discovery is not a new approach.
+Pioneering work includes, but is not limited to, DME (Smith
+et al., 2006), DIPS (Sinha, 2006) and DEME (Redhead and
+Bailey, 2007). These methods find a discriminative position
+weight matrix (PWM) to optimize an objective function, which
+for the case of DEME and DME, is the likelihood of the data
+given the model and sequence class. However, the optimization
+procedures of many of these methods are computationally
+expensive, making them unsuitable for large datasets. Recent
+works designed for high-throughput datasets use more simplified
+statistical models. For example, DREME [MEME suite (Bailey,
+2011)] and oligo-diff [RSAT suite (Thomas-Chollier et al., 2012)]
+use Fisher’s exact test and PeakRegressor (Pessiot et al., 2010)
+applies a linear regression model to fit peak scores by motif
+counts.
+
+In this study, we propose a new discriminative motif discovery
+algorithm motifRG that distinguishes two sequence datasets.
+We measure the discriminative power of a motif by a logistic
+regression model, which shows some similarity to DREME
+and PeakRegressor, but offers a better combination of robust-
+ness and ﬂexibility. We also provide an effective and efficient
+iterative process for motif reﬁnement and extension and apply
+a bootstrap robustness test to avoid over-fitting in the optimiza-
+tion process. The logistic regression framework offers direct
+
+ 
+
+© The Author 2013. Published by Oxford University Press. All rights reserved. For Permissions, please email: journals.permissions@oup.com 775
+
+112 /310's112u1n0fp10}x0"sotJBuiJOJutotq/ﬁduq 11101} papaolumoq
+
+91oz ‘Og anﬁnV uo ::
+
+Z.Yao et al.
+
+ 
+
+measurement of statistical signiﬁcance, and we demonstrate by
+permutation tests that the associated 2 statistics reﬂect the prob-
+ability of occurrence by chance. This framework also provides
+ﬂexibility to handle existing bias between the two datasets, and to
+weight the sequences according to their importance, both import-
+ant features when dealing with some challenging datasets (see
+Section 3 for details). The method is implemented in R (R
+Development Core Team, 2010) Bioconductor Core Team, and
+is publicly available Via the Bioconductor (Gentleman et al.,
+2004) repository.
+
+We applied this method in a comprehensive motif study of 207
+ENCODE ChIP—seq datasets for TFBS. Under the default set-
+ting, motifRG successfully discovered accurate motifs in 78% of
+the datasets with known motifs, demonstrating its ﬂexibility
+in handling diverse applications. In many cases, biologically
+plausible cofactor motifs are also discovered. Compared with
+DREME, motifRG had comparable performance at identifying
+the core motif, and generally ran about 40% faster. Its advan-
+tages over DREME in terms of both accuracy and efﬁciency are
+more obvious for longer motifs and motifs with degenerate
+ﬂanking sequences, probably due to a more effective reﬁnement
+procedure. By exploring the cases where we fail to detect known
+motifs, we identify several common factors likely to compromise
+the motif search results and propose strategies that exploit the
+ﬂexibility of motifRG to deal with these challenges. Using one
+in-depth case study, we demonstrate the power of discriminative
+motif analysis for the study of DNA binding speciﬁcity of similar
+members of one protein family. We also show that this tool can
+be applied to DNaseI accessibility datasets to identify TFBS that
+are enriched at cell type speciﬁc accessible sites, which may act as
+key regulators of cell lineage specific chromatin remodeling.
+
+Our method, and discriminative motif discovery in general, rep-
+resents powerful tools to exploit various types of high-throughput
+datasets to answer many fundamental biological questions.
+
+2 METHODS
+
+2.1 Logistic regression modeling of motifs
+
+We cast the problem of discriminative motif discovery in the framework
+of logistic regression. For a given motif, let x be the motif count in each
+sequence. The basic assumption of logistic regression is that sequences
+with equal motif counts have equal probabilities P of containing binding
+sites, and that the logarithm of the odds ratio is linearly related to the
+count:
+
+ 
+
+[0g = .50 +131X
+
+[7
+1 — p
+More generally, we ﬁt
+
+p
+1—17
+
+ 
+
+10g =/30+/31X+/52W
+
+where w represents :1 optional terms reﬂecting other biases such as GC
+content. Model parameters ([5,) are estimated by the principle of max-
+imum likelihood. The statistical signiﬁcance of each coefficient ,8,- is esti-
+
+mated by a Wald test, which calculates Z—statistics: Z =  where ,5,- is the
+maximum likelihood estimate of ,8,- and se the estimated standard error of
+[5,. The 2 value is then squared, yielding a Wald statistic with a chi-square
+distribution (Hosmer and Lemeshow, 2000; Sinha, 2006). Our motif
+search optimization goal is to ﬁnd a motif representation with maximum
+absolute z-value. As motif counts have few unique values, we tabulate the
+
+all values of x and ﬁt the model with only the unique values, weighting
+each unique value by its count. For applications in which the sequences
+are weighted, the weight for each unique value is the sum of all weights of
+the sequences with the given value. This reduced representation speeds up
+the logistic regression model signiﬁcantly for large datasets.
+
+Regression was introduced to motif search by pioneering work of
+Bussemaker et a]. (2001), which models the correlation of motif occur-
+rences and gene expression by linear regression. A similar model was
+adopted by PeakRegressor for applications for ChIP-Seq datasets,
+which uses peak scores as response. A potential pitfall of this model is
+sensitivity to outliers. PeakRegressor tried to avoid the problem of out-
+liers by using different regularization techniques such as Ll-norm, ridge
+regression and so forth, which involve additional parameterization.
+Recent study suggests that other factors such as chromatin accessibility
+(John et al., 2011; Neph et al., 2012) are likely to have greater effect on
+intensities of ChIP-Seq signal than motif counts. We believe logistic
+regression is an appropriate choice for this application because it offers
+a good combination of ﬂexibility and robustness.
+
+2.2 Search strategy
+
+We start by enumerating all nmers with a given width 11, ﬁtting the above
+regression model and sorting the nmers by the absolute z-value. The most
+signiﬁcant nmer is chosen as the seed motif. To address the concern that
+candidates with small enrichment can be highly statistical signiﬁcant in
+large datasets, we set an enrichment ratio threshold for the seed motif to
+ensure that the enrichment is biologically meaningful. We further reﬁne
+the seed motif by extension and small perturbations by testing all variants
+with Hamming distance of one over the full IUPAC nucleotide alphabet.
+The general ﬂow chart of this method is shown in Figure 1.
+
+To extend the seed, we append a given number f of Ns at both sides of
+the motif and enumerate all replacements of one N letter by a more
+speciﬁc letter in the IUPAC alphabet. We choose the one with maximum
+absolute z-value, which becomes the new motif if it improves the z-value,
+and repeat this process. If no further improvement can be made at the
+current motif length, append additional Ns to both ends so that each side
+still has f Ns. If no replacement of Ns yields a better motif, terminate
+and trim all ﬂanking Ns. This process is illustrated in Supplementary
+Figure SlB.
+
+Next, we try to reﬁne the motif by small perturbations. We enumerate
+all candidates with Hamming distance of one that are compatible with the
+seed and not previously tested. We then choose the candidate with the
+most improved z-value as the new motif. Repeat this process until no
+improvement can be made. This process is illustrated in Supplementary
+Figure SlC.
+
+If there are any changes made to the seed at extension or permutation
+steps, the whole reﬁnement process is repeated. Conceptually, we can
+examine all extension and perturbation candidates at the same time.
+We ﬁnd that separating the two steps yields better performance and
+
+    
+     
+
+Find next motif“
+
+Input
+
+SBEILIBI'IDBS  
+Not ' "
+improved
+
+Fig. 1. motifRG method outline (see also Supplementary Fig. Sl)
+
+ 
+
+776
+
+112 /310's112u1n0fp10}x0"sorwurJOJurorq/ﬁduq 11101} papaolumoq
+
+91oz ‘Og isnﬁnV uo ::
+
+Discriminative motif analysis
+
+ 
+
+cuts down memory usage by decreasing the search space. We perform the
+extension step first, as we think it is more important to determine the full-
+length signature of the motif. In the extension step, the maximum number
+of candidates tested is 2fM where f is the number of ﬂanking Ns on each
+side, and M the size of IUPAC alphabet. In the perturbation step, the
+maximum number is [M, where l is the length of the pattern. The per-
+turbed patterns must be compatible with the initial seed motif, and we
+ﬁlter the candidates by requiring either an increase of total foreground
+counts or a decrease of total background counts, so the number of
+allowed candidates is a lot smaller. Using this strategy we can afford to
+extend the motif as long as needed.
+
+The reﬁnement step can be subject to over-ﬁtting, as a small z-value
+improvement may not be meaningful. To improve robustness, we per-
+form the following bootstrap test to determine the signiﬁcance of the im-
+provement: randomly sample the whole sequence dataset (including
+positive and negative sequences) with replacement for a few times (default
+5 times), calculate the z-values for the new and the original motif for
+each sampling and compute the P-value by applying t-tests on two sets
+of z-values. Accept the new motif if the P-value is under a given thresh-
+old. Although the number of bootstraps we performed is small, we found
+the variance estimate is reasonably accurate and informative to guide
+reﬁnement to be more aggressive or conservative (see Section 3 for
+details).
+
+Candidate enumeration, evaluation and bootstrap validation can be
+performed in parallel in each iteration, and parallelization is implemented
+by the ‘parallel’ package of Bioconductor. After reﬁning the top motif, we
+mask all of its occurrences and repeat the process to ﬁnd the next motif.
+
+3 RESULTS
+3.1 motifRG accurately predicted annotated motifs
+
+To assess the performance of our method for de novo motif dis-
+covery in a real world application under different conditions, we
+tested it on 207 ENCODE ChIP-seq datasets collected from two
+groups, HAIB_TFBS by HudsonAlpha and SYDH_TFBS by
+Yale and UCD (see Supplementary Table S1 for the complete
+list). This dataset covers 82 unique TFs and 25 cell types with
+different characteristics: the number of peaks varies from a few
+hundreds to hundreds of thousands, the average GC content
+ranges from 0.40 to 0.66 and median peak width varies from
+100 to 1000 nucleotides (Supplementary Fig. S2). We made a
+number of decisions to standardize/simplify the analysis and be-
+lieve they have no real effect on the outcome. If the number of
+peaks exceeded 50K, we randomly sampled 50K peaks. This
+approach was further justiﬁed by the analysis presented below
+in section ‘Motif signiﬁcance and sample size’, which examines
+the effect of number of peaks on motif prediction. For each peak
+in each dataset, we ﬁrst chose one corresponding background
+sequence from the ﬂanking regions, randomly chosen from
+either side (L200 nt from the edge of the peak, and with the
+same width as the peak. We then predicted up to ﬁve enriched
+motifs. Our software also identiﬁes depleted motifs, but they
+were ignored here. To ﬁnd the annotated motif of the ChIP-ed
+TF, we matched TF names/aliases with the motif names in the
+motif databases Jaspar (Bryne et al., 2008; Redhead and Bailey,
+2007) and Uniprobe (Newburger and Bulyk, 2009). If no exact
+matches were found, we used the motif of a homolog; e.g. we
+annotated Atf3 using the Atfl motif. We then compared the
+PWMs derived from the top five predicted motifs against the
+motif database using Tomtom (Tanaka et al., 2011) with default
+
+settings. We claimed success in finding the annotated motif if it
+was among the Tomtom reported matches. We compared our
+results to DREME, which was run on the same sets of fore-
+ground and background sequences under the default setting
+with maximum of ﬁve output motifs.
+
+Among 148 ENCODE datasets with annotated motifs for the
+TF, motifRG identiﬁes a match to the annotated motif in 115
+and does not identify a match in 33. By this criterion, we suc-
+ceeded in ﬁnding the right motifs in 78% of datasets. In com-
+parison, DREME found annotated motif in 116 datasets, almost
+the same set as ours.
+
+We hypothesized that the annotated motifs are not enriched
+signiﬁcantly in the datasets where motifRG and/or DREME
+failed. To test this hypothesis, we scanned for the best PWM
+match of the annotated motif in each sequence in both the fore-
+ground and the corresponding background datasets, and com-
+puted AUC (the area under the receiver operating characteristic
+curve) (Brown, 2006) by varying the PWM threshold to discrim-
+inate foreground from background. The datasets for which we
+failed to find the motifs generally have low AUC, which suggest
+low enrichment of the annotated motif relative to the control
+(Fig. 2A). Therefore, we believe that failure to discover the
+annotated motifs was likely due to the lack of the TF motif
+enrichment in the datasets, rather than to the failure of the al-
+gorithms. We plot the P-Values inferred by Tomtom for motifs
+predicted by motifRG and DREME against each other in
+Figure 2B. The two methods predict similar motifs most of the
+
+ 
+
+W111
+drama
+mOIiIRG
+None
+
+x [41- C)
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+I I I . .
+m o 1000 2000 3000 4000 5000
+Drama Dreme
+
+Fig. 2. Performance evaluation of motifRG and DREME. (A) AUC
+scores for datasets with known motifs. The ROC curve is calculated
+using the best PWM scores of each sequence based on the annotated
+motif and measuring the discrimination between foreground and back-
+ground as the PWM score threshold is varied. The datasets in which both
+motifRG and DREME found motifs matching to the database are
+marked by circle, DREME only by plus, motifRG only by triangle
+and neither by cross. (B) Accuracy for matches of predicted motifs to
+annotated motifs based on P-values inferred by Tomtom infloglo trans-
+formation. Datasets corresponding to the same TF are marked by the
+same colors and symbols. The TFs of datasets in which motifRG and
+DREME performed signiﬁcantly differently are shown. (C) Comparison
+of running time (in seconds) for motifRG and DREME
+
+ 
+
+777
+
+112 /310's112u1n0fp10}x0"sorwurJOJurorq/ﬁduq 11101} papBOIH/noq
+
+91oz ‘Og isnﬁnV uo ::
+
+Z.Yao et al.
+
+ 
+
+time (Supplementary Table S2), whereas motifRG tends to infer
+more information in the ﬂanking regions of core motifs, mani-
+fested by overall better P—Values. To examine whether the differ-
+ences were due to the fact that DREME uses maximum motif
+width of 8 under default setting, we also ran DREME with max-
+imum motif width of 12 (referred to as DREME12). However,
+DREME12 did not demonstrate signiﬁcant improvement, and in
+some cases, it terminated without predicting any motifs
+(Supplementary Fig. S3A). Next we examined two examples in
+which DREME succeeded, whereas motifRG failed. For the case
+of SP1 in HepG2, the top motifs predicted by both DREME and
+motifRG were motifs for cell type-speciﬁc master regulators
+FOX and HNF4. MotifRG predict additional variants of
+FOX, HNF4 and motif for ETS. When conﬁgured to predict
+more motifs, motifRG discovers an SP1 motif among the top
+eight motifs. For the case of MEF2A in GM12878, motifRG
+predicted a more degenerate variant of MEF2A, which was
+not detected by TOMTOM as matching the MEF2A motif.
+
+The running time of motifRG grows linearly with size of input
+(Supplementary Fig. S3B), and runs ~40% faster than DREME
+(Fig. 2C), although such a difference can be easily affected by
+implementation details and subject to change. DREME can be
+configured to run with python package psyco for 2- to 3-fold
+speedup, which we did not use due to lack of support by psyco
+for 64-bit systems. Our method supports a parallel mode for
+further speed-up, which we did not use for fair comparison.
+DREME12 runs ~34 times slower than DREME under default
+settings (Supplementary Fig. S3C), which suggests signiﬁcant
+overhead for learning longer motifs, which is not the case for
+our motif extension procedure. MotifRG uses a lot more
+memory than DREME, as it is implemented in a high-level pro-
+gramming language that exploits many third party functional-
+ities. We performed memory proﬁling of motifRG to examine
+the relationship between memory usage and input size
+(Supplementary Fig. S3D), which suggested that memory usage
+grows linearly with input size. Memory usage does not appear to
+be a bottleneck for most applications, so we did not seek further
+optimization at this point.
+
+Next, we investigate the cases in which we failed to identify
+the annotated motifs. The main compromising factors that we
+identiﬁed include signiﬁcant GC bias, noisy/indirect binding sites
+inferred by ChIP-Seq or overshadowing cofactors motifs. Many
+TFBS lie in GC—rich regions (including CpG islands) at both the
+promoter or enhancer regions. Although we tried to select back-
+ground sequences with similar genomic context, the GC content
+variation can be local, so it is still likely for foreground sequences
+to have higher GC content, resulting in prediction of generic
+GC—rich motifs. One can control for GC bias by using shufﬂed
+sequences of the foreground that maintain the same nucleotide
+or di-nucleotide composition as control. But, this may not be
+sufﬁcient for adjusting other biases. Many TFs interact indirectly
+with the DNA sequences through mechanisms such as tethering.
+Indirect binding sites tend to have lower ChIP-seq signals com-
+pared with directly bound sites and lower the motif enrichment
+for the direct sites. We also note that many TFBS samples in the
+same cell type are enriched for the same sets of motifs corres-
+ponding to the master regulators in that cell type. For example,
+most ChIP-Seq samples in GM12878 (a lymphoblastoid cell line)
+have motif enrichment of RUNX, which is a key TF required for
+
+lymphocyte differentiation (Wong et al., 2011). Although this is
+an interesting phenomenon by itself, these motifs probably serve
+a generic functional role in the given cell type rather than acting
+as speciﬁc cofactor motifs for the ChIPped TF.
+
+We designed the following strategy to cope with the above
+issues: we used discretized (for efﬁciency) GC content as covari-
+ant in the regression model, weighted the sequences based on
+ChIP-seq signals that were then normalized by peak width and
+chose background as accessible regions without ChIP-seq peaks.
+Recent study suggests that most TFBS occur in the accessible
+regions proﬁled by a DNaseI assay (Neph et al., 2012). By using
+accessible regions without peaks as background, we hope to elim-
+inate common motifs for all accessible regions and highlight the
+ones that are speciﬁc for the ChIPped TF. Many other methods
+can be used to adjust for discussed biases, such as using only the
+top ranking peaks, using shufﬂed sequences as control and so
+forth. But our approach provides enough ﬂexibility to addresses
+multiple issues while keeping the power of large datasets. We
+applied this strategy to 29 of 33 cases where we previously
+failed, selected based on availability of appropriate DNaseI
+data (Fig. 3). We predicted annotated motifs in 9 cases, where
+we previously failed. For 7 of 20 remaining cases, we identiﬁed
+the same novel motif for the same TF (Brcal and Six5, respect-
+ively) across multiple cell types, whereas annotated motifs have
+low enrichment across all cell types, suggesting that predicted
+motifs are likely to be true motifs that are previously unknown.
+We also found motifs for NFYA, a known cofactor (Li-Weber
+et al., 1994) interacting with IRF homologs, to be strongly
+enriched in two IRF3 samples, suggesting IRF3 is likely to
+bind predominantly indirectly at its targets. The strongest pre-
+dicted motif for JUND in HEPG2 corresponds to a known sec-
+ondary motif for JUND. For RXRA in GM12878 and FOSLl
+in thesc cell, it was puzzling why we failed in these cases,
+whereas succeeded in the RXRA and FOSLl ChIP-Seq samples
+generated by the same laboratory using the same antibody for
+the other cell lines. After closer examination, we found evidence
+suggesting that the protein or the protein complex interacting
+with DNA may be present at low abundance in the given cell
+type (Supplementary Fig. S4), leading to poor ChIP-seq results.
+We have remaining 6 cases that are unaccounted for, which may
+be subject to other issues such as antibody speciﬁcity, PCR bias
+and so forth, and require further biological and technical exam-
+ination. Overall, we found our refined strategy to be ﬂexible and
+effective at addressing more challenging datasets.
+
+Finally, we present the motifs predicted for proteins with no
+annotated motifs in the database in Supplementary Table S3.
+Although not annotated in the databases, numerous motifs
+have been reported in the literature to bind the given TF or its
+cofactors. For example, RAD21, a component of the cohesin
+complex, is involved in chromosome cohesion, DNA repair
+and apoptosis. We identiﬁed CTCF as its top motif, known
+for recruitment of cohesin genome wide (Parelho et al., 2008).
+Our method can be a powerful tool for curation of novel motifs
+into motif datasets.
+
+3.2 Application to sequence speciﬁcity of homologous TFs
+
+The greatest advantage of discriminative motif discovery tools
+over traditional methods is to facilitate direct comparison of two
+
+ 
+
+778
+
+112 /310's112u1n0fp10}x0"sorwurJOJurorq/ﬁduq 11101} papBOIH/noq
+
+91oz ‘Og isnﬁnV uo ::
+
+Discriminative motif analysis
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Cell TF 9: DB Tag motifRG Top motifs
+
+HEPG2 ATFB 0.53 -Jiildt. r Milt. 3.2507 310%.. Max em 5p100 .iiiiiiL pr151 .Mi.. Atf1
+K552 ATF3 0.51 Jiiidt. 1:: MG. USF1 limits Plagn 4m_ .Wzrp41c
+GM12878 35cm 0.55 3055.3 N Mitt Irf6
+
+HELA53 BRCAi 0.51 silage N jiiiiii_lrf6 .liiiiis. 015131 “We. Smad3 201115.213
+HEPGZ 130cm 05 -9302.“ N iii-Silt.
+
+HIHESC FOSLI 0.54 19139196 w 5.1m. thb12 M. pr151 iii. fo MSmada
+K552 IRF1 0.51 Jﬁiamliias 0 .Wu_ Klf? -.1iiiL pr410 Mime Bcl6b 201113221X
+GM12878 IRF3 0.45 #41110. c
+
+HELAS3 IRF3 0.54 15595111.. c .iiiiii. 0.0097 LiiiiL NFYA .iliiﬁ. NFYA .iiiiis. Smad3 AWL
+HEPGZ IRF3 0.53 50.411112 c iiiiiL NFYA .“iiiiiL NFYA .2llliilLNF1/A -iIﬂIL Pknox1
+GM12878 IRF4 0.49 silica“ F midi. 4.5505 xiiiii. SPI1 midi. Irf4 .iilil. RUNXi ..1iiiii
+
+HEPG2 JUND 0.53 Jiliida A  Jundrnz iiille. JundmZ agimla. RKra “Willie! Six6
+5111112373 MEF2A 0.44 Giilﬂiliﬁ r ...iiiiiiiiL 1.4e-0s iimii. MEF2A .iiiiiiJ MEF2A ..1iiiiii. irr4 .iiliii.
+5111112375 PBXS 0.5 .1100. u .siiiiig- Gm397 “Jilitiw .aiﬁiiiim Gm397 .sIGIGiGimeBQ"
+GM12878 RXRA 0.5 .liiit. w JﬂiiiL Sixé “ii. iii. williiin niiii...“
+GM12878 srxs 0.5 .iliiiL N diiiiiiu Milt .Jiiiiie- . ELK1 ...Wi..5mad3
+H1 HESC 51x5 057 .M.-. N «iiiia  iiit. . .iiiill .. m5 .iiiii 21-11143
+K552 51x5 049 “Ml, N iiiiiiiir militia Jiliiim aiuiiiilia Pbxl
+K552 51x5 0.53 mime. N inliiii. Mir .iidiiiil. znf143 .iiiiiL
+
+HEPG2 SP1 0.43 when u iiiiil. , NFYA .iiiiiti.. HNF4A .ihsiti. erfz iiiiiii FOXI1
+011112375 SRF 0.55 milidiitii 1: Milli, 3.1e—05 Militias 25013 miiiiiiela chapZe mitt. aidiiiia
+
+K552 SRF 0.5;r 911mm F -iiaiii- 4.3e-05 iiiiiii , Srf sliiiiit. tiiliiiL. Jim ELK1
+GM12878 51.1113 0.45 ELM u
+
+HEPG2 TCF12 0.5 -.,ikli=.. u Mitt. aliiiiram Six6 JiiiiiL utiliiiiaa
+GM12878 W1 0.55 .00“. r -iili... 0.00013 Win W1 .iaiaiia CTCF «We. . Smad3 .iﬁiiii- Sp4
+HEPGZ W1 0.53 .00“. r Mi._0.00018 iiiiii. Smad3 “Win. Smad3 .aiiiii... GABPA -tiiii...
+
+K552 W1 0.52 .CCAi. F .iiiiiii._ 7.3e-05 .iiiili... W1 -liiiim 5madS .m. Plagl‘l .mplagli
+SKNSHRA W1 057 iii“. r Jiiii... 1e—04 2W2 W1 _ illiL ETV6 .iiii. fo “MPlagli
+(31111121375 ZNF143 05 Ma 0 1m. Plagl‘l mm- Bclﬁb .m- Smad3 DisiiIiprmi
+
+ 
+
+Fig. 3. MotifRG failure cases under default settings. Using a modiﬁed approach, we recover known motifs in many datasets. These datasets are
+categorized as F (found), N (novel), C (interacting cofactor), A (secondary motif), W (weakly expressed ChIPped TF) and U (unknown). Columns
+are cell type (Cell), TF, average GC content of the peak (gc), annotated motif (DB), categories (Tag), motifRG motifs that match the annotation and
+corresponding P-values (motifRG) and the top four predicted motifs (Top motifs)
+
+similar datasets. Here we demonstrate this in a case study to
+assess DNA binding specificity for two similar TFs. MYOD
+and NEUROD2 are both bHLH TFs that form heterodimers
+with an E-protein and regulate myogenesis and neurogenesis,
+respectively. Both bind a CANNTG E-box motif. A motif
+search in MYOD ChIP or NEUROD2 ChIP sequences against
+ﬂanking background revealed RRCAGSTG as the MYOD
+motif and RRCAGMTGQ as the NEUROD2 motif (Fig. 4,
+A1). Direct comparison of MYOD speciﬁc sites with
+NEUROD2 speciﬁc sites (Fig. 4, A2) identiﬁed CAGQTG as
+a MyoD private E-box and CAGATG as a NEUROD2 private
+E-box, whereas the sites bound by both factors were enriched in
+the CAGCTG E—box (Fong et al., 2012). The motif analysis
+
+results were confirmed by gel shift and competition assays
+(Fong et al., 2012).
+
+We performed a similar comparison of MYOD and MSC in
+Rhabdomyosarcoma. MSC is a bHLH protein that also forms
+heterodimers with E—proteins and binds E-boxes and acts as an
+inhibitor of muscle differentiation. We compared the binding
+profiles of MYOD and MSC in the Rhabdomyosarcoma cell
+line RD. The PWMs of the top motifs for both factors were
+similar (Fig. 4, B1). Discriminative motif analysis by direct com-
+parison of MYOD speciﬁc binding sites versus MSC speciﬁc
+binding sites indicated that MYOD has more CAGQTG binding
+sites (Fig. 4, B2), and MSC has more CAGCTGQ sites.
+Electrophoretic mobility shift assays conﬁrmed the predicted
+
+ 
+
+779
+
+112 /810'sl12um0fp10}x0'sopBurJOJurorq/ﬁduq 11101} papBOIH/noq
+
+91oz ‘Og isnﬁnV uo ::
+
+Z.Yao et al.
+
+ 
+
+‘1 MyoD NeuroD
+
+S E
+
+5.: 5.:
+
+§ ‘ G; in; 
+
+gas
+
+5 n egrrﬁ—ﬂ—m. - °  41:"
+IEJIESYIB IQSIEEPEEIB
+
+W Pcsilw"
+
+ 
+
+A2
+I Consensus SLUFE5 ranu_ ink-1t baht! logo I lit! "with 110 iwlue DB logo
+
+ 
+
+w .-
+NNCRGUGSNN 42 15? U 92 073 i .  A302 9.2L' GB wJ‘Clt-u .
+NNATCIIIFFKN 21 3 321 D 1.3 Dan  P121] 9.19-05 kill.ch .
+
+n
+NNHCJ‘GC'GNN GB DES D47 OED  Asill 241' D8  r
+
+1
+untvnsruvn 421 051 017 027 !  .101 1.4501 TGAE-ICA M D
+
+' m, l 110
+NNRCEACANN 19 055 1115 041 | ,M, RLNXJ 7.15.07 .51: ﬂ
+
+ 
+
+.
+NNVUGATGGNN 6’) 512 DEE D‘ld AWE. Trials LEE-Ell] __uhi:t: _
+NeuroD
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+11111111111115.114an 111 05371112 021 
+E1 MyoD MSC
+
+gSi Gilda g'gi CilGQiG
+
+1 5 1
+g“; mete. -  as . ..--_
+_ 11345515510111:- _ 122.55735151111
+MINI! Plasma
+
+32
+
+Consensus scones 1al10 fgirac bgirac logo
+
+ 
+
+NRRCAGGTGNN 20.5 4.90 0.521 0.12  }MyDD
+
+NNCAGCTGGNN -25.6 0.21 0.211  0.76  Mac
+.CCAGC._
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+NNBCCAGCHN Jill 043 0488 0.85
+
+ 
+
+BE
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+MyoD + + + + _
+MSC + + .1. ,1 _
+E12 + + + .1. _ _
+- _.
+Praise: 1 2 1 2
+CCAGCTGG GCAGCTGC
+
+ 
+
+ 
+
+ 
+
+Fig. 4. Predicting the speciﬁcity of similar bHLH TFs. (A1) Predicted
+PWMs for MyoD (left) and NeuroD2 (right), (A2) Discriminative motifs
+based on direct comparison of MyoD sites (foreground) with NeuroD2
+sites (background), suggesting MyoD and NeuroD2 preferred ebox and
+cofactor motifs. (B1 and B2) Comparison of MyoD and MSC. Similar to
+A1 and A2. (B3) Gel shift demonstrating that MSC/E12 heterodimer
+binds strongly at CCAGCTGG and MyoD/E12 binds weakly, whereas
+GCAGCTGC binds strongly to both MyoD/E12 and MSC/E12. MSC
+homodimer also binds stronger at CCAGCTGG than GCAGCTGC
+
+ﬂanking preference of CAGCTG E—box of these factors
+(Fig. 4 B3).
+
+3.3 Application to cell type speciﬁc accessible sites
+
+Discriminative motif analysis can be applied to any high-
+throughput sequence datasets besides ChIP-Seq data. We used
+this method to identify key TFs that are involved in regulation of
+cell type-speciﬁc chromatin remodeling using DNaseI hypersen-
+sitivity data. We collected 211 DNaseI hypersensitivity datasets
+from the ENCODE Web site. Combining highly similar ones
+yielded 77 profiles. We deﬁned cell type-speciﬁc accessible sites
+
+as the sites that are shared by 55 proﬁles. To predict motifs in
+each set of cell type speciﬁc sites, we chose background as the
+random sampling of the cell type-speciﬁc sites in all cell types
+that do not overlap with the foreground. The predicted motifs
+for a set of well-studied cell types are shown in Figure 5 (full
+results in Supplementary Table S4). We found many key TFs
+that are known to regulate the given cell type. For example, we
+found motifs for Oct4 (annotated as Pou2f2), Sox2 and GC-rich
+motifs that mimic KLF4 (annotated as MZFl and ASCL2) in
+Nt2d1, an embryonic cell line. All these factors are well known to
+be markers of cell pluripotency. We found motifs for IRFl in B
+cells, a key factor for immune response. In various lymphocyte
+cells, we found motifs for E2A (annotated as TCFE2A), Runx
+and ETS family TFs (annotated as SPIB, ELF5, SFPIl), all of
+which are critical immune system regulators. For various differ-
+ential epithelial cells in kidney, colon, lung, breast, pancrease and
+prostate, FOX family motifs are dominant and motifs for HNF
+family are enriched in kidney and colon. Similarly, we found
+significant enrichment of various Homeobox, NeuroD and
+Zic2 motifs in nervous system and MyoD motifs in skeletal
+muscle. A recent ENCODE study (Neph et al., 2012) used
+motifs in curated databases or de novo predicted motifs to scan
+accessible regions and compute enrichment in the given cell type.
+We offer a more direct alternative by combining motif prediction
+and discriminative analysis. The predicted motifs are conse-
+quently optimized to highlight the distinction between fore-
+ground and background, thus likely to be more informative in
+this setting.
+
+3.4 Motif signiﬁcance and sample size
+
+We have shown that our method can discover biologically rele-
+vant motifs in a wide range of biological samples and application
+settings. Here, we also give evidence that the z—value calculated
+by our software is a true indication of a motifs statistical signiﬁ-
+cance, and that the method is robust to variation in sample size
+and motif enrichment level. To quantify motif significance, we
+use the z—value statistic from the logistic regression model as the
+‘motif score.’ To test its validity, we performed the following
+experiment on the MyoD ChIP-seq dataset: we randomly
+sampled 1%4K sequences from the combined foreground and
+background datasets and then randomly permuted the class
+labels within each sample. We repeated the permutation
+5 times. The z—values for all enumerated 6mers in each permuta-
+tion are approximately normally distributed, as shown by quan-
+tilequantile plots (Supplementary Fig. S5A), indicating an
+accurate reﬂection of true statistical signiﬁcance.
+
+To determine how the z-scores of enriched motifs change with
+sample size, we plotted the distribution of z-values for all 6mers
+using samples from 1 to 64K, and highlight CAGCT G, which is
+identiﬁed as the most signiﬁcant 6mer using all the data.
+CAGCTG is consistently the most signiﬁcant motif for each
+sample size (Fig. 6A), and the motif score is linear with the
+square root of the sample size (Supplementary Fig. S5B), in
+accord with the central limit theorem. We also tested how the
+motif scores correlate with motif enrichment level. For each sam-
+pling with size from 1 to 64K, we randomly kept 20, 40 to 100%
+of the original foreground samples and replaced the remaining
+foreground sequences with background sequences while keeping
+
+ 
+
+780
+
+112 /3.10's112u.m0fp.10}x0'sopvurJOJurorq/ﬁduq 11101} papBOIH/noq
+
+91oz ‘Og isnﬁnV uo ::
+
+Discriminative motif analysis
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Cell motils
+
+Ntzdi pluripotent embryonal carcinoma Jicrleii, POU2F2 ._0m‘12.. MZFt .OCCisCL ASCLa .miiili— soxa
+Cd20 B cells iiiiiiiit. ran .CiilCL 212131 Milli. 20133
+
+0034 hematopoietic progenitor  SPIB -iiiii ELF5 m FIUNX1 _m2 30x13
+Nb4 acute prcmyelocytic .i‘aidiﬁ. SPIB  SFPI1  CEBPA  RUNXt
+Th1 primary Th1 T cells  RUNK1  TCFE2A
+
+Jurkat T lymphoblastoid iliiii RUNXi Ciiiiiii TCFEEA eiiiiia TCFS 01m FEv
+K562 leukemia . 9mm; GATA1
+
+Hrce renal cortical epithelial ..  HNF1A
+
+Caco2 colorectal adenocarcinoma ill-iii. TCF3  HNF4A  NR2F2  FOXA2
+A549 lung carcinoma epithelial xiiiiiiii CREB1  . FOXlt
+
+T47d mammary ductal carcinoma epithelial NHL FOXI1 Mill. NFIC
+
+Panc1 pancreatic carcinoma  FOXJ3  FOXI1 Jiliiil‘... FOXD1
+
+anap prostate adenocarcinoma  - FOXJ1  NFIC
+
+Werirbt retinoblastoma jiiiiii. TCF1 .iiiiliiia‘ NeuroD
+
+Sknshra neuroblastoma iii-ii: F'RRXZ Jaime GATAi m SMADS
+
+Hrpe retinal pigment epithelial ..eGeiiiL DMBX1 ,jliiiia. FAX? iiiii DLX1
+
+Hbvp brain vascular pericytes iiiiiiii- ZICZ
+
+Hasp astrocytes spinal cord  GLISE
+
+Lhcnm2 skeletal myoblasts Mitt. MyoD m RUNX1
+
+Hmvec microvascular endotheiial lime ETV? Mia, soxwismia FOXL1 liil‘ii NFIC
+Helass cervical carcinoma  ESR2.  GATA1 _  . PRFIX2
+
+Aoaf aortic adventitial fibroblast  NFIC  GATAs  NFATCQ  GATA1
+thr Dermal Fibroblasts 11.111 TCFE2A 111111 NFIC
+
+Hml mammary fibroblasts  AP1
+
+ 
+
+ 
+
+ 
+
+Fig. 5. Predicted motifs for cell type speciﬁc accessible sites. The full list is included as Supplementary Table S4
+
+the original class labels. CAGCTG remains the strongest 6mer,
+even at low foreground proportion and small sample size (Fig.
+6B) and the motif score is roughly linear to the true foreground
+proportion (Fig. 6C). Therefore, this method can robustly detect
+a motif present in a small subset of foreground sequences.
+
+Next, we examined the effects of peak width on motif predic-
+tion. Besides the MyoD dataset, we also studied YYl ChIP-Seq
+in Hl-hESC, using YYl as an example of degenerate motifs,
+which are likely to be more sensitive to the choice of peak
+widths. In each case, we started from the peak summits and
+extended the peak to width ranging between 25 and 1600
+bases. For the case of YYl, we did not have peak summits in-
+formation, so we assumed that peak summits were in the middle
+of the peaks. This seems to be a reasonable approximation
+because the peaks were called by MACS, which assumes a sym-
+metric distribution of reads at both sides of the binding sites. The
+best matching motifs in each test are shown in Supplementary
+Supplementary Figure S5C. For MyoD, the best matching motif
+has maximum score at peak width of 200, which achieves the best
+discrimination between foreground and background. At peak
+
+width of 25, about half of peaks do not contain a consensus
+motif because peak summits do not always indicates presence
+of binding sites precisely. At peak width of 100, ~90% of
+peaks contain a consensus motif. We also noticed that when
+peak width increases from 25, 50 to 100, the motif PWM be-
+comes more informative, gaining specficity at the ebox ﬂanking
+region. This is probably because wider peaks increase the motif
+occurences by chance. The method consequently fine tuned the
+motif model to increase discrimination against background. For
+the case of MyoD case, the method suceeded to ﬁnd the motif in
+peaks as wide as 1600 bp. For the case of YYl, we predicted
+YYl motif at peak width of 25 to 400, and the motif lost dis-
+criminative power at peak width 800 and 1600 due to increasing
+chance of random occurrence. The percent of peaks with the
+motif ranges from ~10% at peak width of 25, and 58% at
+peak width of 400, whereas relative enrichment stabilizes be-
+tween 2- and 3-fold. Assuming uniform nucleotide distribution
+of the genome, a 5mer motif occurs once approximately every
+1Kb, which explains why we lost discriminative power at peak
+width of 800. In summary, informative motifs can be predicted in
+
+ 
+
+781
+
+112 /310'S[BIIJHO[pJOJXO'SOlJ’BLUJOJIIlOlq”K1111] 11101} papeoiumoq
+
+9103 ‘Og isnﬁnV uo ::
+
+Z.Yao et al.
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+A 1 1 r 1 1
+cm!“ 120— —
+“30 “am. 100— —
+E 7 9 1K 0
+§ “EOE 1 § 00— — 2K
+50 cure I (3 4K +
+a ' a BK x
+E clam-ah I I 5 507 ’ 16K 0
+m cmé‘t‘m I E g 32K v
+I u 407 2 54K E
+a n. v v _- I 5 o
+. , I |
+I 207 P
+I I aye—e’wew
+.50 ' - 07 Q—_ *
+IK :1. an m 15K 32K 6M 0': a" 0'5 0'3 :
+“.éfcreground
+c 10K m} 511K
+4 r 4100
+. 4
+4 c
++ v — =
++ + _ 1 n : i so
++ .-
+11.» iélilirIII°lII 0
+D _ . a . A . _
+0 | I ° I ’ I
+E — a I 5—50
+11E) rlr 2K 4l< BK
+(“109
+50— ..
+4 4 - + l ‘ I i
+.
+5.4...gllarrlil1.113.:trig.
+450
+0204 0.5051 020406 0.31 0204115031 0204051181
+D E r1=160 5:32000 l=1
+ E ‘ so
+15— - so
+i I no
+00- H 20
+l .. ~
+. 4.
+ha. I l ' . 3
+. __
+6
+0A- :’ |.| I _ 4
+“2‘  n E ? ﬂ “ 2
+' e 00:50 L500 £5000
+M,” W“, 5555555553555“.
+GQGQDBQGQEEEQBG
+ﬁbregmurlﬂ 50‘0“ 38155 ‘5
+puguﬁﬂgngxmiﬁgz
+
+n=5 5:500 i=0.2
+
+Fig. 6. Motif signiﬁcance with respect to sample size and enrichment.
+(A) Score distribution of for all 6mers. CAGCTG ebox, marked by
+‘+’, is the most signiﬁcant 6mer for all sample sizes. X-axis: dataset
+sample size. Y-axis: motif scores. (B). Correlation between motif scores
+(Y-axis) against true foreground proportion (X -axis). Curves with differ-
+ent symbols correspond to different sample sizes. (C) Distribution of all
+6mers with varying sample size and proportion of true foreground;
+CAGCTG is highlighted by ‘+’. X-axis: the proportion of true fore-
+ground in shufﬂed foreground, Y-axis: motif scores. Panels correspond
+to different sample sizes. (D) The standard deviation of motif scores for
+all CAGCTG —1 extensions based on bootstraps decreases with the pro-
+portion of true foreground. Y-axis: the standard deviation. X-axis: the
+proportion of true foreground. (E) When motif enrichment is low, motif
+scores are more variable. X -axis: all —1 extensions of CAGCTG. Y-axis:
+motif scores. The 95% conﬁdence intervals are plotted based on boot-
+strapping mean and variance. Upper panel: 160 bootstrap iterations, total
+sample size 32000 and 100% of true foreground; lower panel: using 5
+bootstrap iterations, total sample size 500 and only 20% of true
+foreground
+
+wide peaks, but keeping peaks with reasonable width is import-
+ant for prediction of degenerate motifs.
+
+Finally, we want to address the issue whether bootstrapping in
+our reﬁnement step usefully combats over-fitting. We used the
+CAGCTG example shown earlier in text and tested all extension
+variants at position —1 using different numbers of bootstrap
+replicates, sample sizes and motif enrichment levels. We com-
+puted the standard deviation of scores for each variant based
+on bootstraps. The distribution of standard deviation does not
+change signiﬁcantly with number of bootstraps performed or
+with the sample size (Supplementary Fig. S5D and E), but
+
+correlate strongly with the motif enrichment level (Fig. 6D).
+When enrichment level is low, the scores of better candidates
+(based on datasets with the biggest sample size and highest en-
+richment level) tend to be within conﬁdence interval of worse
+candidates (Fig. 6E), in which case, based on t—test results, we
+terminate the refinement process early. Therefore, the bootstrap-
+ping technique guides motif reﬁnement to be more aggressive
+when motif signal is strong, but conservative when motif signal
+is low, effectively avoiding over-ﬁtting at reasonable cost.
+
+4 DISCUSSION
+
+The main challenge of traditional motif discovery is to increase
+signal to noise ratio due to lack of power from small input
+datasets. High-throughput datasets present different challenges:
+besides scalability concerns, they are likely to produce large num-
+bers of statistically signiﬁcant motifs due to the power of the
+large sample size, many of which are hard to interpret. To ef-
+fectively use the motif prediction results to guide further study, it
+is important to understand the nature of these motifs and why
+they are enriched. It is well understood that genomes are far from
+random, which presents complicated higher order structure such
+as dinucleotide sequence preference, repetitive sequences, nucleo-
+some positioning signals and so forth. Genomic sequences in
+promoters, which usually show enrichment of TFBS, also con-
+tain different characteristics from other parts of genome such as
+enrichment of CpG islands, common motifs for housekeeping
+TFs and so forth. These factors can all cause certain sequence
+patterns to be enriched in a given dataset. In addition, many
+ChIP-Seq and DNaseI hypersensitivity studies suggest that TFs
+tend to colocalize on a common set of accessible regions. It is
+unclear if these TFs collectively determine the accessibility of the
+given sites or some bind non-speciﬁcally at the accessible sites.
+Discriminative motif analysis is a powerful tool to address
+whether the predicted motifs are truly involved in the biological
+problem under study by use of a rigorous control group, a meth-
+odology frequently used in experimental design. The key to suc-
+cess for this method is proper choice of background, which might
+not be clear until we have a better understanding of factors that
+affects binding of TFs. By examination of a large set of ChIP-Seq
+proﬁles, we identiﬁed some common motifs for TFs in a certain
+category. For example, TFs that bind predominantly in pro-
+moter regions are likely to be associated with ETS, SP1 and
+other GC-rich motifs, and TFs with most of sites in distal regions
+tend to have enrichment of APl sites. To determine if the asso-
+ciated motifs are truly speciﬁc to the given TFs, we can iteratively
+test for potential biases as we ﬁnd them, each time making the
+background as similar to the foreground as possible except for
+the deﬁned difference under study. As accessible regions in the
+given cell type can be Viewed as the union of all TFBS that are
+associated with active chromatin in that cell type, they present
+some generic features common to most TFBS and can serve as a
+good background for comparison with adjustment to other bias.
+Further, downstream analysis can be used to validate predicted
+motifs. For example, direct TFBS should contain a clear DNaseI
+digital footprinting signature (Neph et al., 2012) and be close to
+the centers of ChIP-Seq peaks (Bailey and Machanick, 2012).
+We noticed that stronger peaks tend to be associated with
+stronger motifs, as measured by the PWM scores, particularly
+
+ 
+
+782
+
+112 /310'S[BHJHOIPJOJXO'SOIJ’BLUJOJIIIOICI”Idllq 11101} papeoiumoq
+
+9103 ‘Og isnﬁnV uo ::
+
+Discriminative motif analysis
+
+ 
+
+for TFs with long motifs, which is consistent with the theory that
+PWM scores roughly reﬂect the DNA/protein binding afﬁnities
+in vitro (Stormo and Fields, 1998). In such cases, including
+weaker peaks usually results in more permissive motifs, lacking
+the full DNA specificity for the strong peaks. However, recent
+work suggests that weak sites can be functionally important, e. g.
+Prepl regulates temporal expression of Pax6 Via a pair of low
+afﬁnity DNA binding sites during lens formation (Rowan et al.,
+2010). Our previous work also suggests that although strong
+peaks are more likely to be associated with gene regulation, the
+peak strength is not deterministic of function (Cao et al., 2010).
+Several rank-based motif prediction methods designed for pro-
+tein binding microarrays used the binding afﬁnities measured by
+probe intensities (Berger and Bulyk, 2009; Chen et al., 2007). Our
+method provides support for sequence weighting, with which the
+users have the ﬂexibility to put more focus on a subset of se-
+quences. These methods including our own, however, still build a
+single PWM motif to represent all binding sites, whereas some
+weaker sites are functionally more important than others
+with similar PWM scores. We think a mixture or higher order
+model may be more appropriate, a direction for our future
+investigations.
+
+One key feature of our method and other discriminative motif
+discovery tools is the support for comparison of two similar
+proﬁles. By comparison of NeuroD and MyoD, two similar
+bHLH proteins, we have shown that although shared core
+eboxes are involved in activation of chromatin, speciﬁc eboxes
+are more directly involved in activation of differentiation pro-
+grams in neurogenesis and myogenesis, respectively (Fong et al.,
+2012). Similar studies can be performed systematically to identify
+delicate speciﬁcity for members of other protein families that
+share almost identical motifs, such as the ETS and FOXO
+families. Such studies may shed more light of their functional
+roles and evolution of protein families in general. We have also
+demonstrated its application to DNaseI hypersensitivity data to
+identify key regulators involved in cell type-speciﬁc chromatin
+reprogramming. We can further zoom in to compare more simi-
+lar samples, such as two different differentiated epithelial cells,
+or, before and after a certain treatment. By applying this ap-
+proach systematically, we can gain deeper understanding about
+cell lineage restriction and differentiation program.
+
+ACKNOWLEDGEMENTS
+
+The authors thank Yi Cao, Deepayan Sarkar and Michael
+Lawrence for helpful discussion.
+
+Funding: Interdisciplinary Training Program grant [T32
+CA080416] (to Z.Y.); Developmental Biology Predoctoral
+Training Grant [T32HD007183] (to K.L.M.); and. National
+Institutes of Health NIAMS [R01AR045113] (to S.J.T., Z.Y.
+in part).
+
+Conﬂict of Interest: none declared.
+
+REFERENCES
+
+Bailey,T.L. (2011) DREME: motif discovery in transcription factor ChIP—seq data.
+Bioinformatics, 27, 165371659.
+
+Bailey,T.L. and Elkan,C. (1995) The value of prior knowledge in discovering motifs
+with MEME. Proc. Int. Conf. Intel]. Syst. M0]. Biol, 3, 21729.
+
+Bailey,T.L. and Machanick,P. (2012) Inferring direct DNA binding from ChIP—seq.
+Nucleic Acids Res, 40, e128.
+
+Berger,M.F. and Bulyk,M.L. (2009) Universal protein—binding microarrays for the
+comprehensive characterization of the DNA—binding speciﬁcities of transcrip—
+tion factors. Nat. Protoc., 4, 3937411.
+
+Brown,C. (2006) Receiver operating characteristics curves and related decision
+measures: a tutorial. Chemometr. Intel]. Lab. Sy.st., 80, 24e38.
+
+Bryne,J.C. et al. (2008) JASPAR, the open access database of transcription factor—
+binding proﬁles: new content and tools in the 2008 update. Nucleic Acids Res,
+36, D1027D106.
+
+Bussemaker,H.J. et al. (2001) Regulatory element detection using correlation with
+expression. Nat. Genet, 27, 1677171.
+
+Cao,Y. et al. (2010) Genome—wide MyoD binding in skeletal muscle cells: a poten—
+tial for broad cellular reprogramming. Dev. Cell, 18, 6627674.
+
+Chen,X. et al. (2007) RankMotif++: a motif—search algorithm that accounts for
+relative ranks of K—mers in binding transcription factors. Bioinformatics, 23,
+i727i79.
+
+Fong,A.P. et al. (2012) Genetic and epigenetic determinants of neurogenesis and
+myogenesis. Dev. Cell, 22, 7217735.
+
+Gentleman,R. et al. (2004) Bioconductor: open software development for compu—
+tational biology and bioinformatics. Genome Biol, 5, R80.
+
+Hertz,G.Z. and Stormo,G.D. (1999) Identifying DNA and protein patterns with
+statistically signiﬁcant alignments of multiple sequences. Bioinformatics, 15,
+5637577.
+
+Hosmer,D.W. and Lemeshow,S. (2000) Applied logistic regression Wiley—
+Interscience. Wiley, New York.
+
+John,S. et al. (2011) Chromatin accessibility pre—determines glucocorticoid receptor
+binding patterns. Nat. Genet, 43, 2647268.
+
+Li—Weber,M. et al. (1994) The role of NF—Y and IRF—2 in the regulation of human
+IL—4 gene expression. J. Immunol, 153, 41274133.
+
+Neph,S. et al. (2012) An expansive human regulatory lexicon encoded in transcrip—
+tion factor footprints. Nature, 489, 83790.
+
+Newburger,D.E. and Bulyk,M.L. (2009) UniPROBE: an online database of protein
+binding microarray data on protein—DNA interactions. Nucleic Acids Res, 37,
+D777D82.
+
+Parelho,V. et al. (2008) Cohesins functionally associate with CTCF on mammalian
+chromosome arms. Cell, 132, 4227433.
+
+Pessiot,J.—F. et al. (2010) PeakRegressor identiﬁes composite sequence motifs
+responsible for STAT] binding sites and their potential rSNPs. PLoS One, 5,
+ell88l.
+
+Redhead,E. and Bailey,T.L. (2007) Discriminative motif discovery in DNA and
+protein sequences using the DEME algorithm. BMC Bioinformatics, 8, 385.
+Rowan,S. et al. (2010) Precise temporal control of the eye regulatory gene Pax6 via
+
+enhancer—binding site afﬁnity. Genes Dev., 24, 9807985.
+
+Sinha,S. (2006) On counting position weight matrix matches in a sequence, with
+application to discriminative motif ﬁnding. Bioinformatics, 22, e454ee463.
+
+Smith,A.D. et al. (2006) DNA motifs in human and mouse proximal promoters
+predict tissue—speciﬁc expression. Proc. Natl Acad Sci. USA, 103, 6275$280.
+
+Stormo,G.D. and Fields,D.S. (1998) Speciﬁcity, free energy and information con—
+tent in protein—DNA interactions. Trends Biochem. Sci., 23, 1097113.
+
+Tanaka,E. et al. (2011) Improved similarity scores for comparing motifs.
+Bioinformatics, 27, 160371609.
+
+R Development Core Team. (2010) R: A language and environment for statistical
+computing. R Foundation for Statistical Computing, Vienna, Austria.
+
+Thomas—Chollier,M. et al. (2012) RSAT peak—motifs: motif analysis in full—size
+ChIP—seq datasets. Nucleic Acids Res, 40, e31.
+
+Tompa,M. et al. (2005) Assessing computational tools for the discovery of tran—
+scription factor binding sites. Nat. Biotechnol, 23, 1377144.
+
+Wong,W.F. et al. (2011) Interplay of transcription factors in T—cell differentiation
+and function: the role of Runx. Immunology, 132, 1577164.
+
+ 
+
+783
+
+112 /310's1cu1n0fp101x0"sorwuuqurorq/ﬁduq 111011 pap1201um0q
+
+9103 ‘Og isnﬁnV uo ::
+
