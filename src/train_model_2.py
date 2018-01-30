@@ -9,7 +9,7 @@ import csv
 # update the training model:
 # give negative label once detecting stopwords including recently,existing and etc.
 
-RESULT_DIR = "../result/"
+RESULT_DIR = "../data2/"
 RESULT_FILE = RESULT_DIR + "output_1.csv"
 OUTPUT_FILE = RESULT_DIR + "output_2.csv"
 
@@ -34,6 +34,6 @@ with open(OUTPUT_FILE, "w") as fout:
             writer.writerow({'article': article_data[i], 'sentence': sentence_data[i], 'label': 0})
             count +=1
             print(sentence_data[i])
-        else :
+        else:
             writer.writerow({'article': article_data[i], 'sentence': sentence_data[i], 'label': label_data[i]})
 print(count)

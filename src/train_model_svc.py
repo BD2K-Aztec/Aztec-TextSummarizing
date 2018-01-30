@@ -9,15 +9,18 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.pipeline import Pipeline
 
+from sklearn.svm import SVC
+
 # created by Duan Li dxl360@cs.ucla.edu
+#        and Zeyu Li zyli@cs.ucla.edu
 
 # use manually labeled 100 articles as training data
 # train the multinomial naive bayes model to predict the rest of articles
 
-RESULT_DIR = "../result_bnb/"
-INPUT_FILE = RESULT_DIR + "labeled.txt"
-RESULT_FILE = RESULT_DIR + "train.csv"
-TEST_FILE = RESULT_DIR + "output_1.csv"
+DATA_DIR = "../data2/"
+INPUT_FILE = DATA_DIR + "labeled.txt"
+RESULT_FILE = DATA_DIR + "train.csv"
+TEST_FILE = DATA_DIR + "output_1.csv"
 
 with open(RESULT_FILE, "w") as fout:
     fieldnames = ['sentence', 'label']
@@ -45,7 +48,9 @@ X_train_counts = count_vect.fit_transform(test_data)
 print('testing data shape is ', X_train_counts.shape)
 
 # text_clf = Pipeline([('vect', CountVectorizer()), ('tfidf', TfidfTransformer()), ('clf', MultinomialNB())])
-text_clf = Pipeline([('vect', CountVectorizer()), ('tfidf', TfidfTransformer()), ('clf', BernoulliNB())])
+text_clf = Pipeline([('vect', CountVectorizer()),
+                     ('tfidf', TfidfTransformer()),
+                     ('clf', SVC())])
 text_clf.fit(train_data, train_target)
 predicted = text_clf.predict(test_data)
 

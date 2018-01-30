@@ -4,7 +4,8 @@
 # Extract the paragraph that has the keyphrases in it.
 
 import os, sys
-import wordsegment as ws
+# import wordsegment as ws
+import random
 
 THRESHOLD = 1
 
@@ -28,13 +29,17 @@ if __name__ == '__main__':
     PARSED_FILE_DIR = DATA_DIR + "parsed_seg_text/"
     # PARSED_FILE_DIR = DATA_DIR + "parsed_label_text/"
     RESULT_DIR = "./result/"
-    RESULT_DIR = "/home/ww8/Dropbox/"
     RESULT_FILE = RESULT_DIR + "extracted.txt"
+
+    NEG_FILE = RESULT_DIR + "negative.txt"
+        # This is added for generating negative samples.
+
     file_list = os.listdir(PARSED_FILE_DIR)
     total = len(file_list)
     idx = 0
     print(KEYWORDS)
-    with open(RESULT_FILE, "w") as fout:
+    with open(RESULT_FILE, "w") as fout, \
+         open(NEG_FILE, "w") as neg_out:
         for file in file_list:
             # Open every file
             with open(PARSED_FILE_DIR + file, "r") as fin:
@@ -49,6 +54,9 @@ if __name__ == '__main__':
                     line = line.replace("...", " ")
                     sentences = line.split(". ")
                     for sen in sentences:
-                        if key_paragraph(sen, KEYWORDS) > THRESHOLD:
+                        kw_count = key_paragraph(sen, KEYWORDS)
+                        if kw_count > THRESHOLD:
                             # fout.write(sen+". ")
                             fout.write(sen + ".\t0\n")
+                        elif kw_count == 0 and random.randint(1,10) == 1:
+                            neg_out.write(sen)
